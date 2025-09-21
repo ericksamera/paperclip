@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Paperclip",
+  "version": "0.1.0",
+  "description": "Capture the live DOM and send it to the Paperclip server.",
+  "permissions": ["storage", "scripting", "activeTab"],
+  "host_permissions": [
+    "http://127.0.0.1:8000/*",
+    "http://localhost:8000/*",
+    "https://*/*",
+    "http://*/*"
+  ],
+  "action": { "default_title": "Paperclip: Capture" },
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content_script.js"],
+    "run_at": "document_idle"
+  }]
+}
