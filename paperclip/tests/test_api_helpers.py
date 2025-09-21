@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 pytest.importorskip("bs4")
 
+import paperclip.api as api_module
 from paperclip.api import _reference_to_server_view, _enrich_reference_objs_with_doi
 from paperclip.parsers.base import ReferenceObj
 
@@ -120,3 +123,34 @@ def test_enrich_reference_objs_with_doi_skips_when_fields_present() -> None:
         raise AssertionError("fetcher should not be called")
 
     _enrich_reference_objs_with_doi([ref], fetcher=fake_fetch)
+
+
+def test_enrich_reference_objs_with_doi_fetches_unique_dois_once() -> None:
+    ref1 = ReferenceObj(id="ref-1", raw="raw1", doi="10.1017/S0022172400010184")
+    ref2 = ReferenceObj(id="ref-2", raw="raw2", doi="10.1093/ps/81.10.1598")
+
+    calls: list[tuple[str, str]] = []
+
+    def fake_fetch(doi: str):
+        calls.append((doi, threading.current_thread().name))
+        return {"csl": _sample_csl()}
+
+    attr_name = "REFERENCE_DOI_ENRICHMENT_MAX_WORKERS"
+    settings_obj = api_module.settings
+    had_attr = hasattr(settings_obj, attr_name)
+    prev_workers = getattr(settings_obj, attr_name, None)
+    setattr(settings_obj, attr_name, 8)
+    try:
+        _enrich_reference_objs_with_doi([ref1, ref2], fetcher=fake_fetch)
+    finally:
+        if had_attr:
+            setattr(settings_obj, attr_name, prev_workers)
+        else:
+            delattr(settings_obj, attr_name)
+
+    normalized_calls = sorted(doi for doi, _ in calls)
+    assert normalized_calls == [
+        "10.1017/s0022172400010184",
+        "10.1093/ps/81.10.1598",
+    ]
+    assert len(calls) == 2

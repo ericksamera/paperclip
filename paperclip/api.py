@@ -1,4 +1,5 @@
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Iterable
 
 from bs4 import BeautifulSoup
@@ -48,24 +49,55 @@ def _enrich_reference_objs_with_doi(
     if not getattr(settings, "ENABLE_REFERENCE_DOI_ENRICHMENT", True):
         return
 
-    cache: dict[str, Any] = {}
-    missing = object()
+    doi_to_refs: dict[str, list[ReferenceObj]] = {}
+    doi_order: list[str] = []
 
     for ref in references:
         doi_norm = normalize_doi(ref.doi or "")
         if not doi_norm or not _reference_needs_enrichment(ref):
             continue
 
-        blob = cache.get(doi_norm, missing)
-        if blob is missing:
-            blob = fetcher(doi_norm)
-            cache[doi_norm] = blob
+        if doi_norm not in doi_to_refs:
+            doi_to_refs[doi_norm] = []
+            doi_order.append(doi_norm)
 
+        doi_to_refs[doi_norm].append(ref)
+
+    if not doi_to_refs:
+        return
+
+    cache: dict[str, Any] = {}
+
+    def _fetch_and_store(doi: str) -> None:
+        cache[doi] = fetcher(doi)
+
+    workers_setting = getattr(settings, "REFERENCE_DOI_ENRICHMENT_MAX_WORKERS", 4) or 1
+    try:
+        max_workers_config = int(workers_setting)
+    except (TypeError, ValueError):
+        max_workers_config = 1
+    max_workers = max(1, min(len(doi_order), max_workers_config))
+
+    if max_workers == 1:
+        for doi in doi_order:
+            _fetch_and_store(doi)
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_fetch_and_store, doi): doi for doi in doi_order}
+            for future in as_completed(futures):
+                # Ensure exceptions propagate during fetch for visibility
+                future.result()
+
+    for doi in doi_order:
+        blob = cache.get(doi)
         if not blob:
             continue
 
         csl = blob.get("csl") if isinstance(blob, dict) else None
-        if csl:
+        if not csl:
+            continue
+
+        for ref in doi_to_refs.get(doi, []):
             ref.merge_csl(csl)
 
 # ---------- Serializers ----------
