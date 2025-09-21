@@ -266,3 +266,12 @@ def test_parse_with_fallback_uses_dom_references_when_fragment_is_empty() -> Non
 
     parsed = parse_with_fallback(url, content_html, SCIENCEDIRECT_REFERENCES_HTML)
     assert len(parsed.references) == 4
+
+
+def test_detects_proxied_domains() -> None:
+    url = "https://www-sciencedirect-com.ezproxy.kpu.ca:2443/science/article/pii/S3333333333333333"
+    parsed = parse_html(url, SCIENCEDIRECT_REFERENCES_HTML)
+
+    # When the parser correctly recognises the proxied host it should build the
+    # structured fields instead of falling back to the generic heuristic parser.
+    assert parsed.references[1].container_title == "J. AOAC Int"

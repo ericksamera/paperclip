@@ -17,6 +17,16 @@ class ScienceDirectParser(BaseParser):
         if cls.matches_domain(url):
             return True
 
+        host = urlparse(url).netloc.lower()
+        # Many institutional proxies rewrite "www.sciencedirect.com" to
+        # variants such as "www-sciencedirect-com.proxy.edu". Normalise the
+        # host by replacing hyphens so we still recognise the embedded
+        # ScienceDirect / Elsevier domains.
+        normalised_host = host.replace("-", ".")
+        for domain in cls.DOMAINS:
+            if domain in normalised_host:
+                return True
+
         canon = soup.find(
             "link",
             rel=lambda value: value
