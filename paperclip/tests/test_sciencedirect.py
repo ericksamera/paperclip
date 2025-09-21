@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 pytest.importorskip("bs4")
@@ -119,7 +121,7 @@ def test_extracts_keywords() -> None:
 def test_content_sections_include_abstract_for_server_view() -> None:
     url = "https://www.sciencedirect.com/science/article/pii/S1234567890123456"
     parsed = parse_html(url, SCIENCEDIRECT_SAMPLE_HTML)
-    meta = {}
+    meta: dict[str, Any] = {}
     updates = parsed.meta_updates
     if updates:
         if not meta.get("doi") and updates.get("doi"):

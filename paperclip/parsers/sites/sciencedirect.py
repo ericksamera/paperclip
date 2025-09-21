@@ -375,3 +375,4 @@ class ScienceDirectParser(BaseParser):
                 return True
             if heading_text.startswith("graphical summary"):
                 return True
+        return False

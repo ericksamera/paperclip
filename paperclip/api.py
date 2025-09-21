@@ -1,6 +1,6 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from bs4 import BeautifulSoup
 from django.conf import settings
@@ -15,10 +15,10 @@ from .parsers.base import BaseParser, ReferenceObj
 from .services.doi import enrich_from_doi, csl_to_doc_meta, normalize_doi
 
 
-def _reference_to_server_view(ref: dict) -> dict:
+def _reference_to_server_view(ref: Mapping[str, Any] | None) -> dict[str, Any]:
     """Return a copy of a reference payload with a backward-compatible alias."""
 
-    ref_copy = dict(ref or {})
+    ref_copy: dict[str, Any] = dict(ref or {})
     if "id" not in ref_copy:
         ref_copy["id"] = ref_copy.get("ref_id")
     return ref_copy
@@ -149,8 +149,8 @@ class CaptureOutSerializer(serializers.ModelSerializer):
             "id","url","title","captured_at","dom_html","content_html",
             "markdown","meta","csl","figures","tables","references"
         ]
-    def get_references(self, obj):
-        out = []
+    def get_references(self, obj: Capture) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
         for r in obj.references.all():
             out.append({
                 "ref_id": r.ref_id,
@@ -176,7 +176,7 @@ class CaptureOutSerializer(serializers.ModelSerializer):
 # ---------- Views ----------
 
 class CaptureViewSet(viewsets.ViewSet):
-    def create(self, request: HttpRequest):
+    def create(self, request: HttpRequest) -> Response:
         data = CaptureInSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         payload = data.validated_data
