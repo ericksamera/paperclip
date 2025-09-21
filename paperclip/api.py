@@ -11,6 +11,15 @@ from .parsers import parse_with_fallback
 from .parsers.base import BaseParser
 from .services.doi import enrich_from_doi, csl_to_doc_meta, normalize_doi
 
+
+def _reference_to_server_view(ref: dict) -> dict:
+    """Return a copy of a reference payload with a backward-compatible alias."""
+
+    ref_copy = dict(ref or {})
+    if "id" not in ref_copy:
+        ref_copy["id"] = ref_copy.get("ref_id")
+    return ref_copy
+
 # ---------- Serializers ----------
 
 class ReferenceInSerializer(serializers.Serializer):
@@ -179,18 +188,17 @@ class CaptureViewSet(viewsets.ViewSet):
         final_state = CaptureOutSerializer(cap).data
         write_json_artifact(cap.id, "parsed.json", final_state)
 
+        serialized_refs = [
+            _reference_to_server_view(ref)
+            for ref in (final_state.get("references") or [])
+        ]
+
         server_view = {
             "id": cap.id,
             "url": cap.url,
             "meta": cap.meta,
-            "reference_count": cap.references.count(),
-            "references": [
-                {
-                    "id": r.ref_id, "title": r.title, "doi": r.doi,
-                    "container_title": r.container_title, "issued_year": r.issued_year
-                }
-                for r in cap.references.all()
-            ],
+            "reference_count": len(serialized_refs),
+            "references": serialized_refs,
             "enriched": bool(enrichment_blob),
         }
         if parsed.content_sections:
