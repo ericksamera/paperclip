@@ -1,14 +1,21 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any, Tuple, Callable
-from bs4 import BeautifulSoup, Tag, NavigableString
-import re, json
+import json
+import re
+from typing import Any, Callable, Optional, Sequence, TypedDict
 from urllib.parse import urlparse
+
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 # DOI pattern
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\b")
 
 # ---------- Structured reference object ----------
+
+class AbstractSection(TypedDict):
+    title: Optional[str]
+    body: str
+
 
 @dataclass
 class ReferenceObj:
@@ -17,7 +24,7 @@ class ReferenceObj:
 
     # Normalized fields (focus on the entry itself)
     title: Optional[str] = None
-    authors: List[Dict[str, str]] = field(default_factory=list)  # [{family, given}]
+    authors: list[dict[str, str]] = field(default_factory=list)  # [{family, given}]
     container_title: Optional[str] = None
     issued_year: Optional[str] = None
     volume: Optional[str] = None
@@ -33,11 +40,11 @@ class ReferenceObj:
     # Keep enriched formats for lossless round-trips
     bibtex: Optional[str] = None
     apa: Optional[str] = None
-    csl: Dict[str, Any] = field(default_factory=dict)
+    csl: dict[str, Any] = field(default_factory=dict)
 
     # ---- Builders / mappers ----
     @classmethod
-    def from_csl(cls, raw: str, csl: Dict[str, Any], id: Optional[str] = None) -> "ReferenceObj":
+    def from_csl(cls, raw: str, csl: dict[str, Any], id: Optional[str] = None) -> "ReferenceObj":
         if not isinstance(csl, dict):
             csl = {}
         title = csl.get("title")
@@ -52,8 +59,9 @@ class ReferenceObj:
             if isinstance(parts, list) and parts and isinstance(parts[0], (list, tuple)) and parts[0]:
                 issued_year = str(parts[0][0])
         elif isinstance(issued, str):
-            m = re.search(r"\b(19|20)\d{2}[a-z]?\b", issued)
-            if m: issued_year = m.group(0)
+            match = re.search(r"\b(19|20)\d{2}[a-z]?\b", issued)
+            if match:
+                issued_year = match.group(0)
         authors = []
         for a in csl.get("author", []) or []:
             fam = (a.get("family") or "").strip()
@@ -89,15 +97,17 @@ class ReferenceObj:
         raw = (raw or "").strip()
         doi = None
         mdoi = DOI_RE.search(raw)
-        if mdoi: doi = mdoi.group(0)
+        if mdoi:
+            doi = mdoi.group(0)
 
         # Year "(2021)" or "(2021a)"
         year = None
         my = re.search(r"\((?P<y>(19|20)\d{2}[a-z]?)\)", raw)
-        if my: year = my.group("y")
+        if my:
+            year = my.group("y")
 
         # Authors: match sequences of "Family, G." patterns before the year
-        authors: List[Dict[str, str]] = []
+        authors: list[dict[str, str]] = []
         prefix = raw
         if my:
             prefix = raw[:my.start()]
@@ -139,7 +149,7 @@ class ReferenceObj:
             authors=authors, volume=volume, issue=issue, pages=pages
         )
 
-    def to_model_kwargs(self) -> Dict[str, Any]:
+    def to_model_kwargs(self) -> dict[str, Any]:
         return {
             "ref_id": self.id,
             "raw": self.raw,
@@ -166,16 +176,16 @@ class ReferenceObj:
 
 @dataclass
 class ParseResult:
-    meta_updates: Dict[str, Any]
-    content_sections: Dict[str, Any]
-    references: List[ReferenceObj]
-    figures: List[Dict[str, Any]]
-    tables: List[Dict[str, Any]]
+    meta_updates: dict[str, Any]
+    content_sections: dict[str, Any]
+    references: list[ReferenceObj]
+    figures: list[dict[str, Any]]
+    tables: list[dict[str, Any]]
 
 class BaseParser:
-    DOMAINS: Tuple[str, ...] = tuple()
+    DOMAINS: tuple[str, ...] = tuple()
     NAME: str = "Generic"
-    ABSTRACT_SELECTORS: Tuple[str, ...] = (
+    ABSTRACT_SELECTORS: tuple[str, ...] = (
         "section.abstract",
         "section#abstract",
         "section#abstracts div.abstract",
@@ -184,7 +194,7 @@ class BaseParser:
         "div.abstract",
     )
 
-    KEYWORD_CONTAINER_SELECTORS: Tuple[str, ...] = (
+    KEYWORD_CONTAINER_SELECTORS: tuple[str, ...] = (
         "section.Keywords",
         "div.Keywords",
         "section.keywords",
@@ -205,7 +215,7 @@ class BaseParser:
         "ol.keywords",
     )
 
-    KEYWORD_NODE_SELECTORS: Tuple[str, ...] = (
+    KEYWORD_NODE_SELECTORS: tuple[str, ...] = (
         ":scope div.keyword",
         ":scope span.keyword",
         ":scope li.keyword",
@@ -215,7 +225,7 @@ class BaseParser:
         ":scope a.kwd",
     )
 
-    KEYWORD_FALLBACK_SELECTORS: Tuple[str, ...] = (
+    KEYWORD_FALLBACK_SELECTORS: tuple[str, ...] = (
         "div.keyword",
         "span.keyword",
         "li.keyword",
@@ -225,7 +235,7 @@ class BaseParser:
         "a.kwd",
     )
 
-    KEYWORD_META_NAMES: Tuple[str, ...] = (
+    KEYWORD_META_NAMES: tuple[str, ...] = (
         "citation_keywords",
         "keywords",
         "keyword",
@@ -253,6 +263,9 @@ class BaseParser:
         refs = cls._harvest_references_generic(soup)
         meta_updates = cls._build_meta_updates(soup)
         content_sections = cls._build_content_sections(soup)
+        doi = cls.find_doi_in_meta(soup)
+        if doi and not meta_updates.get("doi"):
+            meta_updates["doi"] = doi
         return ParseResult(
             meta_updates=meta_updates,
             content_sections=content_sections,
@@ -268,12 +281,12 @@ class BaseParser:
         return (el.get_text(" ", strip=True) if el else "").strip()
 
     @classmethod
-    def _build_meta_updates(cls, soup: BeautifulSoup) -> Dict[str, Any]:
+    def _build_meta_updates(cls, soup: BeautifulSoup) -> dict[str, Any]:
         return {}
 
     @classmethod
-    def _build_content_sections(cls, soup: BeautifulSoup) -> Dict[str, Any]:
-        content: Dict[str, Any] = {}
+    def _build_content_sections(cls, soup: BeautifulSoup) -> dict[str, Any]:
+        content: dict[str, Any] = {}
         abstract_sections = cls._extract_abstract(soup)
         if abstract_sections:
             content["abstract"] = abstract_sections
@@ -283,7 +296,7 @@ class BaseParser:
         return content
 
     @classmethod
-    def _extract_abstract(cls, soup: BeautifulSoup) -> List[Dict[str, str]]:
+    def _extract_abstract(cls, soup: BeautifulSoup) -> list[AbstractSection]:
         seen: set[int] = set()
         for selector in cls.ABSTRACT_SELECTORS:
             for node in soup.select(selector):
@@ -303,7 +316,7 @@ class BaseParser:
         return False
 
     @classmethod
-    def _abstract_from_node(cls, node: Tag) -> List[Dict[str, str]]:
+    def _abstract_from_node(cls, node: Tag) -> list[AbstractSection]:
         structured = cls._abstract_structured_sections(node)
         if structured:
             return structured
@@ -322,9 +335,9 @@ class BaseParser:
         return [{"title": None, "body": collapsed}] if collapsed else []
 
     @classmethod
-    def _abstract_structured_sections(cls, node: Tag) -> List[Dict[str, str]]:
-        sections: List[Dict[str, str]] = []
-        pending_text: List[str] = []
+    def _abstract_structured_sections(cls, node: Tag) -> list[AbstractSection]:
+        sections: list[AbstractSection] = []
+        pending_text: list[str] = []
         found_structured = False
 
         def flush_pending() -> None:
@@ -369,7 +382,7 @@ class BaseParser:
         return [section for section in sections if section.get("body")]
 
     @classmethod
-    def _build_structured_section(cls, node: Tag) -> Optional[Dict[str, str]]:
+    def _build_structured_section(cls, node: Tag) -> Optional[AbstractSection]:
         title = cls._abstract_section_title(node)
         body = cls._abstract_section_body(node, title)
         if not body:
@@ -431,8 +444,8 @@ class BaseParser:
         return None
 
     @classmethod
-    def _extract_keywords(cls, soup: BeautifulSoup) -> List[str]:
-        keywords: List[str] = []
+    def _extract_keywords(cls, soup: BeautifulSoup) -> list[str]:
+        keywords: list[str] = []
         seen: set[str] = set()
 
         def record(text: str) -> None:
@@ -441,7 +454,7 @@ class BaseParser:
                 seen.add(normalized)
                 keywords.append(text)
 
-        containers: List[Tag] = []
+        containers: list[Tag] = []
         for selector in cls.KEYWORD_CONTAINER_SELECTORS:
             for node in soup.select(selector):
                 if isinstance(node, Tag):
@@ -450,7 +463,7 @@ class BaseParser:
         containers = cls._dedupe_nodes(containers)
 
         if not containers:
-            fallback_nodes: List[Tag] = []
+            fallback_nodes: list[Tag] = []
             for selector in cls.KEYWORD_FALLBACK_SELECTORS:
                 for node in soup.select(selector):
                     if isinstance(node, Tag):
@@ -503,8 +516,8 @@ class BaseParser:
                     record(text)
 
     @classmethod
-    def _keywords_from_meta(cls, soup: BeautifulSoup) -> List[str]:
-        collected: List[str] = []
+    def _keywords_from_meta(cls, soup: BeautifulSoup) -> list[str]:
+        collected: list[str] = []
         for meta in soup.find_all("meta"):
             name = (meta.get("name") or meta.get("property") or meta.get("itemprop") or "").strip().lower()
             content = (meta.get("content") or "").strip()
@@ -529,7 +542,7 @@ class BaseParser:
         return False
 
     @staticmethod
-    def _split_keywords(content: str) -> List[str]:
+    def _split_keywords(content: str) -> list[str]:
         parts = re.split(r"[,;\n\r\t]|\s*\|\s*", content)
         return [part.strip() for part in parts if part.strip()]
 
@@ -558,8 +571,8 @@ class BaseParser:
         return False
 
     @staticmethod
-    def _keyword_marker_values(node: Tag) -> List[str]:
-        values: List[str] = []
+    def _keyword_marker_values(node: Tag) -> list[str]:
+        values: list[str] = []
         for attr in ("class", "role", "data-type", "data_type", "itemprop", "rel"):
             attr_value = node.get(attr)
             if not attr_value:
@@ -576,8 +589,8 @@ class BaseParser:
         return " ".join(text.split())
 
     @staticmethod
-    def _dedupe_nodes(nodes: List[Tag]) -> List[Tag]:
-        uniq: List[Tag] = []
+    def _dedupe_nodes(nodes: Sequence[Tag]) -> list[Tag]:
+        uniq: list[Tag] = []
         seen_ids: set[int] = set()
         for node in nodes:
             ident = id(node)
@@ -588,9 +601,9 @@ class BaseParser:
         return uniq
 
     @staticmethod
-    def _find_reference_lists(soup: BeautifulSoup) -> List[Tag]:
+    def _find_reference_lists(soup: BeautifulSoup) -> list[Tag]:
         headings = soup.select("h1, h2, h3, h4, h5, h6")
-        hits: List[Tag] = []
+        hits: list[Tag] = []
         for h in headings:
             if re.search(r"\b(references|bibliography|works cited)\b", h.get_text(" ", strip=True), re.I):
                 sib = h.find_next_sibling()
@@ -603,15 +616,17 @@ class BaseParser:
             "ol.references, ul.references, #references ol, #references ul, .references ol, .references ul, "
             "ol.ref-list, ul.ref-list, .ref-list, .article-references ol, .article-references ul"
         ))
-        uniq, seen = [], set()
+        uniq: list[Tag] = []
+        seen: set[int] = set()
         for node in hits:
             if node and id(node) not in seen:
-                uniq.append(node); seen.add(id(node))
+                uniq.append(node)
+                seen.add(id(node))
         return uniq
 
     @classmethod
-    def _harvest_references_generic(cls, soup: BeautifulSoup) -> List[ReferenceObj]:
-        out: List[ReferenceObj] = []
+    def _harvest_references_generic(cls, soup: BeautifulSoup) -> list[ReferenceObj]:
+        out: list[ReferenceObj] = []
         for lst in cls._find_reference_lists(soup):
             for li in lst.select(":scope > li"):
                 raw = cls._text(li)
@@ -619,8 +634,9 @@ class BaseParser:
                     continue
                 # Prefer href DOI if a link exists
                 href = ""
-                a = li.select_one('a[href*="doi.org/10."]')
-                if a and a.get("href"): href = a["href"]
+                anchor = li.select_one('a[href*="doi.org/10."]')
+                if anchor and anchor.get("href"):
+                    href = anchor["href"]
                 m = DOI_RE.search(href) or DOI_RE.search(raw)
                 ref = ReferenceObj.from_raw_heuristic(raw, id=f"ref-{len(out)+1}")
                 if m and not ref.doi:
@@ -634,14 +650,17 @@ class BaseParser:
             if isinstance(obj, dict):
                 for _, v in obj.items():
                     found = BaseParser._search_json_for_doi(v)
-                    if found: return found
+                    if found:
+                        return found
             elif isinstance(obj, list):
                 for it in obj:
                     found = BaseParser._search_json_for_doi(it)
-                    if found: return found
+                    if found:
+                        return found
             elif isinstance(obj, str):
                 m = DOI_RE.search(obj)
-                if m: return m.group(0)
+                if m:
+                    return m.group(0)
         except Exception:
             pass
         return None
