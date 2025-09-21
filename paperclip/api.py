@@ -194,6 +194,8 @@ class CaptureViewSet(viewsets.ViewSet):
             ],
             "enriched": bool(enrichment_blob),
         }
+        if parsed.content_sections:
+            server_view["content"] = parsed.content_sections
         write_json_artifact(cap.id, "server_parsed.json", server_view)
 
         base = request.build_absolute_uri("/").rstrip("/")
