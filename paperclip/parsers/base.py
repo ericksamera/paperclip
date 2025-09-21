@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Callable
 from bs4 import BeautifulSoup, Tag, NavigableString
 import re, json
 from urllib.parse import urlparse
@@ -184,6 +184,61 @@ class BaseParser:
         "div.abstract",
     )
 
+    KEYWORD_CONTAINER_SELECTORS: Tuple[str, ...] = (
+        "section.Keywords",
+        "div.Keywords",
+        "section.keywords",
+        "div.keywords",
+        "section.keywords-section",
+        "div.keywords-section",
+        "section.keyword-section",
+        "div.keyword-section",
+        "section.keyword-list",
+        "div.keyword-list",
+        "section.kwd-group",
+        "div.kwd-group",
+        "section[data-type='keywords']",
+        "div[data-type='keywords']",
+        "section[itemprop='keywords']",
+        "div[itemprop='keywords']",
+        "ul.keywords",
+        "ol.keywords",
+    )
+
+    KEYWORD_NODE_SELECTORS: Tuple[str, ...] = (
+        ":scope div.keyword",
+        ":scope span.keyword",
+        ":scope li.keyword",
+        ":scope a.keyword",
+        ":scope span.kwd",
+        ":scope li.kwd",
+        ":scope a.kwd",
+    )
+
+    KEYWORD_FALLBACK_SELECTORS: Tuple[str, ...] = (
+        "div.keyword",
+        "span.keyword",
+        "li.keyword",
+        "a.keyword",
+        "span.kwd",
+        "li.kwd",
+        "a.kwd",
+    )
+
+    KEYWORD_META_NAMES: Tuple[str, ...] = (
+        "citation_keywords",
+        "keywords",
+        "keyword",
+        "dc.subject",
+        "dc.subject.keywords",
+        "dc.keywords",
+        "dc.subject:keywords",
+        "dcterms.subject",
+        "article:tag",
+        "og:article:tag",
+        "prism.keyword",
+    )
+
     @classmethod
     def matches_domain(cls, url: str) -> bool:
         host = urlparse(url).netloc.lower()
@@ -222,6 +277,9 @@ class BaseParser:
         abstract = cls._extract_abstract(soup)
         if abstract:
             content["abstract"] = abstract
+        keywords = cls._extract_keywords(soup)
+        if keywords:
+            content["keywords"] = keywords
         return content
 
     @classmethod
@@ -270,6 +328,163 @@ class BaseParser:
             if child.get_text(" ", strip=True):
                 break
         return None
+
+    @classmethod
+    def _extract_keywords(cls, soup: BeautifulSoup) -> List[str]:
+        keywords: List[str] = []
+        seen: set[str] = set()
+
+        def record(text: str) -> None:
+            normalized = text.lower()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                keywords.append(text)
+
+        containers: List[Tag] = []
+        for selector in cls.KEYWORD_CONTAINER_SELECTORS:
+            for node in soup.select(selector):
+                if isinstance(node, Tag):
+                    containers.append(node)
+
+        containers = cls._dedupe_nodes(containers)
+
+        if not containers:
+            fallback_nodes: List[Tag] = []
+            for selector in cls.KEYWORD_FALLBACK_SELECTORS:
+                for node in soup.select(selector):
+                    if isinstance(node, Tag):
+                        fallback_nodes.append(node)
+            fallback_nodes = cls._dedupe_nodes(fallback_nodes)
+            if fallback_nodes:
+                containers = [node.parent or node for node in fallback_nodes if isinstance(node, Tag)]
+                containers = cls._dedupe_nodes(containers)
+                # If we still have no containers, treat the fallback nodes as individual keywords.
+                if not containers:
+                    for node in fallback_nodes:
+                        text = cls._keyword_text(node)
+                        if text:
+                            record(text)
+
+        for container in containers:
+            cls._collect_keywords_from_container(container, record)
+
+        for text in cls._keywords_from_meta(soup):
+            if text:
+                record(text)
+
+        return keywords
+
+    @classmethod
+    def _collect_keywords_from_container(cls, container: Tag, record: Callable[[str], None]) -> None:
+        if cls._node_is_keyword_item(container):
+            text = cls._keyword_text(container)
+            if text:
+                record(text)
+
+        for selector in cls.KEYWORD_NODE_SELECTORS:
+            for node in container.select(selector):
+                if not isinstance(node, Tag):
+                    continue
+                text = cls._keyword_text(node)
+                if text:
+                    record(text)
+
+        if cls._node_is_keyword_container(container):
+            for node in container.select(":scope li, :scope span, :scope a, :scope p"):
+                if not isinstance(node, Tag):
+                    continue
+                if node is container:
+                    continue
+                if cls._node_is_keyword_container(node) or cls._node_is_keyword_item(node):
+                    continue
+                text = cls._keyword_text(node)
+                if text:
+                    record(text)
+
+    @classmethod
+    def _keywords_from_meta(cls, soup: BeautifulSoup) -> List[str]:
+        collected: List[str] = []
+        for meta in soup.find_all("meta"):
+            name = (meta.get("name") or meta.get("property") or meta.get("itemprop") or "").strip().lower()
+            content = (meta.get("content") or "").strip()
+            if not content:
+                continue
+            if cls._meta_name_is_keyword(name):
+                for token in cls._split_keywords(content):
+                    if token:
+                        collected.append(token)
+        return collected
+
+    @classmethod
+    def _meta_name_is_keyword(cls, name: str) -> bool:
+        if not name:
+            return False
+        if name in cls.KEYWORD_META_NAMES:
+            return True
+        if "keyword" in name:
+            return True
+        if name.startswith("dc.") and "subject" in name:
+            return True
+        return False
+
+    @staticmethod
+    def _split_keywords(content: str) -> List[str]:
+        parts = re.split(r"[,;\n\r\t]|\s*\|\s*", content)
+        return [part.strip() for part in parts if part.strip()]
+
+    @classmethod
+    def _node_is_keyword_container(cls, node: Tag) -> bool:
+        for value in cls._keyword_marker_values(node):
+            low = value.lower()
+            if "keywords" in low:
+                return True
+            if "keyword-list" in low or "keywordlist" in low:
+                return True
+            if low.endswith("-group") and "kwd" in low:
+                return True
+        return False
+
+    @classmethod
+    def _node_is_keyword_item(cls, node: Tag) -> bool:
+        for value in cls._keyword_marker_values(node):
+            low = value.lower()
+            if low == "keyword" or low.endswith("-keyword") or low.endswith("_keyword"):
+                return True
+            if low == "kwd" or low.endswith("-kwd"):
+                return True
+            if low in {"article:tag", "article-tag"}:
+                return True
+        return False
+
+    @staticmethod
+    def _keyword_marker_values(node: Tag) -> List[str]:
+        values: List[str] = []
+        for attr in ("class", "role", "data-type", "data_type", "itemprop", "rel"):
+            attr_value = node.get(attr)
+            if not attr_value:
+                continue
+            if isinstance(attr_value, (list, tuple)):
+                values.extend(str(v) for v in attr_value if isinstance(v, (str, bytes)))
+            else:
+                values.append(str(attr_value))
+        return values
+
+    @staticmethod
+    def _keyword_text(node: Tag) -> str:
+        text = node.get_text(" ", strip=True)
+        return " ".join(text.split())
+
+    @staticmethod
+    def _dedupe_nodes(nodes: List[Tag]) -> List[Tag]:
+        uniq: List[Tag] = []
+        seen_ids: set[int] = set()
+        for node in nodes:
+            ident = id(node)
+            if ident in seen_ids:
+                continue
+            seen_ids.add(ident)
+            uniq.append(node)
+        return uniq
 
     @staticmethod
     def _find_reference_lists(soup: BeautifulSoup) -> List[Tag]:
