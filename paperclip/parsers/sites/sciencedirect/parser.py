@@ -1,18 +1,22 @@
 from __future__ import annotations
-import html
+
 import re
 from typing import Any, Iterable, Optional
 
 from urllib.parse import parse_qsl, urlparse
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Tag
 
-from ..base import BaseParser, ReferenceObj, DOI_RE
+from ...base import BaseParser, ReferenceObj, DOI_RE
+from .body import BodyExtractor
+from .citations import SentenceCitationAnnotator
 
 class ScienceDirectParser(BaseParser):
     NAME = "ScienceDirect"
     DOMAINS = ("sciencedirect.com", "elsevier.com")
     SECTION_ID_RE = re.compile(r"^cesec", re.I)
+    _citation_annotator = SentenceCitationAnnotator()
+    _body_extractor: Optional[BodyExtractor] = None
 
     @classmethod
     def detect(cls, url: str, soup: BeautifulSoup) -> bool:
@@ -389,239 +393,18 @@ class ScienceDirectParser(BaseParser):
 
     @classmethod
     def _extract_body_sections(cls, soup: BeautifulSoup) -> list[dict[str, Any]]:
-        body_root = cls._locate_body_root(soup)
-        sections: list[Tag] = []
-        if body_root:
-            for child in body_root.find_all("section", recursive=False):
-                if cls._is_sciencedirect_section(child):
-                    sections.append(child)
-        if not sections:
-            for candidate in soup.select("section[id]"):
-                if not cls._is_sciencedirect_section(candidate):
-                    continue
-                if any(
-                    isinstance(parent, Tag)
-                    and parent is not candidate
-                    and cls._is_sciencedirect_section(parent)
-                    for parent in candidate.parents
-                ):
-                    continue
-                sections.append(candidate)
-        results: list[dict[str, Any]] = []
-        for idx, section in enumerate(sections, start=1):
-            built = cls._build_body_section(section, fallback_title=f"Section {idx}")
-            if built:
-                results.append(built)
-        return results
+        extractor = cls._get_body_extractor()
+        return extractor.extract(soup)
 
     @classmethod
-    def _locate_body_root(cls, soup: BeautifulSoup) -> Optional[Tag]:
-        selectors = [
-            "section.Sections",
-            "section.article-body",
-            "section[id^='body']",
-            "div.article-body",
-        ]
-        for selector in selectors:
-            node = soup.select_one(selector)
-            if isinstance(node, Tag):
-                return node
-        return None
-
-    @classmethod
-    def _build_body_section(cls, node: Tag, fallback_title: Optional[str]) -> Optional[dict[str, Any]]:
-        heading = cls._leading_heading(node)
-        title = cls._text(heading) if heading else None
-        title = title or fallback_title or (node.get("id") or "").strip() or None
-
-        html_fragments: list[str] = []
-        children: list[dict[str, Any]] = []
-        subsection_index = 1
-
-        for child in node.children:
-            if isinstance(child, NavigableString):
-                fragment = cls._normalise_body_html(child)
-                if fragment:
-                    html_fragments.append(fragment)
-                continue
-            if not isinstance(child, Tag):
-                continue
-            if heading and child is heading:
-                continue
-            if cls._is_sciencedirect_section(child):
-                child_fallback = None
-                if title or fallback_title:
-                    basis = title or fallback_title or "Section"
-                    child_fallback = f"{basis} {subsection_index}"
-                else:
-                    child_fallback = f"Section {subsection_index}"
-                subsection_index += 1
-                built_child = cls._build_body_section(child, child_fallback)
-                if built_child:
-                    children.append(built_child)
-                continue
-            fragment = cls._normalise_body_html(child)
-            if fragment:
-                html_fragments.append(fragment)
-
-        html_content = "".join(html_fragments).strip()
-        if html_content:
-            html_content = cls._annotate_body_html(html_content)
-        if not html_content and not children:
-            return None
-
-        data: dict[str, Any] = {
-            "title": title or fallback_title or "",
-            "html": html_content,
-        }
-        if children:
-            data["children"] = children
-        return data
-
-    @classmethod
-    def _normalise_body_html(cls, node: Tag | NavigableString) -> str:
-        if isinstance(node, NavigableString):
-            text = str(node).strip()
-            if not text:
-                return ""
-            fragment = f"<p>{html.escape(text)}</p>"
-            return cls._annotate_body_html(fragment)
-        if not isinstance(node, Tag):
-            return ""
-        if node.name in {"script", "style"}:
-            return ""
-        if cls._is_sciencedirect_section(node):
-            return ""
-        if node.name == "div":
-            inner = node.decode_contents().strip()
-            if not inner:
-                return ""
-            fragment = f"<p>{inner}</p>"
-            return cls._annotate_body_html(fragment)
-        if node.name == "p":
-            return cls._annotate_body_html(node.decode().strip())
-        return node.decode().strip()
-
-    @classmethod
-    def _annotate_body_html(cls, html_fragment: str) -> str:
-        if not html_fragment:
-            return html_fragment
-        soup = BeautifulSoup(f"<wrapper>{html_fragment}</wrapper>", "html.parser")
-        modified = False
-        for block in soup.wrapper.find_all(["p", "li"], recursive=True):
-            updated = cls._wrap_sentence_citations(block.decode_contents())
-            if updated != block.decode_contents():
-                block.clear()
-                replacement = BeautifulSoup(f"<wrapper>{updated}</wrapper>", "html.parser")
-                for child in list(replacement.wrapper.contents):
-                    block.append(child)
-                modified = True
-        if not modified:
-            return html_fragment
-        return soup.wrapper.decode_contents()
-
-    @classmethod
-    def _wrap_sentence_citations(cls, html_fragment: str) -> str:
-        if not html_fragment:
-            return html_fragment
-
-        tag_pattern = re.compile(r"<[^>]+>")
-        tags: list[str] = []
-
-        def _store_tag(match: re.Match[str]) -> str:
-            tags.append(match.group(0))
-            return f"@@TAG{len(tags) - 1}@@"
-
-        tokenised = tag_pattern.sub(_store_tag, html_fragment)
-        sentences = cls._split_sentences(tokenised)
-        if not sentences:
-            return html_fragment
-
-        rebuilt: list[str] = []
-        for sentence in sentences:
-            refs = cls._extract_sentence_references(sentence, tags)
-            restored = cls._restore_tokens(sentence, tags)
-            if refs:
-                leading_ws = re.match(r"^\s*", restored)
-                trailing_ws = re.search(r"\s*$", restored)
-                leading = leading_ws.group(0) if leading_ws else ""
-                trailing = trailing_ws.group(0) if trailing_ws else ""
-                core = restored[len(leading): len(restored) - len(trailing) if trailing else len(restored)]
-                span = f'<span data-citation-refs="{" ".join(refs)}">{core}</span>'
-                rebuilt.append(f"{leading}{span}{trailing}")
-            else:
-                rebuilt.append(restored)
-        return "".join(rebuilt)
-
-    @staticmethod
-    def _restore_tokens(text: str, tags: list[str]) -> str:
-        if not text:
-            return text
-        return re.sub(r"@@TAG(\d+)@@", lambda m: tags[int(m.group(1))], text)
-
-    @classmethod
-    def _extract_sentence_references(cls, sentence: str, tags: list[str]) -> list[str]:
-        refs: list[str] = []
-        seen: set[str] = set()
-        for match in re.finditer(r"@@TAG(\d+)@@", sentence):
-            tag_index = int(match.group(1))
-            tag_text = tags[tag_index]
-            ref_id = cls._reference_id_from_tag(tag_text)
-            if not ref_id or ref_id in seen:
-                continue
-            seen.add(ref_id)
-            refs.append(ref_id)
-        return refs
-
-    @staticmethod
-    def _reference_id_from_tag(tag_text: str) -> Optional[str]:
-        if not tag_text.lower().startswith("<a"):
-            return None
-        href_match = re.search(r'href="#([^"#]+)"', tag_text, flags=re.I)
-        if href_match:
-            candidate = href_match.group(1).strip()
-            if candidate and "bib" in candidate.lower():
-                return candidate
-        data_id_match = re.search(r'data-xocs-content-id="([^"#]+)"', tag_text, flags=re.I)
-        if data_id_match:
-            candidate = data_id_match.group(1).strip()
-            if candidate and "bib" in candidate.lower():
-                return candidate
-        name_match = re.search(r'name="([^"#]+)"', tag_text, flags=re.I)
-        if name_match:
-            candidate = name_match.group(1).strip()
-            if candidate and "bib" in candidate.lower():
-                return candidate
-        return None
-
-    @staticmethod
-    def _split_sentences(text: str) -> list[str]:
-        sentences: list[str] = []
-        start = 0
-        length = len(text)
-        i = 0
-        while i < length:
-            char = text[i]
-            if char in ".?!":
-                j = i + 1
-                while j < length and text[j] in ")\"]":
-                    j += 1
-                next_char = text[j] if j < length else ""
-                next_token = text[j:j + 6]
-                if j >= length or next_char.isspace() or next_token.startswith("@@TAG"):
-                    segment = text[start:j]
-                    if segment:
-                        sentences.append(segment)
-                    while j < length and text[j].isspace():
-                        sentences.append(text[j])
-                        j += 1
-                    start = j
-                    i = j
-                    continue
-            i += 1
-        if start < length:
-            sentences.append(text[start:])
-        return sentences
+    def _get_body_extractor(cls) -> BodyExtractor:
+        if cls._body_extractor is None:
+            cls._body_extractor = BodyExtractor(
+                citation_annotator=cls._citation_annotator,
+                section_predicate=cls._is_sciencedirect_section,
+                heading_finder=BaseParser._leading_heading,
+            )
+        return cls._body_extractor
 
     @classmethod
     def _is_sciencedirect_section(cls, node: Tag) -> bool:
