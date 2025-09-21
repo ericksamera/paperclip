@@ -131,3 +131,75 @@ def test_content_sections_include_abstract_for_server_view() -> None:
     assert "abstract" not in meta
     assert parsed.content_sections["abstract"] == EXPECTED_ABSTRACT
     assert parsed.content_sections["keywords"] == EXPECTED_KEYWORDS
+
+
+SCIENCEDIRECT_REFERENCES_HTML = """
+<html>
+  <body>
+    <section class="bibliography" id="references">
+      <ol class="reference">
+        <li>
+          <span class="reference">
+            <div class="contribution">
+              <div class="authors u-font-sans">J.S. Bailey, Thomson J.E., Cox N.A.</div>
+            </div>
+            <div class="host u-font-sans">Academic Press, Orlando, FL (1987)</div>
+          </span>
+        </li>
+        <li>
+          <span class="reference">
+            <div class="contribution">
+              <div class="authors u-font-sans">P. Bird, Fisher K., Boyle M., Huffman T., Benzinger P. Jr</div>
+              <div class="title text-m">Evaluation of modification of the 3M™ molecular detection assay Salmonella method</div>
+            </div>
+            <div class="host u-font-sans">J. AOAC Int, 97 (2014), pp. 1329-1342</div>
+            <div class="ReferenceLinks u-font-sans">
+              <a class="anchor link anchor-primary" href="https://doi.org/10.5740/jaoacint.14-101">Crossref</a>
+            </div>
+          </span>
+        </li>
+        <li>
+          <span class="reference">
+            <div class="contribution">
+              <div class="authors u-font-sans">A.P.D.R. Brizio, Prentice C.</div>
+              <div class="title text-m">Chilled broiler carcasses: prevalence of Salmonella</div>
+            </div>
+            <div class="host u-font-sans">Journal of Parsing, 12 (3) (2015), pp. 10-20</div>
+            <div class="ReferenceLinks u-font-sans">
+              <a class="anchor link anchor-primary" href="https://www.example.com/ref3">View article</a>
+            </div>
+          </span>
+        </li>
+      </ol>
+    </section>
+  </body>
+</html>
+"""
+
+
+def test_structured_references_are_parsed() -> None:
+    url = "https://www.sciencedirect.com/science/article/pii/S1111111111111111"
+    parsed = parse_html(url, SCIENCEDIRECT_REFERENCES_HTML)
+    refs = parsed.references
+
+    assert len(refs) == 3
+
+    first = refs[0]
+    assert first.issued_year == "1987"
+    assert first.container_title == "Academic Press"
+    assert first.authors and first.authors[0]["family"] == "Bailey"
+
+    second = refs[1]
+    assert second.title == "Evaluation of modification of the 3M™ molecular detection assay Salmonella method"
+    assert second.container_title == "J. AOAC Int"
+    assert second.volume == "97"
+    assert second.pages == "1329-1342"
+    assert second.issued_year == "2014"
+    assert second.doi == "10.5740/jaoacint.14-101"
+
+    third = refs[2]
+    assert third.container_title == "Journal of Parsing"
+    assert third.volume == "12"
+    assert third.issue == "3"
+    assert third.pages == "10-20"
+    assert third.issued_year == "2015"
