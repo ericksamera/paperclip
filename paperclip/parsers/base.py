@@ -102,9 +102,9 @@ class ReferenceObj:
 
         # Year "(2021)" or "(2021a)"
         year = None
-        my = re.search(r"\((?P<y>(19|20)\d{2}[a-z]?)\)", raw)
+        my = re.search(r"\(\s*(?P<y>(?:19|20)\d{2}[a-z]?)\s*\)", raw)
         if my:
-            year = my.group("y")
+            year = my.group("y").strip()
 
         # Authors: match sequences of "Family, G." patterns before the year
         authors: list[dict[str, str]] = []
@@ -131,14 +131,18 @@ class ReferenceObj:
         # Volume/issue/pages
         volume = issue = pages = None
         mvip = re.search(
-            r"(?P<vol>\d+)\s*\(\s*(?P<iss>[^)]+)\s*\)\s*,\s*(?P<pgs>\d+[^\s,;)]*)", tail
+            r"(?P<vol>\d+)\s*\(\s*(?P<iss>[^)]+)\s*\)\s*,\s*(?P<pgs>\d+(?:\s*[\u2013\u2014-]\s*\d+)?)",
+            tail,
         )
         if mvip:
             volume = mvip.group("vol")
             issue = mvip.group("iss")
             pages = mvip.group("pgs")
         else:
-            mvp = re.search(r"(?P<vol>\d+)\s*,\s*(?P<pgs>\d+[^\s,;)]*)", tail)
+            mvp = re.search(
+                r"(?P<vol>\d+)\s*,\s*(?P<pgs>\d+(?:\s*[\u2013\u2014-]\s*\d+)?)",
+                tail,
+            )
             if mvp:
                 volume = mvp.group("vol")
                 pages = mvp.group("pgs")
