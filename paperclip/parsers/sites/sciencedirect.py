@@ -1,6 +1,8 @@
 from __future__ import annotations
 import re
-from typing import Optional
+from typing import Iterable, Optional
+
+from urllib.parse import parse_qsl, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
@@ -51,10 +53,9 @@ class ScienceDirectParser(BaseParser):
                         continue
                     ref_id = f"ref-{len(refs) + 1}"
                     ref = cls._build_reference_from_node(li, ref_id, raw)
-                    href = cls._extract_reference_href(li)
-                    match = DOI_RE.search(href or "") or DOI_RE.search(ref.raw)
-                    if match and not ref.doi:
-                        ref.doi = match.group(0)
+                    doi = cls._extract_reference_doi(li)
+                    if doi and not ref.doi:
+                        ref.doi = doi
                     refs.append(ref)
 
         if refs:
@@ -125,13 +126,74 @@ class ScienceDirectParser(BaseParser):
 
         return ref
 
-    @staticmethod
-    def _extract_reference_href(node: Tag) -> Optional[str]:
+    @classmethod
+    def _extract_reference_doi(cls, node: Tag) -> Optional[str]:
         anchor_scope = node.select_one(".reference") or node
-        anchor = anchor_scope.select_one('a[href*="doi.org/10."]')
-        if anchor and anchor.get("href"):
-            return anchor["href"]
+
+        # Gather all attribute values from the reference scope so we can
+        # search for embedded DOI strings regardless of where ScienceDirect
+        # chooses to stash them (hrefs, data attributes, query parameters, …).
+        attr_values: list[str] = []
+        for el in [anchor_scope, *anchor_scope.find_all(True)]:
+            attr_values.extend(cls._string_attrs(el.attrs.values()))
+
+        for href in anchor_scope.select("a[href]"):
+            raw_href = href.get("href")
+            if not raw_href:
+                continue
+            attr_values.append(raw_href)
+            try:
+                parsed = urlparse(raw_href)
+            except ValueError:
+                parsed = None
+            if parsed:
+                attr_values.extend(val for _, val in parse_qsl(parsed.query))
+
+        for value in attr_values:
+            match = DOI_RE.search(value)
+            if match:
+                return match.group(0)
+
+        text_blob = anchor_scope.get_text(" ", strip=True)
+        for candidate in cls._extract_pii_candidates(attr_values + [text_blob]):
+            doi = cls._doi_from_pii(candidate)
+            if doi:
+                return doi
         return None
+
+    @staticmethod
+    def _string_attrs(attrs: Iterable[object]) -> list[str]:
+        values: list[str] = []
+        for value in attrs:
+            if isinstance(value, str):
+                values.append(value)
+            elif isinstance(value, (list, tuple, set)):
+                values.extend([item for item in value if isinstance(item, str)])
+        return values
+
+    @staticmethod
+    def _extract_pii_candidates(blobs: Iterable[str]) -> list[str]:
+        candidates: list[str] = []
+        pattern = re.compile(r"S[0-9A-Z]{16}")
+        for blob in blobs:
+            if not blob:
+                continue
+            candidates.extend(pattern.findall(blob))
+        return candidates
+
+    @staticmethod
+    def _doi_from_pii(pii: str) -> Optional[str]:
+        match = re.fullmatch(r"S(\d{4})(\d{4})(\d{2})([0-9A-Z]{5})([0-9A-Z])", pii)
+        if not match:
+            return None
+        issn_part_1, issn_part_2, year, article_code, check = match.groups()
+        return "10.1016/S{}-{}({}){}-{}".format(
+            issn_part_1,
+            issn_part_2,
+            year,
+            article_code,
+            check,
+        )
 
     @classmethod
     def _parse_authors(cls, text: str) -> list[dict[str, str]]:

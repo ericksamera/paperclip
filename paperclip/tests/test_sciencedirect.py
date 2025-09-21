@@ -190,6 +190,24 @@ SCIENCEDIRECT_REFERENCES_HTML = """
               </div>
             </span>
           </li>
+          <li>
+            <span class="label u-font-sans">
+              <a class="anchor anchor-primary" href="#bbb0025" id="ref-id-bb0025">
+                <span class="anchor-text-container"><span class="anchor-text">4</span></span>
+              </a>
+            </span>
+            <span class="reference" id="rf0025">
+              <div class="contribution">
+                <div class="authors u-font-sans">Example A., Author B.</div>
+                <div class="title text-m">Derived DOI example entry</div>
+              </div>
+              <div class="host u-font-sans">Sample Journal, 42 (2018), pp. 101-110</div>
+              <div class="ReferenceLinks u-font-sans">
+                <a class="anchor pdf link anchor-primary anchor-icon-left" href="/science/article/pii/S012345671800567X/pdfft">View PDF</a>
+                <a class="anchor link anchor-primary" href="/science/article/pii/S012345671800567X">View article</a>
+              </div>
+            </span>
+          </li>
         </ol>
       </section>
     </section>
@@ -203,7 +221,7 @@ def test_structured_references_are_parsed() -> None:
     parsed = parse_html(url, SCIENCEDIRECT_REFERENCES_HTML)
     refs = parsed.references
 
-    assert len(refs) == 3
+    assert len(refs) == 4
 
     first = refs[0]
     assert first.issued_year == "1987"
@@ -225,3 +243,8 @@ def test_structured_references_are_parsed() -> None:
     assert third.pages == "10-20"
     assert third.issued_year == "2015"
     assert third.url == "https://www.example.com/ref3"
+
+    fourth = refs[3]
+    assert fourth.title == "Derived DOI example entry"
+    assert fourth.issued_year == "2018"
+    assert fourth.doi == "10.1016/S0123-4567(18)00567-X"
