@@ -39,6 +39,7 @@ class ScienceDirectParser(BaseParser):
             "section#references ol",
             "div#references ol",
             "ol.reference",
+            "ol.references",
             "ol.bibliography",
             "div[class*='Reference'] ol",
         ]
@@ -63,11 +64,16 @@ class ScienceDirectParser(BaseParser):
 
     @classmethod
     def _build_reference_from_node(cls, node: Tag, ref_id: str, fallback_raw: str) -> ReferenceObj:
-        authors_text = cls._text(node.select_one(".authors"))
-        title_text = cls._text(node.select_one(".title"))
-        host_nodes = [cls._text(host) for host in node.select(".host")]
+        reference_node = node.select_one(".reference") or node
+
+        authors_text = cls._text(reference_node.select_one(".authors"))
+        title_text = cls._text(reference_node.select_one(".title"))
+        host_nodes = [cls._text(host) for host in reference_node.select(".host")]
         host_nodes = [text for text in host_nodes if text]
-        comment_nodes = [cls._text(comment) for comment in node.select(".comment")]
+        comment_nodes = [
+            cls._text(comment)
+            for comment in reference_node.select(".comment")
+        ]
         comment_nodes = [text for text in comment_nodes if text]
 
         combined_text = " ".join(host_nodes + comment_nodes)
@@ -113,7 +119,7 @@ class ScienceDirectParser(BaseParser):
         if pages and not ref.pages:
             ref.pages = pages
 
-        url = cls._select_preferred_url(node)
+        url = cls._select_preferred_url(reference_node)
         if url and not ref.url:
             ref.url = url
 
@@ -121,7 +127,8 @@ class ScienceDirectParser(BaseParser):
 
     @staticmethod
     def _extract_reference_href(node: Tag) -> Optional[str]:
-        anchor = node.select_one('a[href*="doi.org/10."]')
+        anchor_scope = node.select_one(".reference") or node
+        anchor = anchor_scope.select_one('a[href*="doi.org/10."]')
         if anchor and anchor.get("href"):
             return anchor["href"]
         return None

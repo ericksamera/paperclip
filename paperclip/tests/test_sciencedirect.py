@@ -136,41 +136,62 @@ def test_content_sections_include_abstract_for_server_view() -> None:
 SCIENCEDIRECT_REFERENCES_HTML = """
 <html>
   <body>
-    <section class="bibliography" id="references">
-      <ol class="reference">
-        <li>
-          <span class="reference">
-            <div class="contribution">
-              <div class="authors u-font-sans">J.S. Bailey, Thomson J.E., Cox N.A.</div>
-            </div>
-            <div class="host u-font-sans">Academic Press, Orlando, FL (1987)</div>
-          </span>
-        </li>
-        <li>
-          <span class="reference">
-            <div class="contribution">
-              <div class="authors u-font-sans">P. Bird, Fisher K., Boyle M., Huffman T., Benzinger P. Jr</div>
-              <div class="title text-m">Evaluation of modification of the 3M™ molecular detection assay Salmonella method</div>
-            </div>
-            <div class="host u-font-sans">J. AOAC Int, 97 (2014), pp. 1329-1342</div>
-            <div class="ReferenceLinks u-font-sans">
-              <a class="anchor link anchor-primary" href="https://doi.org/10.5740/jaoacint.14-101">Crossref</a>
-            </div>
-          </span>
-        </li>
-        <li>
-          <span class="reference">
-            <div class="contribution">
-              <div class="authors u-font-sans">A.P.D.R. Brizio, Prentice C.</div>
-              <div class="title text-m">Chilled broiler carcasses: prevalence of Salmonella</div>
-            </div>
-            <div class="host u-font-sans">Journal of Parsing, 12 (3) (2015), pp. 10-20</div>
-            <div class="ReferenceLinks u-font-sans">
-              <a class="anchor link anchor-primary" href="https://www.example.com/ref3">View article</a>
-            </div>
-          </span>
-        </li>
-      </ol>
+    <section class="bibliography u-font-serif text-s" id="bi0010">
+      <section class="bibliography-sec" id="bs0010">
+        <ol class="references" id="reference-links-bs0010">
+          <li>
+            <span class="label u-font-sans">
+              <a class="anchor anchor-primary" href="#bbb0010" id="ref-id-bb0010">
+                <span class="anchor-text-container"><span class="anchor-text">1</span></span>
+              </a>
+            </span>
+            <span class="reference" id="rf0010">
+              <div class="contribution">
+                <div class="authors u-font-sans">J.S. Bailey, Thomson J.E., Cox N.A.</div>
+              </div>
+              <div class="host u-font-sans">Academic Press, Orlando, FL (1987)</div>
+              <div class="ReferenceLinks u-font-sans">
+                <a class="anchor link anchor-primary" href="https://scholar.google.com">Google Scholar</a>
+              </div>
+            </span>
+          </li>
+          <li>
+            <span class="label u-font-sans">
+              <a class="anchor anchor-primary" href="#bbb0015" id="ref-id-bb0015">
+                <span class="anchor-text-container"><span class="anchor-text">2</span></span>
+              </a>
+            </span>
+            <span class="reference" id="rf0015">
+              <div class="contribution">
+                <div class="authors u-font-sans">P. Bird, Fisher K., Boyle M., Huffman T., Benzinger P. Jr</div>
+                <div class="title text-m">Evaluation of modification of the 3M™ molecular detection assay Salmonella method</div>
+              </div>
+              <div class="host u-font-sans">J. AOAC Int, 97 (2014), pp. 1329-1342</div>
+              <div class="ReferenceLinks u-font-sans">
+                <a class="anchor link anchor-primary" href="https://doi.org/10.5740/jaoacint.14-101">Crossref</a>
+                <a class="anchor link anchor-primary" href="https://www.scopus.com">View in Scopus</a>
+              </div>
+            </span>
+          </li>
+          <li>
+            <span class="label u-font-sans">
+              <a class="anchor anchor-primary" href="#bbb0020" id="ref-id-bb0020">
+                <span class="anchor-text-container"><span class="anchor-text">3</span></span>
+              </a>
+            </span>
+            <span class="reference" id="rf0020">
+              <div class="contribution">
+                <div class="authors u-font-sans">A.P.D.R. Brizio, Prentice C.</div>
+                <div class="title text-m">Chilled broiler carcasses: prevalence of Salmonella</div>
+              </div>
+              <div class="host u-font-sans">Journal of Parsing, 12 (3) (2015), pp. 10-20</div>
+              <div class="ReferenceLinks u-font-sans">
+                <a class="anchor link anchor-primary" href="https://www.example.com/ref3">View article</a>
+              </div>
+            </span>
+          </li>
+        </ol>
+      </section>
     </section>
   </body>
 </html>
@@ -203,3 +224,4 @@ def test_structured_references_are_parsed() -> None:
     assert third.issue == "3"
     assert third.pages == "10-20"
     assert third.issued_year == "2015"
+    assert third.url == "https://www.example.com/ref3"
