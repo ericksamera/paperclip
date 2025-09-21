@@ -47,4 +47,34 @@ class ScienceDirectParser(BaseParser):
         meta_updates = {}
         doi = cls.find_doi_in_meta(soup)
         if doi: meta_updates["doi"] = doi
+        abstract = cls._extract_abstract(soup)
+        if abstract:
+            meta_updates["abstract"] = abstract
         return ParseResult(meta_updates=meta_updates, references=refs, figures=[], tables=[])
+
+    @classmethod
+    def _extract_abstract(cls, soup: BeautifulSoup) -> str:
+        selectors = [
+            "div.abstract",
+            "section.abstract",
+            "section#abstract",
+            "div#abstract",
+            "section#abstracts div.abstract",
+        ]
+        for sel in selectors:
+            node = soup.select_one(sel)
+            if not node:
+                continue
+            text = node.get_text(" ", strip=True)
+            if not text:
+                continue
+            heading = node.find(["h1", "h2", "h3", "h4", "h5", "h6"])
+            if heading:
+                head_text = heading.get_text(" ", strip=True)
+                if head_text:
+                    upper_text = text.lstrip()
+                    if upper_text.upper().startswith(head_text.upper()):
+                        text = upper_text[len(head_text):].strip()
+            if text:
+                return text
+        return ""
