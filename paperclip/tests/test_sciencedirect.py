@@ -61,33 +61,38 @@ SCIENCEDIRECT_SAMPLE_HTML = """
 </html>
 """
 
-EXPECTED_ABSTRACT = (
-    "Endemic infectious diseases remain a major challenge for dairy producers worldwide. "
-    "For effective disease control programs, up-to-date prevalence estimates are of utmost importance. "
-    "The objective of this study was to estimate the herd-level prevalence of bovine leukemia virus (BLV), "
-    "Salmonella enterica ssp. enterica serovar Dublin (Salmonella Dublin), and Neospora caninum in dairy herds "
-    "in Alberta, Canada, using a serial cross-sectional study design. Bulk tank milk samples from all Alberta "
-    "dairy farms were collected 4 times, in December 2021 (n = 489), April 2022 (n = 487), July 2022 (n = 487), "
-    "and October 2022 (n = 480), and tested for antibodies against BLV, Salmonella Dublin, and N. caninum using ELISA. "
-    "Herd-level apparent prevalence was calculated as positive herds divided by total tested herds at each time point. "
-    "A mixed-effect modified Poisson regression model was employed to assess the association of prevalence with region, "
-    "herd size, herd type, and type of milking system. Apparent prevalence of BLV was 89.4%, 88.7%, 86.9%, and 86.9% in "
-    "December, April, July, and October, respectively, whereas for Salmonella Dublin apparent prevalence was 11.2%, 6.6%, "
-    "8.6%, and 8.5%, and for N. caninum apparent prevalence was 18.2%, 7.4%, 7.8%, and 15.0%. For BLV, Salmonella Dublin, "
-    "and N. caninum, a total of 91.7%, 15.6%, and 28.1% of herds, respectively, were positive at least once, whereas 82.5%, "
-    "3.6%, and 3.0% of herds were ELISA positive at all 4 times. Compared with the north region, central Alberta had a high "
-    "prevalence (prevalence ratio [PR] = 1.13) of BLV antibody-positive herds, whereas south Alberta had a high prevalence "
-    "(PR = 2.56) of herds positive for Salmonella Dublin antibodies. Furthermore, central (PR = 0.52) and south regions "
-    "(PR = 0.46) had low prevalence of N. caninum-positive herds compared with the north. Hutterite colony herds were more "
-    "frequently BLV positive (PR = 1.13) but less frequently N. caninum-positive (PR = 0.47). Large herds (>7,200 L/d milk "
-    "delivered ∼>250 cows) were 1.1 times more often BLV positive, whereas small herds (≤3,600 L/d milk delivered ∼≤125 cows) "
-    "were 3.2 times more often N. caninum positive. For Salmonella Dublin, Hutterite colony herds were less frequently (PR = 0.07) "
-    "positive than non-colony herds only in medium and large strata but not in small stratum. Moreover, larger herds were more "
-    "frequently (PR = 2.20) Salmonella Dublin-positive than smaller herds only in non-colony stratum but not in colony stratum. "
-    "Moreover, N. caninum prevalence was 1.6 times higher on farms with conventional milking systems compared with farms with "
-    "an automated milking system. These results provide up-to-date information of the prevalence of these infections that will "
-    "inform investigations of within-herd prevalence of these infections and help in devising evidence-based disease control strategies."
-)
+EXPECTED_ABSTRACT = [
+    {
+        "title": None,
+        "body": (
+            "Endemic infectious diseases remain a major challenge for dairy producers worldwide. "
+            "For effective disease control programs, up-to-date prevalence estimates are of utmost importance. "
+            "The objective of this study was to estimate the herd-level prevalence of bovine leukemia virus (BLV), "
+            "Salmonella enterica ssp. enterica serovar Dublin (Salmonella Dublin), and Neospora caninum in dairy herds "
+            "in Alberta, Canada, using a serial cross-sectional study design. Bulk tank milk samples from all Alberta "
+            "dairy farms were collected 4 times, in December 2021 (n = 489), April 2022 (n = 487), July 2022 (n = 487), "
+            "and October 2022 (n = 480), and tested for antibodies against BLV, Salmonella Dublin, and N. caninum using ELISA. "
+            "Herd-level apparent prevalence was calculated as positive herds divided by total tested herds at each time point. "
+            "A mixed-effect modified Poisson regression model was employed to assess the association of prevalence with region, "
+            "herd size, herd type, and type of milking system. Apparent prevalence of BLV was 89.4%, 88.7%, 86.9%, and 86.9% in "
+            "December, April, July, and October, respectively, whereas for Salmonella Dublin apparent prevalence was 11.2%, 6.6%, "
+            "8.6%, and 8.5%, and for N. caninum apparent prevalence was 18.2%, 7.4%, 7.8%, and 15.0%. For BLV, Salmonella Dublin, "
+            "and N. caninum, a total of 91.7%, 15.6%, and 28.1% of herds, respectively, were positive at least once, whereas 82.5%, "
+            "3.6%, and 3.0% of herds were ELISA positive at all 4 times. Compared with the north region, central Alberta had a high "
+            "prevalence (prevalence ratio [PR] = 1.13) of BLV antibody-positive herds, whereas south Alberta had a high prevalence "
+            "(PR = 2.56) of herds positive for Salmonella Dublin antibodies. Furthermore, central (PR = 0.52) and south regions "
+            "(PR = 0.46) had low prevalence of N. caninum-positive herds compared with the north. Hutterite colony herds were more "
+            "frequently BLV positive (PR = 1.13) but less frequently N. caninum-positive (PR = 0.47). Large herds (>7,200 L/d milk "
+            "delivered ∼>250 cows) were 1.1 times more often BLV positive, whereas small herds (≤3,600 L/d milk delivered ∼≤125 cows) "
+            "were 3.2 times more often N. caninum positive. For Salmonella Dublin, Hutterite colony herds were less frequently (PR = 0.07) "
+            "positive than non-colony herds only in medium and large strata but not in small stratum. Moreover, larger herds were more "
+            "frequently (PR = 2.20) Salmonella Dublin-positive than smaller herds only in non-colony stratum but not in colony stratum. "
+            "Moreover, N. caninum prevalence was 1.6 times higher on farms with conventional milking systems compared with farms with "
+            "an automated milking system. These results provide up-to-date information of the prevalence of these infections that will "
+            "inform investigations of within-herd prevalence of these infections and help in devising evidence-based disease control strategies."
+        ),
+    }
+]
 
 EXPECTED_KEYWORDS = [
     "bovine leukosis",

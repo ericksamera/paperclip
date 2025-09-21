@@ -274,16 +274,16 @@ class BaseParser:
     @classmethod
     def _build_content_sections(cls, soup: BeautifulSoup) -> Dict[str, Any]:
         content: Dict[str, Any] = {}
-        abstract = cls._extract_abstract(soup)
-        if abstract:
-            content["abstract"] = abstract
+        abstract_sections = cls._extract_abstract(soup)
+        if abstract_sections:
+            content["abstract"] = abstract_sections
         keywords = cls._extract_keywords(soup)
         if keywords:
             content["keywords"] = keywords
         return content
 
     @classmethod
-    def _extract_abstract(cls, soup: BeautifulSoup) -> str:
+    def _extract_abstract(cls, soup: BeautifulSoup) -> List[Dict[str, str]]:
         seen: set[int] = set()
         for selector in cls.ABSTRACT_SELECTORS:
             for node in soup.select(selector):
@@ -293,20 +293,24 @@ class BaseParser:
                 seen.add(ident)
                 if cls._should_skip_abstract_candidate(node):
                     continue
-                text = cls._abstract_from_node(node)
-                if text:
-                    return text
-        return ""
+                sections = cls._abstract_from_node(node)
+                if sections:
+                    return sections
+        return []
 
     @classmethod
     def _should_skip_abstract_candidate(cls, node: Tag) -> bool:
         return False
 
     @classmethod
-    def _abstract_from_node(cls, node: Tag) -> str:
+    def _abstract_from_node(cls, node: Tag) -> List[Dict[str, str]]:
+        structured = cls._abstract_structured_sections(node)
+        if structured:
+            return structured
+
         text = node.get_text(" ", strip=True)
         if not text:
-            return ""
+            return []
         heading = cls._leading_heading(node)
         if heading:
             head_text = heading.get_text(" ", strip=True)
@@ -314,6 +318,103 @@ class BaseParser:
                 stripped = text.lstrip()
                 if stripped.upper().startswith(head_text.upper()):
                     text = stripped[len(head_text):].strip()
+        collapsed = " ".join(text.split())
+        return [{"title": None, "body": collapsed}] if collapsed else []
+
+    @classmethod
+    def _abstract_structured_sections(cls, node: Tag) -> List[Dict[str, str]]:
+        sections: List[Dict[str, str]] = []
+        pending_text: List[str] = []
+        found_structured = False
+
+        def flush_pending() -> None:
+            if not pending_text:
+                return
+            text = " ".join(" ".join(pending_text).split())
+            pending_text.clear()
+            if text:
+                sections.append({"title": None, "body": text})
+
+        for child in node.children:
+            if isinstance(child, NavigableString):
+                snippet = child.strip()
+                if snippet:
+                    pending_text.append(snippet)
+                continue
+            if not isinstance(child, Tag):
+                continue
+
+            if cls._is_structured_abstract_section(child):
+                found_structured = True
+                flush_pending()
+                built = cls._build_structured_section(child)
+                if built:
+                    sections.append(built)
+                continue
+
+            nested = cls._abstract_structured_sections(child)
+            if nested:
+                found_structured = True
+                flush_pending()
+                sections.extend(nested)
+            else:
+                text = child.get_text(" ", strip=True)
+                if text:
+                    pending_text.append(text)
+
+        flush_pending()
+
+        if not found_structured:
+            return []
+        return [section for section in sections if section.get("body")]
+
+    @classmethod
+    def _build_structured_section(cls, node: Tag) -> Optional[Dict[str, str]]:
+        title = cls._abstract_section_title(node)
+        body = cls._abstract_section_body(node, title)
+        if not body:
+            return None
+        return {"title": title, "body": body}
+
+    @staticmethod
+    def _is_structured_abstract_section(node: Tag) -> bool:
+        classes = [c.lower() for c in (node.get("class") or []) if isinstance(c, str)]
+        if not classes:
+            return False
+        for cls_name in classes:
+            if cls_name in {"sec", "section"}:
+                return True
+            if cls_name.endswith("sec") or cls_name.endswith("section"):
+                return True
+            if "abstract" in cls_name and "section" in cls_name:
+                return True
+        return False
+
+    @classmethod
+    def _abstract_section_title(cls, node: Tag) -> Optional[str]:
+        for child in node.find_all(True, recursive=False):
+            classes = [c.lower() for c in (child.get("class") or []) if isinstance(c, str)]
+            if classes and any("title" == c or c.endswith("title") or "title" in c for c in classes):
+                title_text = child.get_text(" ", strip=True)
+                if title_text:
+                    return " ".join(title_text.split())
+        heading = node.find(["h1", "h2", "h3", "h4", "h5", "h6"])
+        if heading:
+            title_text = heading.get_text(" ", strip=True)
+            if title_text:
+                return " ".join(title_text.split())
+        return None
+
+    @classmethod
+    def _abstract_section_body(cls, node: Tag, title: Optional[str]) -> str:
+        text = node.get_text(" ", strip=True)
+        if not text:
+            return ""
+        if title:
+            stripped = text.lstrip()
+            normalized_title = " ".join(title.split())
+            if stripped.upper().startswith(normalized_title.upper()):
+                text = stripped[len(normalized_title):].strip()
         return " ".join(text.split())
 
     @staticmethod

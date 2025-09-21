@@ -25,11 +25,52 @@ def test_generic_parser_extracts_abstract_via_base_helpers() -> None:
     soup = BeautifulSoup(html, "html.parser")
 
     abstract = GenericParser._extract_abstract(soup)
-    assert abstract == "This is a summary. It spans multiple paragraphs."
+    assert abstract == [
+        {
+            "title": None,
+            "body": "This is a summary. It spans multiple paragraphs.",
+        }
+    ]
 
     parsed = parse_html("https://example.com/article", html)
     assert parsed.content_sections["abstract"] == abstract
     assert "abstract" not in parsed.meta_updates
+
+
+def test_generic_parser_preserves_structured_abstract_sections() -> None:
+    html = """
+    <html>
+      <body>
+        <section class="abstract">
+          <div class="sec">
+            <div class="title">Motivation</div>
+            <p>Paragraph one.</p>
+            <p>Paragraph two.</p>
+          </div>
+          <div class="sec">
+            <div class="title">Results</div>
+            <p>Result paragraph.</p>
+          </div>
+          <div class="sec">
+            <div class="title">Availability and implementation</div>
+            <p>Availability paragraph.</p>
+          </div>
+        </section>
+      </body>
+    </html>
+    """
+
+    expected = [
+        {"title": "Motivation", "body": "Paragraph one. Paragraph two."},
+        {"title": "Results", "body": "Result paragraph."},
+        {
+            "title": "Availability and implementation",
+            "body": "Availability paragraph.",
+        },
+    ]
+
+    parsed = parse_html("https://example.com/article", html)
+    assert parsed.content_sections["abstract"] == expected
 
 
 def test_generic_parser_collects_keywords_from_markup() -> None:
