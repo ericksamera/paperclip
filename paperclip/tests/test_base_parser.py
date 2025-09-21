@@ -28,4 +28,5 @@ def test_generic_parser_extracts_abstract_via_base_helpers() -> None:
     assert abstract == "This is a summary. It spans multiple paragraphs."
 
     parsed = parse_html("https://example.com/article", html)
-    assert parsed.meta_updates["abstract"] == abstract
+    assert parsed.content_sections["abstract"] == abstract
+    assert "abstract" not in parsed.meta_updates

@@ -167,6 +167,7 @@ class ReferenceObj:
 @dataclass
 class ParseResult:
     meta_updates: Dict[str, Any]
+    content_sections: Dict[str, Any]
     references: List[ReferenceObj]
     figures: List[Dict[str, Any]]
     tables: List[Dict[str, Any]]
@@ -196,7 +197,14 @@ class BaseParser:
     def parse(cls, url: str, soup: BeautifulSoup) -> ParseResult:
         refs = cls._harvest_references_generic(soup)
         meta_updates = cls._build_meta_updates(soup)
-        return ParseResult(meta_updates=meta_updates, references=refs, figures=[], tables=[])
+        content_sections = cls._build_content_sections(soup)
+        return ParseResult(
+            meta_updates=meta_updates,
+            content_sections=content_sections,
+            references=refs,
+            figures=[],
+            tables=[],
+        )
 
     # ---- shared helpers ----
 
@@ -206,11 +214,15 @@ class BaseParser:
 
     @classmethod
     def _build_meta_updates(cls, soup: BeautifulSoup) -> Dict[str, Any]:
-        meta_updates: Dict[str, Any] = {}
+        return {}
+
+    @classmethod
+    def _build_content_sections(cls, soup: BeautifulSoup) -> Dict[str, Any]:
+        content: Dict[str, Any] = {}
         abstract = cls._extract_abstract(soup)
         if abstract:
-            meta_updates["abstract"] = abstract
-        return meta_updates
+            content["abstract"] = abstract
+        return content
 
     @classmethod
     def _extract_abstract(cls, soup: BeautifulSoup) -> str:

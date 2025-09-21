@@ -85,7 +85,7 @@ def test_extracts_expected_abstract() -> None:
     assert abstract == EXPECTED_ABSTRACT
 
 
-def test_meta_updates_include_abstract_for_server_view() -> None:
+def test_content_sections_include_abstract_for_server_view() -> None:
     url = "https://www.sciencedirect.com/science/article/pii/S1234567890123456"
     parsed = parse_html(url, SCIENCEDIRECT_SAMPLE_HTML)
     meta = {}
@@ -97,4 +97,5 @@ def test_meta_updates_include_abstract_for_server_view() -> None:
             if key == "doi":
                 continue
             meta[key] = value
-    assert meta["abstract"] == EXPECTED_ABSTRACT
+    assert "abstract" not in meta
+    assert parsed.content_sections["abstract"] == EXPECTED_ABSTRACT

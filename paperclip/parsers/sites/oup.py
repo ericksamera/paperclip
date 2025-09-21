@@ -35,6 +35,14 @@ class OUPParser(BaseParser):
             refs = cls._harvest_references_generic(soup)
 
         meta_updates = cls._build_meta_updates(soup)
+        content_sections = cls._build_content_sections(soup)
         doi = cls.find_doi_in_meta(soup)
-        if doi: meta_updates["doi"] = doi
-        return ParseResult(meta_updates=meta_updates, references=refs, figures=[], tables=[])
+        if doi:
+            meta_updates["doi"] = doi
+        return ParseResult(
+            meta_updates=meta_updates,
+            content_sections=content_sections,
+            references=refs,
+            figures=[],
+            tables=[],
+        )
