@@ -50,6 +50,38 @@ EXPECTED_ABSTRACT = [
     }
 ]
 
+STRUCTURED_WILEY_HTML = """
+<html>
+  <body>
+    <div class="abstract-group  metis-abstract">
+      <section class="article-section article-section__abstract" lang="en" data-lang="en" lang-name="English" id="section-1-en">
+         <h2 id="d7243088" class="article-section__header section__title main abstractlang_en main">Abstract</h2>
+         <div class="article-section__content en main">
+            <p><b>Aims:</b> To assess the degree of genetic diversity among animal <i>Salmonella</i> Dublin UK isolates, and to compare it with the genetic diversity found among human isolates from the same time period.</p>
+            <p><b>Methods and Results:</b> One hundred isolates (50 human and 50 animal) were typed using plasmid profiling, <i>Xba</i>I-pulsed field gel electrophoresis (PFGE) and <i>Pst</i>I-<i>Sph</i>I ribotyping. Antimicrobial resistance data to 16 antibiotics was presented, and the presence of class-I integrons was investigated by real-time PCR. Seven different plasmid profiles, 19 ribotypes and 21 PFGE types were detected. A combination of the three methods allowed clear differentiation of 43 clones or strains. Eighteen isolates were resistant to at least one antimicrobial; five of them were multi-resistant and of these, only three presented class I integrons.</p>
+            <p><b>Conclusions:</b> Ribotyping data suggest the existence of at least three very different clonal lines; the same distribution in well-defined groups was not evident from the PFGE data. The existence of a variety of clones in both animals and humans has been demonstrated. A few prevalent clones seem to be widely disseminated among different animal species and show a diverse geographical and temporal distribution. The same clones were found in animals and humans, which may infer that both farm and pet animals may act as potential vehicles of infection for humans. Some other clones seem to be less widely distributed. Clustering analysis of genomic fingerprints of <i>Salmonella</i> Dublin and <i>Salm.</i> Enteritidis isolates confirms the existence of a close phylogenetic relationship between both serotypes.</p>
+            <p><b>Significance and Impact of the Study:</b> This paper describes the utility of a multiple genetic typing approach for <i>Salm.</i> Dublin. It gives useful information on clonal diversity among human and animal isolates.</p>
+         </div>
+      </section>
+   </div>
+  </body>
+</html>
+"""
+
+STRUCTURED_EXPECTED_ABSTRACT = [
+    {
+        "title": None,
+        "body": (
+            "Aims: To assess the degree of genetic diversity among animal Salmonella Dublin UK isolates, and to compare it with the genetic diversity found among human isolates from the same time period. "
+            "Methods and Results: One hundred isolates (50 human and 50 animal) were typed using plasmid profiling, Xba I-pulsed field gel electrophoresis (PFGE) and Pst I-Sph I ribotyping. Antimicrobial resistance data to 16 antibiotics was presented, and the presence of class-I integrons was investigated by real-time PCR. "
+            "Seven different plasmid profiles, 19 ribotypes and 21 PFGE types were detected. A combination of the three methods allowed clear differentiation of 43 clones or strains. Eighteen isolates were resistant to at least one antimicrobial; five of them were multi-resistant and of these, only three presented class I integrons. "
+            "Conclusions: Ribotyping data suggest the existence of at least three very different clonal lines; the same distribution in well-defined groups was not evident from the PFGE data. The existence of a variety of clones in both animals and humans has been demonstrated. A few prevalent clones seem to be widely disseminated among different animal species and show a diverse geographical and temporal distribution. "
+            "The same clones were found in animals and humans, which may infer that both farm and pet animals may act as potential vehicles of infection for humans. Some other clones seem to be less widely distributed. Clustering analysis of genomic fingerprints of Salmonella Dublin and Salm. Enteritidis isolates confirms the existence of a close phylogenetic relationship between both serotypes. "
+            "Significance and Impact of the Study: This paper describes the utility of a multiple genetic typing approach for Salm. Dublin. It gives useful information on clonal diversity among human and animal isolates."
+        ),
+    }
+]
+
 
 def test_wiley_parser_extracts_abstract_from_article_section() -> None:
     soup = BeautifulSoup(WILEY_SAMPLE_HTML, "html.parser")
@@ -61,3 +93,15 @@ def test_wiley_content_sections_include_abstract_for_server_view() -> None:
     url = "https://onlinelibrary.wiley.com/doi/10.1002/example"
     parsed = parse_html(url, WILEY_SAMPLE_HTML)
     assert parsed.content_sections["abstract"] == EXPECTED_ABSTRACT
+
+
+def test_wiley_parser_handles_structured_paragraphs() -> None:
+    soup = BeautifulSoup(STRUCTURED_WILEY_HTML, "html.parser")
+    abstract = WileyParser._extract_abstract(soup)
+    assert abstract == STRUCTURED_EXPECTED_ABSTRACT
+
+
+def test_wiley_parser_detects_proxied_domains_for_server_capture() -> None:
+    proxied_url = "https://onlinelibrary-wiley-com.ezproxy.example.edu/doi/full/10.1002/example"
+    parsed = parse_html(proxied_url, STRUCTURED_WILEY_HTML)
+    assert parsed.content_sections["abstract"] == STRUCTURED_EXPECTED_ABSTRACT

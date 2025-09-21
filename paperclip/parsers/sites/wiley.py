@@ -1,4 +1,6 @@
 from __future__ import annotations
+from urllib.parse import urlparse
+
 from bs4 import BeautifulSoup
 from ..base import BaseParser, ReferenceObj, DOI_RE
 
@@ -13,6 +15,10 @@ class WileyParser(BaseParser):
     @classmethod
     def detect(cls, url: str, soup: BeautifulSoup) -> bool:
         if cls.matches_domain(url):
+            return True
+
+        host = urlparse(url).netloc.lower()
+        if "wiley" in host:
             return True
 
         canon = soup.find(
