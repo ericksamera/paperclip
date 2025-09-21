@@ -7,7 +7,7 @@ from rest_framework.decorators import api_view
 from django.http import HttpRequest
 from .models import Capture, Reference
 from .artifacts import write_text_artifact, write_json_artifact
-from .parsers import parse_html
+from .parsers import parse_with_fallback
 from .parsers.base import BaseParser
 from .services.doi import enrich_from_doi, csl_to_doc_meta, normalize_doi
 
@@ -158,8 +158,7 @@ class CaptureViewSet(viewsets.ViewSet):
                 write_json_artifact(cap.id, "enrichment.json", enrichment_blob)
 
         # ---- Server-side parsing (site adapters) ----
-        html_for_parse = cap.content_html or cap.dom_html
-        parsed = parse_html(cap.url, html_for_parse)
+        parsed = parse_with_fallback(cap.url, cap.content_html, cap.dom_html)
 
         # Merge any parser meta (e.g., DOI) if still missing
         if parsed.meta_updates:

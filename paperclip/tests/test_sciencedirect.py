@@ -6,7 +6,7 @@ pytest.importorskip("bs4")
 
 from bs4 import BeautifulSoup
 
-from paperclip.parsers import parse_html
+from paperclip.parsers import parse_html, parse_with_fallback
 from paperclip.parsers.sites.sciencedirect import ScienceDirectParser
 
 SCIENCEDIRECT_SAMPLE_HTML = """
@@ -248,3 +248,21 @@ def test_structured_references_are_parsed() -> None:
     assert fourth.title == "Derived DOI example entry"
     assert fourth.issued_year == "2018"
     assert fourth.doi == "10.1016/S0123-4567(18)00567-X"
+
+
+def test_parse_with_fallback_uses_dom_references_when_fragment_is_empty() -> None:
+    url = "https://www.sciencedirect.com/science/article/pii/S2222222222222222"
+    content_html = """
+    <html>
+      <body>
+        <main>
+          <article>
+            <p>Article body without reference list.</p>
+          </article>
+        </main>
+      </body>
+    </html>
+    """
+
+    parsed = parse_with_fallback(url, content_html, SCIENCEDIRECT_REFERENCES_HTML)
+    assert len(parsed.references) == 4
