@@ -139,19 +139,77 @@ SCIENCEDIRECT_BODY_HTML = """
 EXPECTED_BODY_SECTIONS = [
     {
         "title": "Introduction",
-        "html": "<p>First paragraph with <em>emphasis</em>.</p><p>Second paragraph.</p>",
+        "markdown": "First paragraph with *emphasis*.\n\nSecond paragraph.",
+        "paragraphs": [
+            {
+                "type": "paragraph",
+                "markdown": "First paragraph with *emphasis*.",
+                "sentences": [
+                    {"markdown": "First paragraph with *emphasis*.", "citations": []},
+                ],
+            },
+            {
+                "type": "paragraph",
+                "markdown": "Second paragraph.",
+                "sentences": [
+                    {"markdown": "Second paragraph.", "citations": []},
+                ],
+            },
+        ],
     },
     {
         "title": "Methods",
-        "html": "<p>Overview paragraph.</p>",
+        "markdown": "Overview paragraph.",
+        "paragraphs": [
+            {
+                "type": "paragraph",
+                "markdown": "Overview paragraph.",
+                "sentences": [
+                    {"markdown": "Overview paragraph.", "citations": []},
+                ],
+            }
+        ],
         "children": [
-            {"title": "Sampling", "html": "<p>Sampling details.</p>"},
-            {"title": "Analysis", "html": "<p>Analysis paragraph.</p>"},
+            {
+                "title": "Sampling",
+                "markdown": "Sampling details.",
+                "paragraphs": [
+                    {
+                        "type": "paragraph",
+                        "markdown": "Sampling details.",
+                        "sentences": [
+                            {"markdown": "Sampling details.", "citations": []},
+                        ],
+                    }
+                ],
+            },
+            {
+                "title": "Analysis",
+                "markdown": "Analysis paragraph.",
+                "paragraphs": [
+                    {
+                        "type": "paragraph",
+                        "markdown": "Analysis paragraph.",
+                        "sentences": [
+                            {"markdown": "Analysis paragraph.", "citations": []},
+                        ],
+                    }
+                ],
+            },
         ],
     },
     {
         "title": "Section 3",
-        "html": "<p>Paragraph without a heading.</p>",
+        "markdown": "Paragraph without a heading.",
+        "paragraphs": [
+            {
+                "type": "paragraph",
+                "markdown": "Paragraph without a heading.",
+                "sentences": [
+                    {"markdown": "Paragraph without a heading.", "citations": []},
+                ],
+            }
+        ],
     },
 ]
 
@@ -175,14 +233,41 @@ SCIENCEDIRECT_BODY_WITH_CITATIONS_HTML = """
 EXPECTED_BODY_WITH_CITATIONS = [
     {
         "title": "Background",
-        "html": (
-            "<p><span data-citation-refs=\"bib48 bib22 bib80\">Infectious diseases impact productivity (<a class=\"anchor\" href=\"#bib48\" data-xocs-content-id=\"bib48\">Hernandez et al., 2001</a>; "
-            "<a class=\"anchor\" href=\"#bib22\" data-xocs-content-id=\"bib22\">Chi et al., 2002</a>; <a class=\"anchor\" href=\"#bib80\" data-xocs-content-id=\"bib80\">Ott et al., 2003</a>).</span> "
-            "<span data-citation-refs=\"bib16 bib8\">In addition, consumer concerns remain (<a class=\"anchor\" href=\"#bib16\" data-xocs-content-id=\"bib16\">Bharti et al., 2003</a>; "
-            "<a class=\"anchor\" href=\"#bib8\" data-xocs-content-id=\"bib8\">Barkema et al., 2015</a>).</span> "
-            "<span data-citation-refs=\"bib108\">Although emerging outbreaks draw attention (<a class=\"anchor\" href=\"#bib108\" data-xocs-content-id=\"bib108\">Wierup, 2012</a>).</span> "
-            "Several important endemic diseases remain major challenges.</p>"
+        "markdown": (
+            "Infectious diseases impact productivity ([Hernandez et al., 2001](#bib48); [Chi et al., 2002](#bib22); "
+            "[Ott et al., 2003](#bib80)). In addition, consumer concerns remain ([Bharti et al., 2003](#bib16); "
+            "[Barkema et al., 2015](#bib8)). Although emerging outbreaks draw attention ([Wierup, 2012](#bib108)). "
+            "Several important endemic diseases remain major challenges."
         ),
+        "paragraphs": [
+            {
+                "type": "paragraph",
+                "markdown": (
+                    "Infectious diseases impact productivity ([Hernandez et al., 2001](#bib48); [Chi et al., 2002](#bib22); "
+                    "[Ott et al., 2003](#bib80)). In addition, consumer concerns remain ([Bharti et al., 2003](#bib16); "
+                    "[Barkema et al., 2015](#bib8)). Although emerging outbreaks draw attention ([Wierup, 2012](#bib108)). "
+                    "Several important endemic diseases remain major challenges."
+                ),
+                "sentences": [
+                    {
+                        "markdown": "Infectious diseases impact productivity ([Hernandez et al., 2001](#bib48); [Chi et al., 2002](#bib22); [Ott et al., 2003](#bib80)).",
+                        "citations": ["bib48", "bib22", "bib80"],
+                    },
+                    {
+                        "markdown": "In addition, consumer concerns remain ([Bharti et al., 2003](#bib16); [Barkema et al., 2015](#bib8)).",
+                        "citations": ["bib16", "bib8"],
+                    },
+                    {
+                        "markdown": "Although emerging outbreaks draw attention ([Wierup, 2012](#bib108)).",
+                        "citations": ["bib108"],
+                    },
+                    {
+                        "markdown": "Several important endemic diseases remain major challenges.",
+                        "citations": [],
+                    },
+                ],
+            }
+        ],
     }
 ]
 

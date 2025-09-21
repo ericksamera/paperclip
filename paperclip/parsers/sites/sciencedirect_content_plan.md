@@ -33,7 +33,8 @@ Extend `ScienceDirectParser` so it captures the full body content (introduction,
    - Convert repeated `<div>` wrappers into `<p>` tags or at least ensure line breaks when serializing.
    - Strip leading/trailing whitespace but avoid collapsing purposeful line breaks.
 5. **Populate `content_sections`.**
-   - Add a new key (e.g., `"body"`) whose value is an ordered list of dictionaries: `[{"title": "CONCLUSIONS", "html": "<p>…</p>"}, …]`.
+   - Add a new key (e.g., `"body"`) whose value is an ordered list of dictionaries: `[{"title": "CONCLUSIONS", "markdown": "…", "paragraphs": [...]}, …]`.
+   - Each paragraph entry should expose Markdown text plus a sentence-level breakdown with associated citation ids so downstream consumers can target specific statements.
    - When headings are missing, fall back to sequential numbering (`Section 1`, `Section 2`, …) so the client can still render the text.
    - Preserve the existing abstract/keyword behavior in `_build_content_sections` and append the body sections after them.
 6. **Testing strategy.**
