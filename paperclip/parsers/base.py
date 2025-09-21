@@ -88,6 +88,42 @@ class ReferenceObj:
             csl=csl
         )
 
+    def merge_csl(self, csl: dict[str, Any]) -> None:
+        """Backfill missing fields using CSL metadata."""
+
+        if not isinstance(csl, dict):
+            return
+
+        enriched = ReferenceObj.from_csl(self.raw, csl, id=self.id)
+
+        if not self.title and enriched.title:
+            self.title = enriched.title
+        if not self.authors and enriched.authors:
+            self.authors = enriched.authors
+        if not self.container_title and enriched.container_title:
+            self.container_title = enriched.container_title
+        if not self.issued_year and enriched.issued_year:
+            self.issued_year = enriched.issued_year
+        if not self.volume and enriched.volume:
+            self.volume = enriched.volume
+        if not self.issue and enriched.issue:
+            self.issue = enriched.issue
+        if not self.pages and enriched.pages:
+            self.pages = enriched.pages
+        if not self.publisher and enriched.publisher:
+            self.publisher = enriched.publisher
+        if not self.url and enriched.url:
+            self.url = enriched.url
+        if not self.doi and enriched.doi:
+            self.doi = enriched.doi
+        if not self.issn and enriched.issn:
+            self.issn = enriched.issn
+        if not self.isbn and enriched.isbn:
+            self.isbn = enriched.isbn
+
+        if enriched.csl:
+            self.csl = enriched.csl
+
     @classmethod
     def from_raw_heuristic(cls, raw: str, id: Optional[str] = None) -> "ReferenceObj":
         """
@@ -102,9 +138,9 @@ class ReferenceObj:
 
         # Year "(2021)" or "(2021a)"
         year = None
-        my = re.search(r"\((?P<y>(19|20)\d{2}[a-z]?)\)", raw)
+        my = re.search(r"\(\s*(?P<y>(?:19|20)\d{2}[a-z]?)\s*\)", raw)
         if my:
-            year = my.group("y")
+            year = my.group("y").strip()
 
         # Authors: match sequences of "Family, G." patterns before the year
         authors: list[dict[str, str]] = []
@@ -131,14 +167,18 @@ class ReferenceObj:
         # Volume/issue/pages
         volume = issue = pages = None
         mvip = re.search(
-            r"(?P<vol>\d+)\s*\(\s*(?P<iss>[^)]+)\s*\)\s*,\s*(?P<pgs>\d+[^\s,;)]*)", tail
+            r"(?P<vol>\d+)\s*\(\s*(?P<iss>[^)]+)\s*\)\s*,\s*(?P<pgs>\d+(?:\s*[\u2013\u2014-]\s*\d+)?)",
+            tail,
         )
         if mvip:
             volume = mvip.group("vol")
             issue = mvip.group("iss")
             pages = mvip.group("pgs")
         else:
-            mvp = re.search(r"(?P<vol>\d+)\s*,\s*(?P<pgs>\d+[^\s,;)]*)", tail)
+            mvp = re.search(
+                r"(?P<vol>\d+)\s*,\s*(?P<pgs>\d+(?:\s*[\u2013\u2014-]\s*\d+)?)",
+                tail,
+            )
             if mvp:
                 volume = mvp.group("vol")
                 pages = mvp.group("pgs")

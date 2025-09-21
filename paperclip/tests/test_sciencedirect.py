@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 pytest.importorskip("bs4")
 
 from bs4 import BeautifulSoup
 
-from paperclip.parsers import parse_html
+from paperclip.parsers import parse_html, parse_with_fallback
 from paperclip.parsers.sites.sciencedirect import ScienceDirectParser
 
 SCIENCEDIRECT_SAMPLE_HTML = """
@@ -119,7 +121,7 @@ def test_extracts_keywords() -> None:
 def test_content_sections_include_abstract_for_server_view() -> None:
     url = "https://www.sciencedirect.com/science/article/pii/S1234567890123456"
     parsed = parse_html(url, SCIENCEDIRECT_SAMPLE_HTML)
-    meta = {}
+    meta: dict[str, Any] = {}
     updates = parsed.meta_updates
     if updates:
         if not meta.get("doi") and updates.get("doi"):
@@ -131,3 +133,147 @@ def test_content_sections_include_abstract_for_server_view() -> None:
     assert "abstract" not in meta
     assert parsed.content_sections["abstract"] == EXPECTED_ABSTRACT
     assert parsed.content_sections["keywords"] == EXPECTED_KEYWORDS
+
+
+SCIENCEDIRECT_REFERENCES_HTML = """
+<html>
+  <body>
+    <section class="bibliography u-font-serif text-s" id="bi0010">
+      <section class="bibliography-sec" id="bs0010">
+        <ol class="references" id="reference-links-bs0010">
+          <li>
+            <span class="label u-font-sans">
+              <a class="anchor anchor-primary" href="#bbb0010" id="ref-id-bb0010">
+                <span class="anchor-text-container"><span class="anchor-text">1</span></span>
+              </a>
+            </span>
+            <span class="reference" id="rf0010">
+              <div class="contribution">
+                <div class="authors u-font-sans">J.S. Bailey, Thomson J.E., Cox N.A.</div>
+              </div>
+              <div class="host u-font-sans">Academic Press, Orlando, FL (1987)</div>
+              <div class="ReferenceLinks u-font-sans">
+                <a class="anchor link anchor-primary" href="https://scholar.google.com">Google Scholar</a>
+              </div>
+            </span>
+          </li>
+          <li>
+            <span class="label u-font-sans">
+              <a class="anchor anchor-primary" href="#bbb0015" id="ref-id-bb0015">
+                <span class="anchor-text-container"><span class="anchor-text">2</span></span>
+              </a>
+            </span>
+            <span class="reference" id="rf0015">
+              <div class="contribution">
+                <div class="authors u-font-sans">P. Bird, Fisher K., Boyle M., Huffman T., Benzinger P. Jr</div>
+                <div class="title text-m">Evaluation of modification of the 3M™ molecular detection assay Salmonella method</div>
+              </div>
+              <div class="host u-font-sans">J. AOAC Int, 97 (2014), pp. 1329-1342</div>
+              <div class="ReferenceLinks u-font-sans">
+                <a class="anchor link anchor-primary" href="https://doi.org/10.5740/jaoacint.14-101">Crossref</a>
+                <a class="anchor link anchor-primary" href="https://www.scopus.com">View in Scopus</a>
+              </div>
+            </span>
+          </li>
+          <li>
+            <span class="label u-font-sans">
+              <a class="anchor anchor-primary" href="#bbb0020" id="ref-id-bb0020">
+                <span class="anchor-text-container"><span class="anchor-text">3</span></span>
+              </a>
+            </span>
+            <span class="reference" id="rf0020">
+              <div class="contribution">
+                <div class="authors u-font-sans">A.P.D.R. Brizio, Prentice C.</div>
+                <div class="title text-m">Chilled broiler carcasses: prevalence of Salmonella</div>
+              </div>
+              <div class="host u-font-sans">Journal of Parsing, 12 (3) (2015), pp. 10-20</div>
+              <div class="ReferenceLinks u-font-sans">
+                <a class="anchor link anchor-primary" href="https://www.example.com/ref3">View article</a>
+              </div>
+            </span>
+          </li>
+          <li>
+            <span class="label u-font-sans">
+              <a class="anchor anchor-primary" href="#bbb0025" id="ref-id-bb0025">
+                <span class="anchor-text-container"><span class="anchor-text">4</span></span>
+              </a>
+            </span>
+            <span class="reference" id="rf0025">
+              <div class="contribution">
+                <div class="authors u-font-sans">Example A., Author B.</div>
+                <div class="title text-m">Derived DOI example entry</div>
+              </div>
+              <div class="host u-font-sans">Sample Journal, 42 (2018), pp. 101-110</div>
+              <div class="ReferenceLinks u-font-sans">
+                <a class="anchor pdf link anchor-primary anchor-icon-left" href="/science/article/pii/S012345671800567X/pdfft">View PDF</a>
+                <a class="anchor link anchor-primary" href="/science/article/pii/S012345671800567X">View article</a>
+              </div>
+            </span>
+          </li>
+        </ol>
+      </section>
+    </section>
+  </body>
+</html>
+"""
+
+
+def test_structured_references_are_parsed() -> None:
+    url = "https://www.sciencedirect.com/science/article/pii/S1111111111111111"
+    parsed = parse_html(url, SCIENCEDIRECT_REFERENCES_HTML)
+    refs = parsed.references
+
+    assert len(refs) == 4
+
+    first = refs[0]
+    assert first.issued_year == "1987"
+    assert first.container_title == "Academic Press"
+    assert first.authors and first.authors[0]["family"] == "Bailey"
+
+    second = refs[1]
+    assert second.title == "Evaluation of modification of the 3M™ molecular detection assay Salmonella method"
+    assert second.container_title == "J. AOAC Int"
+    assert second.volume == "97"
+    assert second.pages == "1329-1342"
+    assert second.issued_year == "2014"
+    assert second.doi == "10.5740/jaoacint.14-101"
+
+    third = refs[2]
+    assert third.container_title == "Journal of Parsing"
+    assert third.volume == "12"
+    assert third.issue == "3"
+    assert third.pages == "10-20"
+    assert third.issued_year == "2015"
+    assert third.url == "https://www.example.com/ref3"
+
+    fourth = refs[3]
+    assert fourth.title == "Derived DOI example entry"
+    assert fourth.issued_year == "2018"
+    assert fourth.doi == "10.1016/S0123-4567(18)00567-X"
+
+
+def test_parse_with_fallback_uses_dom_references_when_fragment_is_empty() -> None:
+    url = "https://www.sciencedirect.com/science/article/pii/S2222222222222222"
+    content_html = """
+    <html>
+      <body>
+        <main>
+          <article>
+            <p>Article body without reference list.</p>
+          </article>
+        </main>
+      </body>
+    </html>
+    """
+
+    parsed = parse_with_fallback(url, content_html, SCIENCEDIRECT_REFERENCES_HTML)
+    assert len(parsed.references) == 4
+
+
+def test_detects_proxied_domains() -> None:
+    url = "https://www-sciencedirect-com.ezproxy.kpu.ca:2443/science/article/pii/S3333333333333333"
+    parsed = parse_html(url, SCIENCEDIRECT_REFERENCES_HTML)
+
+    # When the parser correctly recognises the proxied host it should build the
+    # structured fields instead of falling back to the generic heuristic parser.
+    assert parsed.references[1].container_title == "J. AOAC Int"

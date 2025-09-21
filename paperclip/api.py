@@ -1,4 +1,7 @@
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Callable, Iterable, Mapping
+
 from bs4 import BeautifulSoup
 from django.conf import settings
 from rest_framework import serializers, viewsets, status
@@ -7,9 +10,95 @@ from rest_framework.decorators import api_view
 from django.http import HttpRequest
 from .models import Capture, Reference
 from .artifacts import write_text_artifact, write_json_artifact
-from .parsers import parse_html
-from .parsers.base import BaseParser
+from .parsers import parse_with_fallback
+from .parsers.base import BaseParser, ReferenceObj
 from .services.doi import enrich_from_doi, csl_to_doc_meta, normalize_doi
+
+
+def _reference_to_server_view(ref: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return a copy of a reference payload with a backward-compatible alias."""
+
+    ref_copy: dict[str, Any] = dict(ref or {})
+    if "id" not in ref_copy:
+        ref_copy["id"] = ref_copy.get("ref_id")
+    return ref_copy
+
+
+def _reference_needs_enrichment(ref: ReferenceObj) -> bool:
+    return any(
+        (
+            not ref.title,
+            not ref.authors,
+            not ref.container_title,
+            not ref.issued_year,
+            not ref.volume,
+            not ref.issue,
+            not ref.pages,
+            not ref.publisher,
+            not ref.url,
+        )
+    )
+
+
+def _enrich_reference_objs_with_doi(
+    references: Iterable[ReferenceObj],
+    fetcher: Callable[[str], Any] = enrich_from_doi,
+) -> None:
+    """Populate missing structured fields for references that expose a DOI."""
+
+    if not getattr(settings, "ENABLE_REFERENCE_DOI_ENRICHMENT", True):
+        return
+
+    doi_to_refs: dict[str, list[ReferenceObj]] = {}
+    doi_order: list[str] = []
+
+    for ref in references:
+        doi_norm = normalize_doi(ref.doi or "")
+        if not doi_norm or not _reference_needs_enrichment(ref):
+            continue
+
+        if doi_norm not in doi_to_refs:
+            doi_to_refs[doi_norm] = []
+            doi_order.append(doi_norm)
+
+        doi_to_refs[doi_norm].append(ref)
+
+    if not doi_to_refs:
+        return
+
+    cache: dict[str, Any] = {}
+
+    def _fetch_and_store(doi: str) -> None:
+        cache[doi] = fetcher(doi)
+
+    workers_setting = getattr(settings, "REFERENCE_DOI_ENRICHMENT_MAX_WORKERS", 4) or 1
+    try:
+        max_workers_config = int(workers_setting)
+    except (TypeError, ValueError):
+        max_workers_config = 1
+    max_workers = max(1, min(len(doi_order), max_workers_config))
+
+    if max_workers == 1:
+        for doi in doi_order:
+            _fetch_and_store(doi)
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_fetch_and_store, doi): doi for doi in doi_order}
+            for future in as_completed(futures):
+                # Ensure exceptions propagate during fetch for visibility
+                future.result()
+
+    for doi in doi_order:
+        blob = cache.get(doi)
+        if not blob:
+            continue
+
+        csl = blob.get("csl") if isinstance(blob, dict) else None
+        if not csl:
+            continue
+
+        for ref in doi_to_refs.get(doi, []):
+            ref.merge_csl(csl)
 
 # ---------- Serializers ----------
 
@@ -60,8 +149,8 @@ class CaptureOutSerializer(serializers.ModelSerializer):
             "id","url","title","captured_at","dom_html","content_html",
             "markdown","meta","csl","figures","tables","references"
         ]
-    def get_references(self, obj):
-        out = []
+    def get_references(self, obj: Capture) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
         for r in obj.references.all():
             out.append({
                 "ref_id": r.ref_id,
@@ -87,7 +176,7 @@ class CaptureOutSerializer(serializers.ModelSerializer):
 # ---------- Views ----------
 
 class CaptureViewSet(viewsets.ViewSet):
-    def create(self, request: HttpRequest):
+    def create(self, request: HttpRequest) -> Response:
         data = CaptureInSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         payload = data.validated_data
@@ -158,8 +247,7 @@ class CaptureViewSet(viewsets.ViewSet):
                 write_json_artifact(cap.id, "enrichment.json", enrichment_blob)
 
         # ---- Server-side parsing (site adapters) ----
-        html_for_parse = cap.content_html or cap.dom_html
-        parsed = parse_html(cap.url, html_for_parse)
+        parsed = parse_with_fallback(cap.url, cap.content_html, cap.dom_html)
 
         # Merge any parser meta (e.g., DOI) if still missing
         if parsed.meta_updates:
@@ -171,6 +259,7 @@ class CaptureViewSet(viewsets.ViewSet):
 
         # Replace references if parser found any (Python becomes source of truth)
         if parsed.references:
+            _enrich_reference_objs_with_doi(parsed.references)
             cap.references.all().delete()
             Reference.objects.bulk_create([
                 Reference(capture=cap, **r.to_model_kwargs()) for r in parsed.references
@@ -180,18 +269,17 @@ class CaptureViewSet(viewsets.ViewSet):
         final_state = CaptureOutSerializer(cap).data
         write_json_artifact(cap.id, "parsed.json", final_state)
 
+        serialized_refs = [
+            _reference_to_server_view(ref)
+            for ref in (final_state.get("references") or [])
+        ]
+
         server_view = {
             "id": cap.id,
             "url": cap.url,
             "meta": cap.meta,
-            "reference_count": cap.references.count(),
-            "references": [
-                {
-                    "id": r.ref_id, "title": r.title, "doi": r.doi,
-                    "container_title": r.container_title, "issued_year": r.issued_year
-                }
-                for r in cap.references.all()
-            ],
+            "reference_count": len(serialized_refs),
+            "references": serialized_refs,
             "enriched": bool(enrichment_blob),
         }
         if parsed.content_sections:

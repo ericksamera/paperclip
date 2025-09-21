@@ -70,3 +70,4 @@ ARTIFACTS_DIR = BASE_DIR / "artifacts"
 # --- DOI enrichment ---
 ENABLE_DOI_ENRICHMENT = True
 CROSSREF_MAILTO = "erick.samera@kpu.ca"
+REFERENCE_DOI_ENRICHMENT_MAX_WORKERS = 4
