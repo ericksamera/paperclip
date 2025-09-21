@@ -3,12 +3,10 @@ from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.html import escape
 import re
-from pathlib import Path
 from .artifacts import get_artifact_dir
 from .models import Capture
 
-# Allow the new artifact
-ALLOWED_ARTIFACTS = {"page.html", "raw_ingest.json", "parsed.json", "server_parsed.json"}
+ALLOWED_ARTIFACTS = {"page.html", "raw_ingest.json", "parsed.json", "server_parsed.json", "enrichment.json"}
 
 def artifact_download(_request, pk: str, basename: str):
     if basename not in ALLOWED_ARTIFACTS:
@@ -18,7 +16,6 @@ def artifact_download(_request, pk: str, basename: str):
         raise Http404("Not found")
     return FileResponse(open(path, "rb"), as_attachment=True, filename=basename)
 
-# Optional: simple read-only preview
 def view_capture(request, pk: str):
     cap = get_object_or_404(Capture, pk=pk)
     content = cap.content_html or ""
@@ -46,9 +43,9 @@ def view_capture(request, pk: str):
         <span>Refs: {cap.references.count()}</span>
         <span>Figures: {len(cap.figures or [])}</span>
         <span>Tables: {len(cap.tables or [])}</span>
-      </div>
-      <div class="counts">
         <span>DOI: {escape(str((cap.meta or {}).get('doi') or '—'))}</span>
+        <span>Journal: {escape(str((cap.meta or {}).get('journal') or '—'))}</span>
+        <span>Year: {escape(str((cap.meta or {}).get('issued_year') or '—'))}</span>
       </div>
     </div>
     <div id="content">{content}</div>

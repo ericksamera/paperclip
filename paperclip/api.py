@@ -1,5 +1,6 @@
 import uuid
 from bs4 import BeautifulSoup
+from django.conf import settings
 from rest_framework import serializers, viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
@@ -7,7 +8,8 @@ from django.http import HttpRequest
 from .models import Capture, Reference
 from .artifacts import write_text_artifact, write_json_artifact
 from .parsers import parse_html
-from .parsers.base import BaseParser  # for robust DOI read from <head>
+from .parsers.base import BaseParser
+from .services.doi import enrich_from_doi, csl_to_doc_meta, normalize_doi
 
 # ---------- Serializers ----------
 
@@ -20,7 +22,7 @@ class ReferenceInSerializer(serializers.Serializer):
     apa = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     csl = serializers.JSONField(required=False)
 
-    # new normalized fields (optional in input)
+    # structured fields (optional in input)
     title = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     authors = serializers.ListField(child=serializers.DictField(), required=False)
     container_title = serializers.CharField(required=False, allow_null=True, allow_blank=True)
@@ -54,8 +56,10 @@ class CaptureOutSerializer(serializers.ModelSerializer):
     references = serializers.SerializerMethodField()
     class Meta:
         model = Capture
-        fields = ["id","url","title","captured_at","dom_html","content_html",
-                  "markdown","meta","csl","figures","tables","references"]
+        fields = [
+            "id","url","title","captured_at","dom_html","content_html",
+            "markdown","meta","csl","figures","tables","references"
+        ]
     def get_references(self, obj):
         out = []
         for r in obj.references.all():
@@ -66,7 +70,6 @@ class CaptureOutSerializer(serializers.ModelSerializer):
                 "bibtex": r.bibtex,
                 "apa": r.apa,
                 "csl": r.csl,
-
                 "title": r.title,
                 "authors": r.authors,
                 "container_title": r.container_title,
@@ -94,23 +97,23 @@ class CaptureViewSet(viewsets.ViewSet):
         cap = Capture.objects.create(
             id=capture_id,
             url=payload["source_url"],
-            title=(ext.get("meta") or {}).get("title",""),
+            title=(ext.get("meta") or {}).get("title", ""),
             captured_at=payload["captured_at"],
             dom_html=payload["dom_html"],
-            content_html=ext.get("content_html",""),
-            markdown=payload.get("rendered",{}).get("markdown",""),
-            meta=ext.get("meta",{}) or {},
-            csl=ext.get("csl",{}) or {},
-            figures=ext.get("figures",[]) or [],
-            tables=ext.get("tables",[]) or []
+            content_html=ext.get("content_html", ""),
+            markdown=payload.get("rendered", {}).get("markdown", ""),
+            meta=ext.get("meta", {}) or {},
+            csl=ext.get("csl", {}) or {},
+            figures=ext.get("figures", []) or [],
+            tables=ext.get("tables", []) or []
         )
 
-        # Seed with client-side refs first (lossless + normalized if provided)
+        # Seed with client-side refs first (lossless & structured if provided)
         for r in (ext.get("references") or []):
             Reference.objects.create(
                 capture=cap,
                 ref_id=r.get("id"),
-                raw=r.get("raw",""),
+                raw=r.get("raw", ""),
                 doi=r.get("doi"),
                 bibtex=r.get("bibtex"),
                 apa=r.get("apa"),
@@ -128,25 +131,42 @@ class CaptureViewSet(viewsets.ViewSet):
                 isbn=r.get("isbn") or "",
             )
 
-        # Early DOI from <head> (dom_html) so it's present immediately
+        # ---- Early DOI from <head> (dom_html) ----
         dom_soup = BeautifulSoup(cap.dom_html or "", "html.parser")
         head_doi = BaseParser.find_doi_in_meta(dom_soup)
         if head_doi:
             cap.meta = {**(cap.meta or {}), "doi": head_doi}
             cap.save(update_fields=["meta"])
 
-        # Artifacts (pre-parse snapshot)
+        # ---- Artifacts (pre-parse snapshot) ----
         write_text_artifact(cap.id, "page.html", cap.dom_html)
         write_json_artifact(cap.id, "raw_ingest.json", CaptureOutSerializer(cap).data)
 
-        # Server-side parsing over content_html (site adapters)
+        # ---- DOI enrichment (Crossref → OpenAlex fallback) ----
+        doi = normalize_doi((cap.meta or {}).get("doi") or "")
+        enrichment_blob = None
+        if getattr(settings, "ENABLE_DOI_ENRICHMENT", True) and doi:
+            enrichment_blob = enrich_from_doi(doi)
+            if enrichment_blob and enrichment_blob.get("csl"):
+                csl = enrichment_blob["csl"]
+                cap.csl = csl or cap.csl
+                meta_up = csl_to_doc_meta(csl)
+                if meta_up.get("title"):
+                    cap.title = meta_up["title"]
+                cap.meta = {**(cap.meta or {}), **meta_up}
+                cap.save(update_fields=["csl", "meta", "title"])
+                write_json_artifact(cap.id, "enrichment.json", enrichment_blob)
+
+        # ---- Server-side parsing (site adapters) ----
         html_for_parse = cap.content_html or cap.dom_html
         parsed = parse_html(cap.url, html_for_parse)
 
-        # Merge meta from parser (e.g., canonical DOI) if we don't already have one
-        meta_updates = dict(parsed.meta_updates or {})
-        if not cap.meta.get("doi") and meta_updates.get("doi"):
-            cap.meta = {**(cap.meta or {}), "doi": meta_updates["doi"]}
+        # Merge any parser meta (e.g., DOI) if still missing
+        if parsed.meta_updates:
+            if not cap.meta.get("doi") and parsed.meta_updates.get("doi"):
+                cap.meta = {**cap.meta, "doi": parsed.meta_updates["doi"]}
+            else:
+                cap.meta = {**cap.meta, **{k: v for k, v in parsed.meta_updates.items() if k != "doi"}}
             cap.save(update_fields=["meta"])
 
         # Replace references if parser found any (Python becomes source of truth)
@@ -156,18 +176,23 @@ class CaptureViewSet(viewsets.ViewSet):
                 Reference(capture=cap, **r.to_model_kwargs()) for r in parsed.references
             ])
 
-        # Final snapshots
+        # ---- Final snapshots (post-parse) ----
         final_state = CaptureOutSerializer(cap).data
         write_json_artifact(cap.id, "parsed.json", final_state)
+
         server_view = {
             "id": cap.id,
             "url": cap.url,
             "meta": cap.meta,
             "reference_count": cap.references.count(),
             "references": [
-                {"id": r.ref_id, "title": r.title, "doi": r.doi, "container_title": r.container_title, "issued_year": r.issued_year}
+                {
+                    "id": r.ref_id, "title": r.title, "doi": r.doi,
+                    "container_title": r.container_title, "issued_year": r.issued_year
+                }
                 for r in cap.references.all()
-            ]
+            ],
+            "enriched": bool(enrichment_blob),
         }
         write_json_artifact(cap.id, "server_parsed.json", server_view)
 
@@ -177,6 +202,7 @@ class CaptureViewSet(viewsets.ViewSet):
             "raw_ingest": f"{base}/captures/{cap.id}/artifact/raw_ingest.json",
             "parsed_json": f"{base}/captures/{cap.id}/artifact/parsed.json",
             "server_parsed": f"{base}/captures/{cap.id}/artifact/server_parsed.json",
+            "enrichment": f"{base}/captures/{cap.id}/artifact/enrichment.json",
         }
 
         refs_qs = cap.references.all()[:3]
@@ -204,6 +230,34 @@ class CaptureViewSet(viewsets.ViewSet):
         data = [CaptureOutSerializer(c).data for c in qs[:limit]]
         return Response({"results": data, "count": qs.count()})
 
+# ---- Health & enrichment endpoints ----
+
 @api_view(["GET"])
 def healthz(_request):
-    return Response({"status":"ok"})
+    return Response({"status": "ok"})
+
+@api_view(["POST"])
+def enrich_doi(request, pk: str):
+    from django.shortcuts import get_object_or_404
+    cap = get_object_or_404(Capture, pk=pk)
+    doi = normalize_doi((cap.meta or {}).get("doi") or "")
+    if not doi:
+        dom_soup = BeautifulSoup(cap.dom_html or "", "html.parser")
+        head_doi = BaseParser.find_doi_in_meta(dom_soup)
+        doi = normalize_doi(head_doi or "")
+    if not doi:
+        return Response({"detail": "No DOI available to enrich."}, status=400)
+    blob = enrich_from_doi(doi)
+    if not blob or not blob.get("csl"):
+        return Response({"detail": "Enrichment failed or not found."}, status=502)
+
+    csl = blob["csl"]
+    cap.csl = csl or cap.csl
+    meta_up = csl_to_doc_meta(csl)
+    if meta_up.get("title"):
+        cap.title = meta_up["title"]
+    cap.meta = {**(cap.meta or {}), **meta_up}
+    cap.save(update_fields=["csl", "meta", "title"])
+
+    write_json_artifact(cap.id, "enrichment.json", blob)
+    return Response({"ok": True, "meta": cap.meta, "csl": cap.csl})

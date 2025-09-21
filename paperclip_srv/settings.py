@@ -65,5 +65,8 @@ REST_FRAMEWORK = {
 }
 
 # --- Artifacts ---
-# Folder where we write files like page.html and parsed.json
 ARTIFACTS_DIR = BASE_DIR / "artifacts"
+
+# --- DOI enrichment ---
+ENABLE_DOI_ENRICHMENT = True
+CROSSREF_MAILTO = "erick.samera@kpu.ca"
