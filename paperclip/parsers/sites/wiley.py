@@ -5,6 +5,10 @@ from ..base import BaseParser, ParseResult, ReferenceObj, DOI_RE
 class WileyParser(BaseParser):
     NAME = "Wiley"
     DOMAINS = ("onlinelibrary.wiley.com",)
+    ABSTRACT_SELECTORS = BaseParser.ABSTRACT_SELECTORS + (
+        "div.abstract-group div.article-section__content",
+        "section.article-section__abstract div.article-section__content",
+    )
 
     @classmethod
     def detect(cls, url: str, soup: BeautifulSoup) -> bool:
