@@ -465,6 +465,8 @@ class ScienceDirectParser(BaseParser):
                 html_fragments.append(fragment)
 
         html_content = "".join(html_fragments).strip()
+        if html_content:
+            html_content = cls._annotate_body_html(html_content)
         if not html_content and not children:
             return None
 
@@ -482,7 +484,8 @@ class ScienceDirectParser(BaseParser):
             text = str(node).strip()
             if not text:
                 return ""
-            return f"<p>{html.escape(text)}</p>"
+            fragment = f"<p>{html.escape(text)}</p>"
+            return cls._annotate_body_html(fragment)
         if not isinstance(node, Tag):
             return ""
         if node.name in {"script", "style"}:
@@ -493,8 +496,132 @@ class ScienceDirectParser(BaseParser):
             inner = node.decode_contents().strip()
             if not inner:
                 return ""
-            return f"<p>{inner}</p>"
+            fragment = f"<p>{inner}</p>"
+            return cls._annotate_body_html(fragment)
+        if node.name == "p":
+            return cls._annotate_body_html(node.decode().strip())
         return node.decode().strip()
+
+    @classmethod
+    def _annotate_body_html(cls, html_fragment: str) -> str:
+        if not html_fragment:
+            return html_fragment
+        soup = BeautifulSoup(f"<wrapper>{html_fragment}</wrapper>", "html.parser")
+        modified = False
+        for block in soup.wrapper.find_all(["p", "li"], recursive=True):
+            updated = cls._wrap_sentence_citations(block.decode_contents())
+            if updated != block.decode_contents():
+                block.clear()
+                replacement = BeautifulSoup(f"<wrapper>{updated}</wrapper>", "html.parser")
+                for child in list(replacement.wrapper.contents):
+                    block.append(child)
+                modified = True
+        if not modified:
+            return html_fragment
+        return soup.wrapper.decode_contents()
+
+    @classmethod
+    def _wrap_sentence_citations(cls, html_fragment: str) -> str:
+        if not html_fragment:
+            return html_fragment
+
+        tag_pattern = re.compile(r"<[^>]+>")
+        tags: list[str] = []
+
+        def _store_tag(match: re.Match[str]) -> str:
+            tags.append(match.group(0))
+            return f"@@TAG{len(tags) - 1}@@"
+
+        tokenised = tag_pattern.sub(_store_tag, html_fragment)
+        sentences = cls._split_sentences(tokenised)
+        if not sentences:
+            return html_fragment
+
+        rebuilt: list[str] = []
+        for sentence in sentences:
+            refs = cls._extract_sentence_references(sentence, tags)
+            restored = cls._restore_tokens(sentence, tags)
+            if refs:
+                leading_ws = re.match(r"^\s*", restored)
+                trailing_ws = re.search(r"\s*$", restored)
+                leading = leading_ws.group(0) if leading_ws else ""
+                trailing = trailing_ws.group(0) if trailing_ws else ""
+                core = restored[len(leading): len(restored) - len(trailing) if trailing else len(restored)]
+                span = f'<span data-citation-refs="{" ".join(refs)}">{core}</span>'
+                rebuilt.append(f"{leading}{span}{trailing}")
+            else:
+                rebuilt.append(restored)
+        return "".join(rebuilt)
+
+    @staticmethod
+    def _restore_tokens(text: str, tags: list[str]) -> str:
+        if not text:
+            return text
+        return re.sub(r"@@TAG(\d+)@@", lambda m: tags[int(m.group(1))], text)
+
+    @classmethod
+    def _extract_sentence_references(cls, sentence: str, tags: list[str]) -> list[str]:
+        refs: list[str] = []
+        seen: set[str] = set()
+        for match in re.finditer(r"@@TAG(\d+)@@", sentence):
+            tag_index = int(match.group(1))
+            tag_text = tags[tag_index]
+            ref_id = cls._reference_id_from_tag(tag_text)
+            if not ref_id or ref_id in seen:
+                continue
+            seen.add(ref_id)
+            refs.append(ref_id)
+        return refs
+
+    @staticmethod
+    def _reference_id_from_tag(tag_text: str) -> Optional[str]:
+        if not tag_text.lower().startswith("<a"):
+            return None
+        href_match = re.search(r'href="#([^"#]+)"', tag_text, flags=re.I)
+        if href_match:
+            candidate = href_match.group(1).strip()
+            if candidate and "bib" in candidate.lower():
+                return candidate
+        data_id_match = re.search(r'data-xocs-content-id="([^"#]+)"', tag_text, flags=re.I)
+        if data_id_match:
+            candidate = data_id_match.group(1).strip()
+            if candidate and "bib" in candidate.lower():
+                return candidate
+        name_match = re.search(r'name="([^"#]+)"', tag_text, flags=re.I)
+        if name_match:
+            candidate = name_match.group(1).strip()
+            if candidate and "bib" in candidate.lower():
+                return candidate
+        return None
+
+    @staticmethod
+    def _split_sentences(text: str) -> list[str]:
+        sentences: list[str] = []
+        start = 0
+        length = len(text)
+        i = 0
+        while i < length:
+            char = text[i]
+            if char in ".?!":
+                j = i + 1
+                while j < length and text[j] in ")\"]":
+                    j += 1
+                next_char = text[j] if j < length else ""
+                next_token = text[j:j + 6]
+                if j >= length or next_char.isspace() or next_token.startswith("@@TAG"):
+                    segment = text[start:j]
+                    if segment:
+                        sentences.append(segment)
+                    while j < length and text[j].isspace():
+                        sentences.append(text[j])
+                        j += 1
+                    start = j
+                    i = j
+                    continue
+            i += 1
+        if start < length:
+            sentences.append(text[start:])
+        return sentences
 
     @classmethod
     def _is_sciencedirect_section(cls, node: Tag) -> bool:

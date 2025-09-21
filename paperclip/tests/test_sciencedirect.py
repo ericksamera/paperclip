@@ -156,6 +156,37 @@ EXPECTED_BODY_SECTIONS = [
 ]
 
 
+SCIENCEDIRECT_BODY_WITH_CITATIONS_HTML = """
+<html>
+  <body>
+    <section class="Sections" id="body0010">
+      <section id="cesec10">
+        <h2 class="u-h4">Background</h2>
+        <div class="u-margin-s-bottom" id="para10">
+          Infectious diseases impact productivity (<a class="anchor" href="#bib48" data-xocs-content-id="bib48">Hernandez et al., 2001</a>; <a class="anchor" href="#bib22" data-xocs-content-id="bib22">Chi et al., 2002</a>; <a class="anchor" href="#bib80" data-xocs-content-id="bib80">Ott et al., 2003</a>). In addition, consumer concerns remain (<a class="anchor" href="#bib16" data-xocs-content-id="bib16">Bharti et al., 2003</a>; <a class="anchor" href="#bib8" data-xocs-content-id="bib8">Barkema et al., 2015</a>). Although emerging outbreaks draw attention (<a class="anchor" href="#bib108" data-xocs-content-id="bib108">Wierup, 2012</a>). Several important endemic diseases remain major challenges.
+        </div>
+      </section>
+    </section>
+  </body>
+</html>
+"""
+
+
+EXPECTED_BODY_WITH_CITATIONS = [
+    {
+        "title": "Background",
+        "html": (
+            "<p><span data-citation-refs=\"bib48 bib22 bib80\">Infectious diseases impact productivity (<a class=\"anchor\" href=\"#bib48\" data-xocs-content-id=\"bib48\">Hernandez et al., 2001</a>; "
+            "<a class=\"anchor\" href=\"#bib22\" data-xocs-content-id=\"bib22\">Chi et al., 2002</a>; <a class=\"anchor\" href=\"#bib80\" data-xocs-content-id=\"bib80\">Ott et al., 2003</a>).</span> "
+            "<span data-citation-refs=\"bib16 bib8\">In addition, consumer concerns remain (<a class=\"anchor\" href=\"#bib16\" data-xocs-content-id=\"bib16\">Bharti et al., 2003</a>; "
+            "<a class=\"anchor\" href=\"#bib8\" data-xocs-content-id=\"bib8\">Barkema et al., 2015</a>).</span> "
+            "<span data-citation-refs=\"bib108\">Although emerging outbreaks draw attention (<a class=\"anchor\" href=\"#bib108\" data-xocs-content-id=\"bib108\">Wierup, 2012</a>).</span> "
+            "Several important endemic diseases remain major challenges.</p>"
+        ),
+    }
+]
+
+
 def test_extracts_expected_abstract() -> None:
     soup = BeautifulSoup(SCIENCEDIRECT_SAMPLE_HTML, "html.parser")
     abstract = ScienceDirectParser._extract_abstract(soup)
@@ -189,6 +220,12 @@ def test_extracts_body_sections() -> None:
     url = "https://www.sciencedirect.com/science/article/pii/S9876543210987654"
     parsed = parse_html(url, SCIENCEDIRECT_BODY_HTML)
     assert parsed.content_sections["body"] == EXPECTED_BODY_SECTIONS
+
+
+def test_body_sentences_include_reference_annotations() -> None:
+    url = "https://www.sciencedirect.com/science/article/pii/S2468135799999999"
+    parsed = parse_html(url, SCIENCEDIRECT_BODY_WITH_CITATIONS_HTML)
+    assert parsed.content_sections["body"] == EXPECTED_BODY_WITH_CITATIONS
 
 
 SCIENCEDIRECT_REFERENCES_HTML = """
