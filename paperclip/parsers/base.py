@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Tuple
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, Tag, NavigableString
 import re, json
 from urllib.parse import urlparse
 
@@ -174,6 +174,14 @@ class ParseResult:
 class BaseParser:
     DOMAINS: Tuple[str, ...] = tuple()
     NAME: str = "Generic"
+    ABSTRACT_SELECTORS: Tuple[str, ...] = (
+        "section.abstract",
+        "section#abstract",
+        "section#abstracts div.abstract",
+        "div.abstract.author",
+        "div#abstract",
+        "div.abstract",
+    )
 
     @classmethod
     def matches_domain(cls, url: str) -> bool:
@@ -187,13 +195,69 @@ class BaseParser:
     @classmethod
     def parse(cls, url: str, soup: BeautifulSoup) -> ParseResult:
         refs = cls._harvest_references_generic(soup)
-        return ParseResult(meta_updates={}, references=refs, figures=[], tables=[])
+        meta_updates = cls._build_meta_updates(soup)
+        return ParseResult(meta_updates=meta_updates, references=refs, figures=[], tables=[])
 
     # ---- shared helpers ----
 
     @staticmethod
     def _text(el: Optional[Tag]) -> str:
         return (el.get_text(" ", strip=True) if el else "").strip()
+
+    @classmethod
+    def _build_meta_updates(cls, soup: BeautifulSoup) -> Dict[str, Any]:
+        meta_updates: Dict[str, Any] = {}
+        abstract = cls._extract_abstract(soup)
+        if abstract:
+            meta_updates["abstract"] = abstract
+        return meta_updates
+
+    @classmethod
+    def _extract_abstract(cls, soup: BeautifulSoup) -> str:
+        seen: set[int] = set()
+        for selector in cls.ABSTRACT_SELECTORS:
+            for node in soup.select(selector):
+                ident = id(node)
+                if ident in seen:
+                    continue
+                seen.add(ident)
+                if cls._should_skip_abstract_candidate(node):
+                    continue
+                text = cls._abstract_from_node(node)
+                if text:
+                    return text
+        return ""
+
+    @classmethod
+    def _should_skip_abstract_candidate(cls, node: Tag) -> bool:
+        return False
+
+    @classmethod
+    def _abstract_from_node(cls, node: Tag) -> str:
+        text = node.get_text(" ", strip=True)
+        if not text:
+            return ""
+        heading = cls._leading_heading(node)
+        if heading:
+            head_text = heading.get_text(" ", strip=True)
+            if head_text:
+                stripped = text.lstrip()
+                if stripped.upper().startswith(head_text.upper()):
+                    text = stripped[len(head_text):].strip()
+        return " ".join(text.split())
+
+    @staticmethod
+    def _leading_heading(node: Tag) -> Optional[Tag]:
+        for child in node.children:
+            if isinstance(child, NavigableString):
+                if child.strip():
+                    break
+                continue
+            if child.name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+                return child
+            if child.get_text(" ", strip=True):
+                break
+        return None
 
     @staticmethod
     def _find_reference_lists(soup: BeautifulSoup) -> List[Tag]:

@@ -34,7 +34,7 @@ class OUPParser(BaseParser):
         if not refs:
             refs = cls._harvest_references_generic(soup)
 
-        meta_updates = {}
+        meta_updates = cls._build_meta_updates(soup)
         doi = cls.find_doi_in_meta(soup)
         if doi: meta_updates["doi"] = doi
         return ParseResult(meta_updates=meta_updates, references=refs, figures=[], tables=[])

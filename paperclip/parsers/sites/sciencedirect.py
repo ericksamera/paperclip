@@ -1,5 +1,5 @@
 from __future__ import annotations
-from bs4 import BeautifulSoup, Tag, NavigableString
+from bs4 import BeautifulSoup, Tag
 from ..base import BaseParser, ParseResult, ReferenceObj, DOI_RE
 
 class ScienceDirectParser(BaseParser):
@@ -44,68 +44,16 @@ class ScienceDirectParser(BaseParser):
         if not refs:
             refs = cls._harvest_references_generic(soup)
 
-        meta_updates = {}
+        meta_updates = cls._build_meta_updates(soup)
         doi = cls.find_doi_in_meta(soup)
-        if doi: meta_updates["doi"] = doi
-        abstract = cls._extract_abstract(soup)
-        if abstract:
-            meta_updates["abstract"] = abstract
+        if doi:
+            meta_updates["doi"] = doi
         return ParseResult(meta_updates=meta_updates, references=refs, figures=[], tables=[])
 
     @classmethod
-    def _extract_abstract(cls, soup: BeautifulSoup) -> str:
-        selectors = [
-            "div.abstract.author",
-            "section.abstract",
-            "section#abstract",
-            "section#abstracts div.abstract",
-            "div#abstract",
-            "div.abstract",
-        ]
-        seen = set()
-        for sel in selectors:
-            for node in soup.select(sel):
-                ident = id(node)
-                if ident in seen:
-                    continue
-                seen.add(ident)
-                text = cls._abstract_from_node(node)
-                if text:
-                    return text
-        return ""
-
-    @classmethod
-    def _abstract_from_node(cls, node: Tag) -> str:
-        if cls._should_skip_candidate(node):
-            return ""
-        text = node.get_text(" ", strip=True)
-        if not text:
-            return ""
-        heading = cls._leading_heading(node)
-        if heading:
-            head_text = heading.get_text(" ", strip=True)
-            if head_text:
-                upper_text = text.lstrip()
-                if upper_text.upper().startswith(head_text.upper()):
-                    text = upper_text[len(head_text):].strip()
-        text = " ".join(text.split())
-        return text
-
-    @staticmethod
-    def _leading_heading(node: Tag) -> Tag | None:
-        for child in node.children:
-            if isinstance(child, NavigableString):
-                if child.strip():
-                    break
-                continue
-            if child.name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
-                return child
-            if child.get_text(" ", strip=True):
-                break
-        return None
-
-    @classmethod
-    def _should_skip_candidate(cls, node: Tag) -> bool:
+    def _should_skip_abstract_candidate(cls, node: Tag) -> bool:
+        if super()._should_skip_abstract_candidate(node):
+            return True
         classes = {
             value.lower()
             for value in (node.get("class") or [])
