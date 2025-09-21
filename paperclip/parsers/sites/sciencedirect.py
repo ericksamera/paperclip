@@ -1,4 +1,6 @@
 from __future__ import annotations
+from typing import List
+
 from bs4 import BeautifulSoup, Tag
 from ..base import BaseParser, ParseResult, ReferenceObj, DOI_RE
 
@@ -58,6 +60,14 @@ class ScienceDirectParser(BaseParser):
         )
 
     @classmethod
+    def _build_content_sections(cls, soup: BeautifulSoup) -> dict:
+        content = super()._build_content_sections(soup)
+        keywords = cls._extract_keywords(soup)
+        if keywords:
+            content["keywords"] = keywords
+        return content
+
+    @classmethod
     def _should_skip_abstract_candidate(cls, node: Tag) -> bool:
         if super()._should_skip_abstract_candidate(node):
             return True
@@ -82,3 +92,36 @@ class ScienceDirectParser(BaseParser):
             if heading_text.startswith("graphical summary"):
                 return True
         return False
+
+    @classmethod
+    def _extract_keywords(cls, soup: BeautifulSoup) -> List[str]:
+        keywords: List[str] = []
+        seen = set()
+        containers = soup.select(
+            "div.Keywords, section.Keywords, div.keywords-section, section.keywords-section"
+        )
+        if not containers:
+            containers = soup.select("div.keyword, span.keyword, li.keyword")
+            # When selecting keyword nodes directly, wrap them to iterate below.
+            containers = [node.parent or node for node in containers]
+        uniq_containers = []
+        seen_containers = set()
+        for container in containers:
+            if not isinstance(container, Tag):
+                continue
+            ident = id(container)
+            if ident in seen_containers:
+                continue
+            seen_containers.add(ident)
+            uniq_containers.append(container)
+        for container in uniq_containers:
+            for node in container.select(":scope div.keyword, :scope span.keyword, :scope li.keyword"):
+                text = cls._text(node)
+                if not text:
+                    continue
+                key = text.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                keywords.append(text)
+        return keywords

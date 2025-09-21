@@ -46,6 +46,17 @@ SCIENCEDIRECT_SAMPLE_HTML = """
         </div>
       </div>
     </div>
+    <div class="Keywords u-font-serif">
+      <div class="keywords-section" id="cekeyws10">
+        <h2 class="section-title u-h4 u-margin-l-top u-margin-xs-bottom">Key words</h2>
+        <div class="keyword" id="cekeyw10"><span>bovine leukosis</span></div>
+        <div class="keyword" id="cekeyw20"><span>neosporosis</span></div>
+        <div class="keyword" id="cekeyw30"><span><em>Salmonella</em> Dublin</span></div>
+        <div class="keyword" id="cekeyw40"><span>dairy farms</span></div>
+        <div class="keyword" id="cekeyw50"><span>surveillance</span></div>
+        <div class="keyword" id="cekeyw60"><span>prevalence</span></div>
+      </div>
+    </div>
   </body>
 </html>
 """
@@ -78,11 +89,26 @@ EXPECTED_ABSTRACT = (
     "inform investigations of within-herd prevalence of these infections and help in devising evidence-based disease control strategies."
 )
 
+EXPECTED_KEYWORDS = [
+    "bovine leukosis",
+    "neosporosis",
+    "Salmonella Dublin",
+    "dairy farms",
+    "surveillance",
+    "prevalence",
+]
+
 
 def test_extracts_expected_abstract() -> None:
     soup = BeautifulSoup(SCIENCEDIRECT_SAMPLE_HTML, "html.parser")
     abstract = ScienceDirectParser._extract_abstract(soup)
     assert abstract == EXPECTED_ABSTRACT
+
+
+def test_extracts_keywords() -> None:
+    soup = BeautifulSoup(SCIENCEDIRECT_SAMPLE_HTML, "html.parser")
+    keywords = ScienceDirectParser._extract_keywords(soup)
+    assert keywords == EXPECTED_KEYWORDS
 
 
 def test_content_sections_include_abstract_for_server_view() -> None:
@@ -99,3 +125,4 @@ def test_content_sections_include_abstract_for_server_view() -> None:
             meta[key] = value
     assert "abstract" not in meta
     assert parsed.content_sections["abstract"] == EXPECTED_ABSTRACT
+    assert parsed.content_sections["keywords"] == EXPECTED_KEYWORDS
