@@ -1,16 +1,18 @@
 from __future__ import annotations
+import html
 import re
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from urllib.parse import parse_qsl, urlparse
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 from ..base import BaseParser, ReferenceObj, DOI_RE
 
 class ScienceDirectParser(BaseParser):
     NAME = "ScienceDirect"
     DOMAINS = ("sciencedirect.com", "elsevier.com")
+    SECTION_ID_RE = re.compile(r"^cesec", re.I)
 
     @classmethod
     def detect(cls, url: str, soup: BeautifulSoup) -> bool:
@@ -376,3 +378,127 @@ class ScienceDirectParser(BaseParser):
             if heading_text.startswith("graphical summary"):
                 return True
         return False
+
+    @classmethod
+    def _build_content_sections(cls, soup: BeautifulSoup) -> dict[str, Any]:
+        content = super()._build_content_sections(soup)
+        body_sections = cls._extract_body_sections(soup)
+        if body_sections:
+            content["body"] = body_sections
+        return content
+
+    @classmethod
+    def _extract_body_sections(cls, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        body_root = cls._locate_body_root(soup)
+        sections: list[Tag] = []
+        if body_root:
+            for child in body_root.find_all("section", recursive=False):
+                if cls._is_sciencedirect_section(child):
+                    sections.append(child)
+        if not sections:
+            for candidate in soup.select("section[id]"):
+                if not cls._is_sciencedirect_section(candidate):
+                    continue
+                if any(
+                    isinstance(parent, Tag)
+                    and parent is not candidate
+                    and cls._is_sciencedirect_section(parent)
+                    for parent in candidate.parents
+                ):
+                    continue
+                sections.append(candidate)
+        results: list[dict[str, Any]] = []
+        for idx, section in enumerate(sections, start=1):
+            built = cls._build_body_section(section, fallback_title=f"Section {idx}")
+            if built:
+                results.append(built)
+        return results
+
+    @classmethod
+    def _locate_body_root(cls, soup: BeautifulSoup) -> Optional[Tag]:
+        selectors = [
+            "section.Sections",
+            "section.article-body",
+            "section[id^='body']",
+            "div.article-body",
+        ]
+        for selector in selectors:
+            node = soup.select_one(selector)
+            if isinstance(node, Tag):
+                return node
+        return None
+
+    @classmethod
+    def _build_body_section(cls, node: Tag, fallback_title: Optional[str]) -> Optional[dict[str, Any]]:
+        heading = cls._leading_heading(node)
+        title = cls._text(heading) if heading else None
+        title = title or fallback_title or (node.get("id") or "").strip() or None
+
+        html_fragments: list[str] = []
+        children: list[dict[str, Any]] = []
+        subsection_index = 1
+
+        for child in node.children:
+            if isinstance(child, NavigableString):
+                fragment = cls._normalise_body_html(child)
+                if fragment:
+                    html_fragments.append(fragment)
+                continue
+            if not isinstance(child, Tag):
+                continue
+            if heading and child is heading:
+                continue
+            if cls._is_sciencedirect_section(child):
+                child_fallback = None
+                if title or fallback_title:
+                    basis = title or fallback_title or "Section"
+                    child_fallback = f"{basis} {subsection_index}"
+                else:
+                    child_fallback = f"Section {subsection_index}"
+                subsection_index += 1
+                built_child = cls._build_body_section(child, child_fallback)
+                if built_child:
+                    children.append(built_child)
+                continue
+            fragment = cls._normalise_body_html(child)
+            if fragment:
+                html_fragments.append(fragment)
+
+        html_content = "".join(html_fragments).strip()
+        if not html_content and not children:
+            return None
+
+        data: dict[str, Any] = {
+            "title": title or fallback_title or "",
+            "html": html_content,
+        }
+        if children:
+            data["children"] = children
+        return data
+
+    @classmethod
+    def _normalise_body_html(cls, node: Tag | NavigableString) -> str:
+        if isinstance(node, NavigableString):
+            text = str(node).strip()
+            if not text:
+                return ""
+            return f"<p>{html.escape(text)}</p>"
+        if not isinstance(node, Tag):
+            return ""
+        if node.name in {"script", "style"}:
+            return ""
+        if cls._is_sciencedirect_section(node):
+            return ""
+        if node.name == "div":
+            inner = node.decode_contents().strip()
+            if not inner:
+                return ""
+            return f"<p>{inner}</p>"
+        return node.decode().strip()
+
+    @classmethod
+    def _is_sciencedirect_section(cls, node: Tag) -> bool:
+        if node.name != "section":
+            return False
+        ident = node.get("id") or ""
+        return bool(ident and cls.SECTION_ID_RE.search(ident))

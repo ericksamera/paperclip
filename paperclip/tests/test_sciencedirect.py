@@ -106,6 +106,56 @@ EXPECTED_KEYWORDS = [
 ]
 
 
+SCIENCEDIRECT_BODY_HTML = """
+<html>
+  <body>
+    <section class="Sections" id="body0010">
+      <section id="cesec10">
+        <h2 class="u-h4">Introduction</h2>
+        <div class="u-margin-s-bottom" id="para10">First paragraph with <em>emphasis</em>.</div>
+        <div class="u-margin-s-bottom" id="para20">Second paragraph.</div>
+      </section>
+      <section id="cesec20">
+        <h2 class="u-h4">Methods</h2>
+        <div class="u-margin-s-bottom">Overview paragraph.</div>
+        <section id="cesec20s0005">
+          <h3>Sampling</h3>
+          <div>Sampling details.</div>
+        </section>
+        <section id="cesec20s0010">
+          <h3>Analysis</h3>
+          <div>Analysis paragraph.</div>
+        </section>
+      </section>
+      <section id="cesec30">
+        <div class="u-margin-s-bottom">Paragraph without a heading.</div>
+      </section>
+    </section>
+  </body>
+</html>
+"""
+
+
+EXPECTED_BODY_SECTIONS = [
+    {
+        "title": "Introduction",
+        "html": "<p>First paragraph with <em>emphasis</em>.</p><p>Second paragraph.</p>",
+    },
+    {
+        "title": "Methods",
+        "html": "<p>Overview paragraph.</p>",
+        "children": [
+            {"title": "Sampling", "html": "<p>Sampling details.</p>"},
+            {"title": "Analysis", "html": "<p>Analysis paragraph.</p>"},
+        ],
+    },
+    {
+        "title": "Section 3",
+        "html": "<p>Paragraph without a heading.</p>",
+    },
+]
+
+
 def test_extracts_expected_abstract() -> None:
     soup = BeautifulSoup(SCIENCEDIRECT_SAMPLE_HTML, "html.parser")
     abstract = ScienceDirectParser._extract_abstract(soup)
@@ -133,6 +183,12 @@ def test_content_sections_include_abstract_for_server_view() -> None:
     assert "abstract" not in meta
     assert parsed.content_sections["abstract"] == EXPECTED_ABSTRACT
     assert parsed.content_sections["keywords"] == EXPECTED_KEYWORDS
+
+
+def test_extracts_body_sections() -> None:
+    url = "https://www.sciencedirect.com/science/article/pii/S9876543210987654"
+    parsed = parse_html(url, SCIENCEDIRECT_BODY_HTML)
+    assert parsed.content_sections["body"] == EXPECTED_BODY_SECTIONS
 
 
 SCIENCEDIRECT_REFERENCES_HTML = """
