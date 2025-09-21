@@ -1,4 +1,6 @@
 import uuid
+from typing import Any, Callable, Iterable
+
 from bs4 import BeautifulSoup
 from django.conf import settings
 from rest_framework import serializers, viewsets, status
@@ -8,7 +10,7 @@ from django.http import HttpRequest
 from .models import Capture, Reference
 from .artifacts import write_text_artifact, write_json_artifact
 from .parsers import parse_with_fallback
-from .parsers.base import BaseParser
+from .parsers.base import BaseParser, ReferenceObj
 from .services.doi import enrich_from_doi, csl_to_doc_meta, normalize_doi
 
 
@@ -19,6 +21,52 @@ def _reference_to_server_view(ref: dict) -> dict:
     if "id" not in ref_copy:
         ref_copy["id"] = ref_copy.get("ref_id")
     return ref_copy
+
+
+def _reference_needs_enrichment(ref: ReferenceObj) -> bool:
+    return any(
+        (
+            not ref.title,
+            not ref.authors,
+            not ref.container_title,
+            not ref.issued_year,
+            not ref.volume,
+            not ref.issue,
+            not ref.pages,
+            not ref.publisher,
+            not ref.url,
+        )
+    )
+
+
+def _enrich_reference_objs_with_doi(
+    references: Iterable[ReferenceObj],
+    fetcher: Callable[[str], Any] = enrich_from_doi,
+) -> None:
+    """Populate missing structured fields for references that expose a DOI."""
+
+    if not getattr(settings, "ENABLE_REFERENCE_DOI_ENRICHMENT", True):
+        return
+
+    cache: dict[str, Any] = {}
+    missing = object()
+
+    for ref in references:
+        doi_norm = normalize_doi(ref.doi or "")
+        if not doi_norm or not _reference_needs_enrichment(ref):
+            continue
+
+        blob = cache.get(doi_norm, missing)
+        if blob is missing:
+            blob = fetcher(doi_norm)
+            cache[doi_norm] = blob
+
+        if not blob:
+            continue
+
+        csl = blob.get("csl") if isinstance(blob, dict) else None
+        if csl:
+            ref.merge_csl(csl)
 
 # ---------- Serializers ----------
 
@@ -179,6 +227,7 @@ class CaptureViewSet(viewsets.ViewSet):
 
         # Replace references if parser found any (Python becomes source of truth)
         if parsed.references:
+            _enrich_reference_objs_with_doi(parsed.references)
             cap.references.all().delete()
             Reference.objects.bulk_create([
                 Reference(capture=cap, **r.to_model_kwargs()) for r in parsed.references
