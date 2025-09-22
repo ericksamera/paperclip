@@ -115,6 +115,38 @@ def test_content_sections_to_markdown_paragraphs_simplifies_structure() -> None:
     }
 
 
+def test_content_sections_to_markdown_paragraphs_uses_sentence_fallback() -> None:
+    content = {
+        "body": [
+            {
+                "title": "Fallback",
+                "paragraphs": [
+                    {
+                        "markdown": "",
+                        "sentences": [
+                            {"markdown": "Sentence one."},
+                            {"markdown": "Sentence two."},
+                        ],
+                    },
+                    {"sentences": ["Trailing sentence."]},
+                ],
+            }
+        ]
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["body"] == [
+        {
+            "title": "Fallback",
+            "paragraphs": [
+                "Sentence one. Sentence two.",
+                "Trailing sentence.",
+            ],
+        }
+    ]
+
+
 def test_build_reduced_capture_view_orders_metadata_and_references() -> None:
     content = {
         "abstract": [

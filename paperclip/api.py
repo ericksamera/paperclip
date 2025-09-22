@@ -218,11 +218,34 @@ def _content_sections_to_markdown_paragraphs(
         if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
             for entry in raw:
                 if isinstance(entry, Mapping):
-                    text = entry.get("markdown")
-                    if isinstance(text, str):
-                        stripped = text.strip()
-                        if stripped:
-                            paragraphs.append(stripped)
+                    text: str | None = None
+
+                    markdown = entry.get("markdown")
+                    if isinstance(markdown, str):
+                        candidate = markdown.strip()
+                        if candidate:
+                            text = candidate
+
+                    if text is None:
+                        sentences_raw = entry.get("sentences")
+                        if isinstance(sentences_raw, Iterable) and not isinstance(
+                            sentences_raw, (str, bytes)
+                        ):
+                            sentence_chunks: list[str] = []
+                            for sentence in sentences_raw:
+                                if isinstance(sentence, Mapping):
+                                    fragment = sentence.get("markdown")
+                                else:
+                                    fragment = sentence
+                                if isinstance(fragment, str):
+                                    stripped_fragment = fragment.strip()
+                                    if stripped_fragment:
+                                        sentence_chunks.append(stripped_fragment)
+                            if sentence_chunks:
+                                text = " ".join(sentence_chunks).strip()
+
+                    if text:
+                        paragraphs.append(text)
                 elif isinstance(entry, str):
                     stripped = entry.strip()
                     if stripped:
