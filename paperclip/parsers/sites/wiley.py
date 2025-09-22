@@ -60,19 +60,138 @@ class WileyBodyExtractor(BodyExtractor):
                 results.append(built)
         return results
 
+    @staticmethod
+    def _leading_heading(node: Tag) -> Tag | None:
+        heading = BaseParser._leading_heading(node)
+        if heading:
+            return heading
+
+        heading = node.find(
+            lambda tag: isinstance(tag, Tag)
+            and tag.name in {"h1", "h2", "h3", "h4", "h5", "h6"}
+            and any(
+                isinstance(value, str)
+                and (
+                    "section__title" in value.lower()
+                    or "section__subtitle" in value.lower()
+                    or value.lower().startswith("article-section__title")
+                )
+                for value in (tag.get("class") or [])
+            )
+        )
+        if heading:
+            return heading
+
+        visited: set[str] = set()
+        current: Tag | None = node
+        while isinstance(current, Tag):
+            labelled = current.get("aria-labelledby")
+            if isinstance(labelled, str):
+                for token in labelled.split():
+                    identifier = token.strip()
+                    if not identifier or identifier in visited:
+                        continue
+                    visited.add(identifier)
+                    scope: Tag | None = current
+                    while isinstance(scope, Tag):
+                        found = scope.find(id=identifier)
+                        if isinstance(found, Tag):
+                            return found
+                        scope = scope.parent if isinstance(scope.parent, Tag) else None
+            current = current.parent if isinstance(current.parent, Tag) else None
+
+        return None
+
     def _content_root(self, node: Tag) -> Tag:  # type: ignore[override]
-        if node.name != "section":
+        if node.name == "section":
+            for child in node.find_all(True, recursive=False):
+                classes = {
+                    value.lower()
+                    for value in (child.get("class") or [])
+                    if isinstance(value, str)
+                }
+                if child.name == "div" and any(
+                    class_name.startswith("article-section__content")
+                    or class_name.startswith("article-section__full")
+                    or class_name.startswith("article-section__body")
+                    for class_name in classes
+                ):
+                    return self._content_root(child)
             return node
+
+        classes = {
+            value.lower() for value in (node.get("class") or []) if isinstance(value, str)
+        }
+        data_locator = node.get("data-test-locator") or node.get("data-testid")
+        candidate_children: list[Tag] = []
+
         for child in node.find_all(True, recursive=False):
-            if child.name != "div":
+            if not isinstance(child, Tag):
                 continue
-            classes = {
+            child_classes = {
                 value.lower()
                 for value in (child.get("class") or [])
                 if isinstance(value, str)
             }
-            if any(class_name.startswith("article-section__content") for class_name in classes):
-                return child
+            child_data_locator = child.get("data-test-locator") or child.get("data-testid")
+            child_locator = child_data_locator.lower() if isinstance(child_data_locator, str) else ""
+            if any(
+                class_name.startswith("article-section__content")
+                or class_name.startswith("article-section__full")
+                or class_name.startswith("article-section__sub-content")
+                or class_name.startswith("accordion__panel-body")
+                for class_name in child_classes
+            ) or (child_locator and "article-section" in child_locator):
+                candidate_children.append(child)
+
+        if not candidate_children and isinstance(data_locator, str):
+            locator = data_locator.lower()
+            if "article-section" in locator:
+                for descendant in node.find_all(True):
+                    if not isinstance(descendant, Tag):
+                        continue
+                    descendant_classes = {
+                        value.lower()
+                        for value in (descendant.get("class") or [])
+                        if isinstance(value, str)
+                    }
+                    descendant_data = descendant.get("data-test-locator") or descendant.get("data-testid")
+                    descendant_locator = descendant_data.lower() if isinstance(descendant_data, str) else ""
+                    if any(
+                        class_name.startswith("article-section__content")
+                        or class_name.startswith("article-section__full")
+                        or class_name.startswith("article-section__sub-content")
+                        or class_name.startswith("accordion__panel-body")
+                        for class_name in descendant_classes
+                    ) or (descendant_locator and "article-section" in descendant_locator):
+                        candidate_children.append(descendant)
+                        break
+
+        for child in candidate_children:
+            return self._content_root(child)
+
+        if "accordion__panel" in classes:
+            body = node.find(
+                lambda tag: isinstance(tag, Tag)
+                and (
+                    "accordion__panel-body" in {
+                        value.lower()
+                        for value in (tag.get("class") or [])
+                        if isinstance(value, str)
+                    }
+                    or (
+                        isinstance(tag.get("data-test-locator"), str)
+                        and "article-section" in tag.get("data-test-locator").lower()
+                    )
+                    or (
+                        isinstance(tag.get("data-testid"), str)
+                        and "article-section" in tag.get("data-testid").lower()
+                    )
+                )
+            )
+            if isinstance(body, Tag):
+                return self._content_root(body)
+
         return node
 
     def _locate_body_root(self, soup: BeautifulSoup) -> Tag | None:  # type: ignore[override]
@@ -171,7 +290,7 @@ class WileyParser(BaseParser):
             cls._body_extractor = WileyBodyExtractor(
                 citation_annotator=SentenceCitationAnnotator(),
                 section_predicate=cls._is_wiley_section,
-                heading_finder=BaseParser._leading_heading,
+                heading_finder=WileyBodyExtractor._leading_heading,
             )
         return cls._body_extractor
 

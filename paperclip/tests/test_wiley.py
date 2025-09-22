@@ -208,6 +208,46 @@ WILEY_ACCORDION_BODY_HTML = """
 """
 
 
+WILEY_ACCORDION_WITH_HEADER_HTML = """
+<html>
+  <body>
+    <div id="pb-page-content">
+      <div class="accordion" id="article-sections">
+        <div class="accordion__panel" data-testid="article-section">
+          <div class="accordion__panel-header">
+            <button class="accordion__panel-title" id="sec-a-title">Introduction</button>
+          </div>
+          <div
+            class="accordion__panel-body"
+            id="sec-a"
+            aria-labelledby="sec-a-title"
+            data-test-locator="article-section-content"
+          >
+            <div class="article-section__content">
+              <p>The introductory panel content describes the study background.</p>
+            </div>
+          </div>
+        </div>
+        <div class="accordion__panel" data-testid="article-section">
+          <div class="accordion__panel-header">
+            <button class="accordion__panel-title" id="sec-b-title">SimRAD workflow and functions</button>
+          </div>
+          <div class="accordion__panel-body" id="sec-b" aria-labelledby="sec-b-title">
+            <div class="accordion__panel-content">
+              <section class="article-section__content" id="men12273-sec-0002">
+                <h2 class="article-section__title section__title">SimRAD workflow and functions</h2>
+                <p>A subsample or the full reference genome sequence of a species can be used to simulate restriction enzyme digestion.</p>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+"""
+
+
 def test_wiley_parser_extracts_abstract_from_article_section() -> None:
     soup = BeautifulSoup(WILEY_SAMPLE_HTML, "html.parser")
     abstract = WileyParser._extract_abstract(soup)
@@ -329,3 +369,29 @@ def test_wiley_parser_handles_accordion_panels() -> None:
         for paragraph in results_paragraphs
     )
 
+
+def test_wiley_parser_handles_accordion_header_titles() -> None:
+    url = "https://onlinelibrary.wiley.com/doi/10.1002/example"
+    parsed = parse_html(url, WILEY_ACCORDION_WITH_HEADER_HTML)
+    body = parsed.content_sections["body"]
+    assert body
+    titles = {section.get("title", "").strip() for section in body}
+    assert {"Introduction", "SimRAD workflow and functions"}.issubset(titles)
+
+    intro = next(section for section in body if section.get("title", "").strip() == "Introduction")
+    intro_paragraphs = intro.get("paragraphs") or []
+    assert any(
+        "study background" in paragraph.get("markdown", "")
+        for paragraph in intro_paragraphs
+    )
+
+    workflow = next(
+        section
+        for section in body
+        if section.get("title", "").strip() == "SimRAD workflow and functions"
+    )
+    workflow_paragraphs = workflow.get("paragraphs") or []
+    assert any(
+        "full reference genome sequence" in paragraph.get("markdown", "")
+        for paragraph in workflow_paragraphs
+    )
