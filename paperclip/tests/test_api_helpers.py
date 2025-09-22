@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import threading
 from types import SimpleNamespace
-from typing import Any, Iterable, cast
+from typing import Any, Iterable, Mapping, Sequence, cast
 
 import pytest
 
@@ -18,6 +18,7 @@ pytest.importorskip("bs4")
 
 import paperclip.api as api_module
 from paperclip.api import (
+    _build_markdown_capture_view,
     _content_sections_to_markdown_paragraphs,
     _enrich_reference_objs_with_doi,
     _reference_to_server_view,
@@ -113,6 +114,42 @@ def test_content_sections_to_markdown_paragraphs_simplifies_structure() -> None:
         ],
         "keywords": ["methods", "results"],
     }
+
+
+def test_build_markdown_capture_view_orders_metadata_and_references() -> None:
+    content = {
+        "abstract": [
+            {"title": "Summary", "body": "Overview."},
+        ],
+        "keywords": ["science"],
+        "body": [
+            {
+                "title": "Intro",
+                "paragraphs": [
+                    {"markdown": "Paragraph one."},
+                ],
+            }
+        ],
+    }
+    meta = {"title": "Sample", "authors": ["Doe"]}
+    references = [
+        {"ref_id": "ref-1", "raw": "Reference 1."},
+        "ignored",
+        {"ref_id": "ref-2", "raw": "Reference 2."},
+    ]
+
+    view = _build_markdown_capture_view(
+        content=content,
+        meta=meta,
+        references=cast(Sequence[Mapping[str, Any]], references),
+    )
+
+    assert list(view.keys()) == ["metadata", "abstract", "body", "keywords", "references"]
+    assert view["metadata"] == meta
+    assert view["abstract"][0]["paragraphs"] == ["Overview."]
+    assert view["body"][0]["paragraphs"] == ["Paragraph one."]
+    assert len(view["references"]) == 2
+    assert view["references"][0]["ref_id"] == "ref-1"
 
 
 def _sample_csl() -> dict:

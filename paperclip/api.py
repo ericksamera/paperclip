@@ -1,7 +1,7 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any, Callable, Iterable, Mapping, NamedTuple, TypedDict, cast
+from typing import Any, Callable, Iterable, Mapping, NamedTuple, Sequence, TypedDict, cast
 
 from bs4 import BeautifulSoup
 from django.conf import settings
@@ -245,6 +245,36 @@ def _content_sections_to_markdown_paragraphs(
             simplified_content["keywords"] = keyword_values
 
     return simplified_content
+
+
+def _build_markdown_capture_view(
+    *,
+    content: Mapping[str, Any] | None,
+    meta: Mapping[str, Any] | None,
+    references: Sequence[Mapping[str, Any]] | None,
+) -> dict[str, Any]:
+    """Produce a lightweight markdown-friendly capture view."""
+
+    view: dict[str, Any] = {}
+
+    if isinstance(meta, Mapping) and meta:
+        view["metadata"] = dict(meta)
+
+    simplified_sections = _content_sections_to_markdown_paragraphs(content)
+    for key, value in simplified_sections.items():
+        if value:
+            view[key] = value
+
+    normalized_refs: list[dict[str, Any]] = []
+    for ref in references or []:
+        if isinstance(ref, Mapping):
+            data = dict(ref)
+            if data:
+                normalized_refs.append(data)
+    if normalized_refs:
+        view["references"] = normalized_refs
+
+    return view
 
 
 class ReferencePayload(TypedDict, total=False):
@@ -529,7 +559,6 @@ class CaptureViewSet(viewsets.ViewSet):
 
         parsed = parse_with_fallback(capture.url, capture.content_html, capture.dom_html)
         content_sections = self._reconcile_parser_results(capture, parsed)
-        content_markdown = _content_sections_to_markdown_paragraphs(content_sections)
 
         final_state = CaptureOutSerializer(capture).data
         write_json_artifact(capture.id, "parsed.json", final_state)
@@ -538,6 +567,12 @@ class CaptureViewSet(viewsets.ViewSet):
             _reference_to_server_view(ref)
             for ref in (final_state.get("references") or [])
         ]
+
+        markdown_view = _build_markdown_capture_view(
+            content=content_sections,
+            meta=final_state.get("meta"),
+            references=serialized_refs,
+        )
 
         server_view = {
             "id": capture.id,
@@ -549,17 +584,17 @@ class CaptureViewSet(viewsets.ViewSet):
         }
         if content_sections:
             server_view["content"] = content_sections
-        if content_markdown:
-            server_view["content_markdown"] = content_markdown
+        if markdown_view:
+            server_view["content_markdown"] = markdown_view
         write_json_artifact(capture.id, "server_parsed.json", server_view)
-        if content_markdown:
-            write_json_artifact(capture.id, "server_parsed_markdown.json", content_markdown)
+        if markdown_view:
+            write_json_artifact(capture.id, "server_parsed_markdown.json", markdown_view)
 
         artifact_urls = self._build_artifact_urls(
             request,
             capture.id,
             bool(enrichment_blob),
-            bool(content_markdown),
+            bool(markdown_view),
         )
 
         refs_qs = capture.references.all()[:3]
