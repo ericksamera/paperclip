@@ -451,9 +451,15 @@ class BaseParser:
         if doi and not meta_updates.get("doi"):
             meta_updates["doi"] = doi
 
+        content_sections: ContentSections = dict(artifacts.content_sections)
+        if not content_sections.get("body"):
+            body_sections = cls._extract_body_sections(soup)
+            if body_sections:
+                content_sections["body"] = body_sections
+
         return ParseResult(
             meta_updates=meta_updates,
-            content_sections=artifacts.content_sections,
+            content_sections=content_sections,
             references=artifacts.references,
             figures=artifacts.figures,
             tables=artifacts.tables,
