@@ -1,7 +1,16 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any, Callable, Iterable, Mapping, NamedTuple, Sequence, TypedDict, cast
+from typing import (
+    Any,
+    Callable,
+    Iterable,
+    Mapping,
+    NamedTuple,
+    Sequence,
+    TypedDict,
+    cast,
+)
 
 from bs4 import BeautifulSoup
 from django.conf import settings
@@ -145,10 +154,39 @@ def apply_doi_enrichment(
     return DoiEnrichmentResult(blob=cast(EnrichmentPayload, blob), doi=doi)
 
 
+JsonMapping = Mapping[str, Any]
+
+
+class MarkdownSection(TypedDict, total=False):
+    """Representation of a parsed section suitable for markdown rendering."""
+
+    title: str
+    paragraphs: list[str]
+    children: list["MarkdownSection"]
+
+
+class MarkdownCaptureView(TypedDict, total=False):
+    """Structure returned by :func:`_build_markdown_capture_view`."""
+
+    metadata: dict[str, Any]
+    abstract: list[MarkdownSection]
+    body: list[MarkdownSection]
+    keywords: list[str]
+    references: list[dict[str, Any]]
+    markdown: str
+
+
 def _content_sections_to_markdown_paragraphs(
-    content: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    """Build a markdown-only view of parsed content sections."""
+    content: JsonMapping | None,
+) -> MarkdownCaptureView:
+    """Normalise parser content into markdown-friendly structures.
+
+    The parser output contains nested structures with optional ``markdown`` and
+    ``paragraphs`` fields.  Consumers that want to work with markdown paragraphs
+    benefit from a simplified structure where each section declares explicit
+    paragraph lists.  This helper performs that normalisation and returns the
+    pieces that can later be rendered into plain markdown text.
+    """
 
     if not isinstance(content, Mapping):
         return {}
@@ -192,8 +230,8 @@ def _content_sections_to_markdown_paragraphs(
                         paragraphs.append(stripped)
         return paragraphs
 
-    def _simplify_body_section(section: Mapping[str, Any]) -> dict[str, Any]:
-        simplified: dict[str, Any] = {}
+    def _simplify_body_section(section: JsonMapping) -> MarkdownSection:
+        simplified: MarkdownSection = {}
 
         title = section.get("title")
         if isinstance(title, str) and title.strip():
@@ -210,7 +248,7 @@ def _content_sections_to_markdown_paragraphs(
 
         children_raw = section.get("children")
         if isinstance(children_raw, Iterable) and not isinstance(children_raw, (str, bytes)):
-            children: list[dict[str, Any]] = []
+            children: list[MarkdownSection] = []
             for child in children_raw:
                 if isinstance(child, Mapping):
                     simplified_child = _simplify_body_section(child)
@@ -221,15 +259,15 @@ def _content_sections_to_markdown_paragraphs(
 
         return simplified
 
-    simplified_content: dict[str, Any] = {}
+    simplified_content: MarkdownCaptureView = {}
 
     abstract_sections = content.get("abstract")
     if isinstance(abstract_sections, Iterable) and not isinstance(abstract_sections, (str, bytes)):
-        abstract_list: list[dict[str, Any]] = []
+        abstract_list: list[MarkdownSection] = []
         for entry in abstract_sections:
             if not isinstance(entry, Mapping):
                 continue
-            simplified_entry: dict[str, Any] = {}
+            simplified_entry: MarkdownSection = {}
             title = entry.get("title")
             if isinstance(title, str) and title.strip():
                 simplified_entry["title"] = title.strip()
@@ -252,7 +290,7 @@ def _content_sections_to_markdown_paragraphs(
 
     body_sections = content.get("body")
     if isinstance(body_sections, Iterable) and not isinstance(body_sections, (str, bytes)):
-        body_list: list[dict[str, Any]] = []
+        body_list: list[MarkdownSection] = []
         for section in body_sections:
             if not isinstance(section, Mapping):
                 continue
@@ -273,14 +311,31 @@ def _content_sections_to_markdown_paragraphs(
 
 def _build_markdown_capture_view(
     *,
-    content: Mapping[str, Any] | None,
-    meta: Mapping[str, Any] | None,
-    references: Sequence[Mapping[str, Any]] | None,
+    content: JsonMapping | None,
+    meta: JsonMapping | None,
+    references: Sequence[JsonMapping] | None,
     title: str | None = None,
-) -> dict[str, Any]:
-    """Produce a lightweight markdown-friendly capture view."""
+) -> MarkdownCaptureView:
+    """Assemble a markdown-friendly representation of the capture data.
 
-    view: dict[str, Any] = {}
+    The resulting dictionary is lightweight but still expressive enough for
+    client consumption:
+
+    ``metadata``
+        Arbitrary metadata values preserved as key/value pairs.  The capture
+        title is injected when available so the markdown view always exposes a
+        top-level heading.
+    ``abstract`` and ``body``
+        Lists of :class:`MarkdownSection` entries with paragraphs suitable for
+        direct rendering.
+    ``references``
+        Normalised reference payloads that mirror the data returned by the API
+        serializer.
+    ``markdown``
+        A fully-rendered markdown string that concatenates the above sections.
+    """
+
+    view: MarkdownCaptureView = {}
 
     metadata: dict[str, Any] = {}
     if isinstance(meta, Mapping):
@@ -302,7 +357,7 @@ def _build_markdown_capture_view(
                 normalized_refs.append(data)
 
     def _append_section_markdown(
-        sections: Sequence[Mapping[str, Any]] | None,
+        sections: Sequence[MarkdownSection] | None,
         *,
         level: int,
         lines: list[str],
