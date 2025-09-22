@@ -1,13 +1,27 @@
 from __future__ import annotations
 
+import os
 import threading
+from types import SimpleNamespace
+from typing import Any, Iterable, cast
 
 import pytest
+
+django = pytest.importorskip("django")
+pytest.importorskip("rest_framework")
+from rest_framework.test import APIRequestFactory
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "paperclip_srv.settings")
+django.setup()
 
 pytest.importorskip("bs4")
 
 import paperclip.api as api_module
-from paperclip.api import _reference_to_server_view, _enrich_reference_objs_with_doi
+from paperclip.api import (
+    _enrich_reference_objs_with_doi,
+    _reference_to_server_view,
+    apply_doi_enrichment,
+)
 from paperclip.parsers.base import ReferenceObj
 
 
@@ -154,3 +168,204 @@ def test_enrich_reference_objs_with_doi_fetches_unique_dois_once() -> None:
         "10.1093/ps/81.10.1598",
     ]
     assert len(calls) == 2
+
+
+def test_seed_client_references_bulk_creates(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummyReference:
+        capture: Any
+        raw: Any
+        title: Any
+        issn: Any
+
+        class Manager:
+            def __init__(self) -> None:
+                self.created: list[DummyReference] | None = None
+
+            def bulk_create(self, objs: Iterable[DummyReference]) -> None:
+                self.created = list(objs)
+
+        objects = Manager()
+
+        def __init__(self, **kwargs: object) -> None:
+            self.__dict__.update(kwargs)
+
+    monkeypatch.setattr(api_module, "Reference", DummyReference)
+
+    capture = cast(api_module.Capture, _StubCapture())
+    payloads: list[api_module.ReferencePayload] = [
+        {"id": "r1", "raw": "Raw ref"},
+        {"id": "r2", "raw": "Other", "title": "Title"},
+    ]
+
+    viewset = api_module.CaptureViewSet()
+    viewset._seed_client_references(capture, payloads)
+
+    created = DummyReference.objects.created
+    assert created is not None and len(created) == 2
+    first, second = created
+    assert first.capture is capture
+    assert first.raw == "Raw ref"
+    assert first.title == ""
+    assert first.issn == ""
+    assert second.title == "Title"
+
+
+class _StubCapture(SimpleNamespace):
+    saved_fields: list[list[str]]
+
+    def __init__(self, **kwargs: object) -> None:
+        defaults: dict[str, object] = {
+            "id": "cap-1",
+            "meta": {},
+            "dom_html": "",
+            "csl": {},
+            "title": "",
+        }
+        defaults.update(kwargs)
+        super().__init__(**defaults)
+        self.saved_fields = []
+
+    def save(self, *, update_fields: list[str]) -> None:  # type: ignore[override]
+        self.saved_fields.append(update_fields)
+
+
+def test_apply_doi_enrichment_updates_capture(monkeypatch: pytest.MonkeyPatch) -> None:
+    capture = _StubCapture(meta={"doi": "10.1234/ABC"})
+
+    payload: api_module.EnrichmentPayload = {
+        "source": "crossref",
+        "csl": {"title": "Updated", "DOI": "10.1234/abc"},
+        "raw": {},
+    }
+
+    calls: list[str] = []
+
+    def fake_enrich(doi: str) -> api_module.EnrichmentPayload:
+        calls.append(doi)
+        return payload
+
+    monkeypatch.setattr(api_module, "enrich_from_doi", fake_enrich)
+    monkeypatch.setattr(api_module, "write_json_artifact", lambda *_: None)
+    monkeypatch.setattr(api_module, "csl_to_doc_meta", lambda csl: {"title": csl.get("title"), "doi": csl.get("DOI")})
+
+    result = apply_doi_enrichment(cast(api_module.Capture, capture))
+
+    assert calls == ["10.1234/abc"]
+    assert result.blob == payload
+    assert result.doi == "10.1234/abc"
+    assert capture.title == "Updated"
+    assert capture.meta["title"] == "Updated"
+    assert capture.meta["doi"] == "10.1234/abc"
+    assert capture.saved_fields == [["csl", "meta", "title"]]
+
+
+def test_apply_doi_enrichment_with_head_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    capture = _StubCapture(meta={}, dom_html="<html></html>")
+
+    payload: api_module.EnrichmentPayload = {
+        "source": "crossref",
+        "csl": {"title": "From Head", "DOI": "10.5555/head"},
+        "raw": {},
+    }
+
+    monkeypatch.setattr(api_module.BaseParser, "find_doi_in_meta", lambda _soup: "10.5555/HEAD")
+    monkeypatch.setattr(api_module, "enrich_from_doi", lambda doi: payload if doi == "10.5555/head" else None)
+    monkeypatch.setattr(api_module, "write_json_artifact", lambda *_: None)
+    monkeypatch.setattr(api_module, "csl_to_doc_meta", lambda csl: {"title": csl.get("title"), "doi": csl.get("DOI")})
+
+    result = apply_doi_enrichment(cast(api_module.Capture, capture), allow_head_lookup=True)
+
+    assert result.doi == "10.5555/head"
+    assert result.blob == payload
+    assert capture.title == "From Head"
+
+
+def test_apply_head_doi_normalizes_and_persists(monkeypatch: pytest.MonkeyPatch) -> None:
+    capture = _StubCapture(meta={}, dom_html="<html></html>")
+
+    monkeypatch.setattr(api_module.BaseParser, "find_doi_in_meta", lambda _soup: "10.5555/HEAD")
+
+    viewset = api_module.CaptureViewSet()
+
+    viewset._apply_head_doi(cast(api_module.Capture, capture))
+
+    assert capture.meta == {"doi": "10.5555/head"}
+    assert capture.saved_fields == [["meta"]]
+
+
+def test_apply_head_doi_ignores_unparsable_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    capture = _StubCapture(meta={}, dom_html="<html></html>")
+
+    monkeypatch.setattr(api_module.BaseParser, "find_doi_in_meta", lambda _soup: "not-a-doi")
+
+    viewset = api_module.CaptureViewSet()
+
+    viewset._apply_head_doi(cast(api_module.Capture, capture))
+
+    assert capture.meta == {}
+    assert capture.saved_fields == []
+
+
+def test_apply_doi_enrichment_without_doi(monkeypatch: pytest.MonkeyPatch) -> None:
+    capture = _StubCapture(meta={})
+    monkeypatch.setattr(api_module, "enrich_from_doi", lambda *_: (_ for _ in ()).throw(AssertionError("should not fetch")))
+
+    result = apply_doi_enrichment(cast(api_module.Capture, capture))
+
+    assert result.doi is None
+    assert result.blob is None
+
+
+def test_enrich_doi_endpoint_handles_missing_and_failed_enrichment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    factory = APIRequestFactory()
+    request = factory.post("/captures/cap/enrich-doi/", {})
+
+    capture = _StubCapture(id="cap", meta={})
+
+    monkeypatch.setattr("django.shortcuts.get_object_or_404", lambda model, pk: capture)
+
+    monkeypatch.setattr(
+        api_module,
+        "apply_doi_enrichment",
+        lambda _capture, allow_head_lookup: api_module.DoiEnrichmentResult(blob=None, doi=None),
+    )
+
+    response = api_module.enrich_doi(request, pk="cap")
+    assert response.status_code == 400
+
+    monkeypatch.setattr(
+        api_module,
+        "apply_doi_enrichment",
+        lambda _capture, allow_head_lookup: api_module.DoiEnrichmentResult(blob=None, doi="10.1/abc"),
+    )
+
+    response = api_module.enrich_doi(request, pk="cap")
+    assert response.status_code == 502
+
+
+def test_enrich_doi_endpoint_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    factory = APIRequestFactory()
+    request = factory.post("/captures/cap/enrich-doi/", {})
+
+    capture = _StubCapture(id="cap", meta={}, csl={})
+
+    monkeypatch.setattr("django.shortcuts.get_object_or_404", lambda model, pk: capture)
+
+    payload: api_module.EnrichmentPayload = {
+        "source": "crossref",
+        "csl": {"title": "Updated"},
+        "raw": {},
+    }
+
+    def fake_apply(_capture: _StubCapture, allow_head_lookup: bool) -> api_module.DoiEnrichmentResult:
+        _capture.meta = {"title": "Updated"}
+        _capture.csl = payload["csl"]
+        return api_module.DoiEnrichmentResult(blob=payload, doi="10.1/abc")
+
+    monkeypatch.setattr(api_module, "apply_doi_enrichment", fake_apply)
+
+    response = api_module.enrich_doi(request, pk="cap")
+    assert response.status_code == 200
+    assert response.data == {"ok": True, "meta": {"title": "Updated"}, "csl": {"title": "Updated"}}
