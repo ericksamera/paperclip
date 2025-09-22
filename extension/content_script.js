@@ -34,9 +34,10 @@ function findMainElement() {
 
 function collectReferences(root) {
   const out = [];
+  const scope = root && typeof root.querySelectorAll === "function" ? root : document;
   const doiRe = /\b10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+\b/;
   // Try heading "References/Bibliography/Works Cited"
-  const headers = [...document.querySelectorAll("h1,h2,h3,h4,h5,h6")];
+  const headers = [...scope.querySelectorAll("h1,h2,h3,h4,h5,h6")];
   let refBlock = null;
   for (const h of headers) {
     if (/(references|bibliography|works cited)/i.test(h.textContent || "")) {
@@ -44,11 +45,37 @@ function collectReferences(root) {
       let sib = h.nextElementSibling;
       while (sib && !/^(OL|UL|DIV|SECTION)$/i.test(sib.tagName)) sib = sib.nextElementSibling;
       if (sib) { refBlock = sib; break; }
+
+      // Fallback: search within the heading's parent containers for a list
+      let parent = h.parentElement;
+      while (parent && parent !== scope && !refBlock) {
+        const candidate = parent.querySelector("ol, ul");
+        if (candidate && candidate.querySelector("li")) {
+          refBlock = candidate;
+          break;
+        }
+        parent = parent.parentElement;
+      }
     }
   }
   if (!refBlock) {
-    refBlock = document.querySelector("ol.references, ul.references, #references ol, #references ul, .references ol, .references ul");
+    refBlock = scope.querySelector(
+      "ol.references, ul.references, #references ol, #references ul, .references ol, .references ul, section.article-section__references ol, div.article-section__references ol"
+    );
   }
+  if (!refBlock) {
+    const wileyTab = scope.querySelector("#pcw-references, #pane-pcw-references, [data-tab='pane-pcw-references']");
+    if (wileyTab) {
+      const list = wileyTab.querySelector("ol, ul");
+      if (list) refBlock = list;
+    }
+  }
+
+  if (refBlock && refBlock.tagName && !/^(OL|UL)$/i.test(refBlock.tagName)) {
+    const nested = refBlock.querySelector("ol, ul");
+    if (nested) refBlock = nested;
+  }
+
   const items = refBlock ? [...refBlock.querySelectorAll("li")] : [];
   items.forEach((li, i) => {
     const raw = (li.innerText || "").trim();

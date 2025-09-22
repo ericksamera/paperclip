@@ -1,7 +1,16 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any, Callable, Iterable, Mapping, NamedTuple, TypedDict, cast
+from typing import (
+    Any,
+    Callable,
+    Iterable,
+    Mapping,
+    NamedTuple,
+    Sequence,
+    TypedDict,
+    cast,
+)
 
 from bs4 import BeautifulSoup
 from django.conf import settings
@@ -143,6 +152,307 @@ def apply_doi_enrichment(
     write_json_artifact(capture.id, "enrichment.json", blob)
 
     return DoiEnrichmentResult(blob=cast(EnrichmentPayload, blob), doi=doi)
+
+
+JsonMapping = Mapping[str, Any]
+
+
+class MarkdownSection(TypedDict, total=False):
+    """Representation of a parsed section suitable for markdown rendering."""
+
+    title: str
+    paragraphs: list[str]
+    children: list["MarkdownSection"]
+
+
+class MarkdownCaptureView(TypedDict, total=False):
+    """Structure returned by :func:`_build_markdown_capture_view`."""
+
+    metadata: dict[str, Any]
+    abstract: list[MarkdownSection]
+    body: list[MarkdownSection]
+    keywords: list[str]
+    references: list[dict[str, Any]]
+    markdown: str
+
+
+def _content_sections_to_markdown_paragraphs(
+    content: JsonMapping | None,
+) -> MarkdownCaptureView:
+    """Normalise parser content into markdown-friendly structures.
+
+    The parser output contains nested structures with optional ``markdown`` and
+    ``paragraphs`` fields.  Consumers that want to work with markdown paragraphs
+    benefit from a simplified structure where each section declares explicit
+    paragraph lists.  This helper performs that normalisation and returns the
+    pieces that can later be rendered into plain markdown text.
+    """
+
+    if not isinstance(content, Mapping):
+        return {}
+
+    def _split_markdown_chunks(markdown: str) -> list[str]:
+        if not markdown.strip():
+            return []
+
+        chunks: list[str] = []
+        buffer: list[str] = []
+        for line in markdown.splitlines():
+            if not line.strip():
+                if buffer:
+                    chunk = "\n".join(buffer).strip()
+                    if chunk:
+                        chunks.append(chunk)
+                    buffer = []
+                continue
+            buffer.append(line.rstrip())
+
+        if buffer:
+            chunk = "\n".join(buffer).strip()
+            if chunk:
+                chunks.append(chunk)
+
+        return chunks
+
+    def _extract_paragraphs(raw: Any) -> list[str]:
+        paragraphs: list[str] = []
+        if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
+            for entry in raw:
+                if isinstance(entry, Mapping):
+                    text = entry.get("markdown")
+                    if isinstance(text, str):
+                        stripped = text.strip()
+                        if stripped:
+                            paragraphs.append(stripped)
+                elif isinstance(entry, str):
+                    stripped = entry.strip()
+                    if stripped:
+                        paragraphs.append(stripped)
+        return paragraphs
+
+    def _simplify_body_section(section: JsonMapping) -> MarkdownSection:
+        simplified: MarkdownSection = {}
+
+        title = section.get("title")
+        if isinstance(title, str) and title.strip():
+            simplified["title"] = title.strip()
+
+        paragraphs = _extract_paragraphs(section.get("paragraphs"))
+        if not paragraphs:
+            markdown = section.get("markdown")
+            if isinstance(markdown, str):
+                paragraphs = _split_markdown_chunks(markdown)
+
+        if paragraphs:
+            simplified["paragraphs"] = paragraphs
+
+        children_raw = section.get("children")
+        if isinstance(children_raw, Iterable) and not isinstance(children_raw, (str, bytes)):
+            children: list[MarkdownSection] = []
+            for child in children_raw:
+                if isinstance(child, Mapping):
+                    simplified_child = _simplify_body_section(child)
+                    if simplified_child:
+                        children.append(simplified_child)
+            if children:
+                simplified["children"] = children
+
+        return simplified
+
+    simplified_content: MarkdownCaptureView = {}
+
+    abstract_sections = content.get("abstract")
+    if isinstance(abstract_sections, Iterable) and not isinstance(abstract_sections, (str, bytes)):
+        abstract_list: list[MarkdownSection] = []
+        for entry in abstract_sections:
+            if not isinstance(entry, Mapping):
+                continue
+            simplified_entry: MarkdownSection = {}
+            title = entry.get("title")
+            if isinstance(title, str) and title.strip():
+                simplified_entry["title"] = title.strip()
+            body = entry.get("body")
+            paragraphs: list[str] = []
+            if isinstance(body, str):
+                lines = [line.strip() for line in body.splitlines() if line.strip()]
+                if lines:
+                    paragraphs = lines
+                else:
+                    stripped = body.strip()
+                    if stripped:
+                        paragraphs = [stripped]
+            if paragraphs:
+                simplified_entry["paragraphs"] = paragraphs
+            if simplified_entry:
+                abstract_list.append(simplified_entry)
+        if abstract_list:
+            simplified_content["abstract"] = abstract_list
+
+    body_sections = content.get("body")
+    if isinstance(body_sections, Iterable) and not isinstance(body_sections, (str, bytes)):
+        body_list: list[MarkdownSection] = []
+        for section in body_sections:
+            if not isinstance(section, Mapping):
+                continue
+            simplified_section = _simplify_body_section(section)
+            if simplified_section:
+                body_list.append(simplified_section)
+        if body_list:
+            simplified_content["body"] = body_list
+
+    keywords = content.get("keywords")
+    if isinstance(keywords, Iterable) and not isinstance(keywords, (str, bytes)):
+        keyword_values = [str(value).strip() for value in keywords if str(value).strip()]
+        if keyword_values:
+            simplified_content["keywords"] = keyword_values
+
+    return simplified_content
+
+
+def _build_markdown_capture_view(
+    *,
+    content: JsonMapping | None,
+    meta: JsonMapping | None,
+    references: Sequence[JsonMapping] | None,
+    title: str | None = None,
+) -> MarkdownCaptureView:
+    """Assemble a markdown-friendly representation of the capture data.
+
+    The resulting dictionary is lightweight but still expressive enough for
+    client consumption:
+
+    ``metadata``
+        Arbitrary metadata values preserved as key/value pairs.  The capture
+        title is injected when available so the markdown view always exposes a
+        top-level heading.
+    ``abstract`` and ``body``
+        Lists of :class:`MarkdownSection` entries with paragraphs suitable for
+        direct rendering.
+    ``references``
+        Normalised reference payloads that mirror the data returned by the API
+        serializer.
+    ``markdown``
+        A fully-rendered markdown string that concatenates the above sections.
+    """
+
+    view: MarkdownCaptureView = {}
+
+    metadata: dict[str, Any] = {}
+    if isinstance(meta, Mapping):
+        metadata.update(meta)
+    if title and not metadata.get("title"):
+        metadata["title"] = title
+    view["metadata"] = metadata
+
+    simplified_sections = _content_sections_to_markdown_paragraphs(content)
+    for key, value in simplified_sections.items():
+        if value:
+            view[key] = value
+
+    normalized_refs: list[dict[str, Any]] = []
+    for ref in references or []:
+        if isinstance(ref, Mapping):
+            data = dict(ref)
+            if data:
+                normalized_refs.append(data)
+
+    def _append_section_markdown(
+        sections: Sequence[MarkdownSection] | None,
+        *,
+        level: int,
+        lines: list[str],
+    ) -> None:
+        if not sections:
+            return
+
+        for section in sections:
+            if not isinstance(section, Mapping):
+                continue
+            title_text = section.get("title")
+            heading_level = max(1, min(level, 6))
+            if isinstance(title_text, str) and title_text.strip():
+                lines.append(f"{'#' * heading_level} {title_text.strip()}")
+                lines.append("")
+
+            paragraphs = section.get("paragraphs")
+            if isinstance(paragraphs, Sequence) and not isinstance(paragraphs, (str, bytes)):
+                for paragraph in paragraphs:
+                    if isinstance(paragraph, str) and paragraph.strip():
+                        lines.append(paragraph.strip())
+                        lines.append("")
+
+            children = section.get("children")
+            if isinstance(children, Sequence) and not isinstance(children, (str, bytes)):
+                _append_section_markdown(children, level=heading_level + 1, lines=lines)
+
+    markdown_lines: list[str] = []
+
+    if metadata:
+        markdown_lines.append("## Metadata")
+        markdown_lines.append("")
+        for key in sorted(metadata):
+            value = metadata[key]
+            if value is None:
+                continue
+            rendered = str(value).strip()
+            if rendered:
+                pretty_key = key.replace("_", " ").strip()
+                markdown_lines.append(f"- **{pretty_key}**: {rendered}")
+        markdown_lines.append("")
+
+    abstract_sections = simplified_sections.get("abstract")
+    if isinstance(abstract_sections, Sequence) and abstract_sections:
+        markdown_lines.append("## Abstract")
+        markdown_lines.append("")
+        _append_section_markdown(
+            cast(Sequence[Mapping[str, Any]] | None, abstract_sections),
+            level=3,
+            lines=markdown_lines,
+        )
+
+    body_sections = simplified_sections.get("body")
+    if isinstance(body_sections, Sequence) and body_sections:
+        markdown_lines.append("## Body")
+        markdown_lines.append("")
+        _append_section_markdown(
+            cast(Sequence[Mapping[str, Any]] | None, body_sections),
+            level=3,
+            lines=markdown_lines,
+        )
+
+    keywords = simplified_sections.get("keywords")
+    if isinstance(keywords, Sequence) and keywords:
+        markdown_lines.append("## Keywords")
+        markdown_lines.append("")
+        keyword_items = [str(word).strip() for word in keywords if str(word).strip()]
+        if keyword_items:
+            markdown_lines.append(", ".join(keyword_items))
+            markdown_lines.append("")
+
+    view["markdown"] = "\n".join(line for line in markdown_lines if line is not None).strip()
+
+    view["references"] = normalized_refs
+
+    if normalized_refs:
+        ref_lines: list[str] = []
+        ref_lines.append("## References")
+        ref_lines.append("")
+        for idx, ref in enumerate(normalized_refs, start=1):
+            raw = str(ref.get("raw", "")).strip()
+            if raw:
+                ref_lines.append(f"{idx}. {raw}")
+            else:
+                ref_lines.append(f"{idx}. (reference details unavailable)")
+        markdown_fragment = "\n".join(ref_lines)
+        if view["markdown"]:
+            view["markdown"] = f"{view['markdown'].rstrip()}\n\n{markdown_fragment}"
+        else:
+            view["markdown"] = markdown_fragment
+
+    if view["markdown"]:
+        view["markdown"] = view["markdown"].rstrip() + "\n"
+
+    return view
 
 
 class ReferencePayload(TypedDict, total=False):
@@ -387,7 +697,11 @@ class CaptureViewSet(viewsets.ViewSet):
         return parsed.content_sections or None
 
     def _build_artifact_urls(
-        self, request: HttpRequest, capture_id: str, enriched: bool
+        self,
+        request: HttpRequest,
+        capture_id: str,
+        enriched: bool,
+        has_markdown_view: bool,
     ) -> dict[str, str]:
         base = request.build_absolute_uri("/").rstrip("/")
         urls = {
@@ -396,6 +710,10 @@ class CaptureViewSet(viewsets.ViewSet):
             "parsed_json": f"{base}/captures/{capture_id}/artifact/parsed.json",
             "server_parsed": f"{base}/captures/{capture_id}/artifact/server_parsed.json",
         }
+        if has_markdown_view:
+            urls["server_parsed_markdown"] = (
+                f"{base}/captures/{capture_id}/artifact/server_parsed_markdown.json"
+            )
         if enriched:
             urls["enrichment"] = f"{base}/captures/{capture_id}/artifact/enrichment.json"
         return urls
@@ -428,6 +746,13 @@ class CaptureViewSet(viewsets.ViewSet):
             for ref in (final_state.get("references") or [])
         ]
 
+        markdown_view = _build_markdown_capture_view(
+            content=content_sections,
+            meta=final_state.get("meta"),
+            references=serialized_refs,
+            title=capture.title,
+        )
+
         server_view = {
             "id": capture.id,
             "url": capture.url,
@@ -438,9 +763,18 @@ class CaptureViewSet(viewsets.ViewSet):
         }
         if content_sections:
             server_view["content"] = content_sections
+        if markdown_view:
+            server_view["content_markdown"] = markdown_view
         write_json_artifact(capture.id, "server_parsed.json", server_view)
+        if markdown_view:
+            write_json_artifact(capture.id, "server_parsed_markdown.json", markdown_view)
 
-        artifact_urls = self._build_artifact_urls(request, capture.id, bool(enrichment_blob))
+        artifact_urls = self._build_artifact_urls(
+            request,
+            capture.id,
+            bool(enrichment_blob),
+            bool(markdown_view),
+        )
 
         refs_qs = capture.references.all()[:3]
         summary = {
