@@ -216,6 +216,60 @@ def test_content_sections_to_markdown_paragraphs_supports_mapping_paragraphs() -
     ]
 
 
+def test_content_sections_to_markdown_paragraphs_handles_deeply_nested_body_sections() -> None:
+    content = {
+        "body": {
+            "content": [
+                {
+                    "sections": [
+                        {
+                            "title": "Intro",
+                            "paragraphs": [
+                                {"markdown": "Intro paragraph."},
+                            ],
+                        },
+                        {
+                            "title": "Methods",
+                            "paragraphs": [
+                                {"text": "Methods details."},
+                            ],
+                        },
+                    ]
+                },
+                {
+                    "values": [
+                        {
+                            "data": {
+                                "sections": [
+                                    {
+                                        "title": "Results",
+                                        "paragraphs": [
+                                            {
+                                                "content": [
+                                                    "Results",
+                                                    {"text": "summary."},
+                                                ]
+                                            }
+                                        ],
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+            ]
+        }
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["body"] == [
+        {"title": "Intro", "paragraphs": ["Intro paragraph."]},
+        {"title": "Methods", "paragraphs": ["Methods details."]},
+        {"title": "Results", "paragraphs": ["Results summary."]},
+    ]
+
+
 def test_build_reduced_capture_view_orders_metadata_and_references() -> None:
     content = {
         "abstract": [
