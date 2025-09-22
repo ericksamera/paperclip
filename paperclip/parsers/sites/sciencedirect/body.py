@@ -57,14 +57,17 @@ class BodyExtractor:
         return None
 
     def _build_body_section(self, node: Tag, fallback_title: Optional[str]) -> Optional[dict[str, Any]]:
+        content_root = self._content_root(node)
         heading = self.heading_finder(node)
+        if heading is None and content_root is not node:
+            heading = self.heading_finder(content_root)
         title = (heading.get_text(" ", strip=True) if heading else None) or fallback_title or (node.get("id") or "").strip() or None
 
         html_fragments: List[str] = []
         children: List[dict[str, Any]] = []
         subsection_index = 1
 
-        for child in node.children:
+        for child in content_root.children:
             if isinstance(child, NavigableString):
                 fragment = self._normalise_body_html(child)
                 if fragment:
@@ -107,6 +110,9 @@ class BodyExtractor:
         if children:
             data["children"] = children
         return data
+
+    def _content_root(self, node: Tag) -> Tag:
+        return node
 
     def _normalise_body_html(self, node: Tag | NavigableString) -> str:
         if isinstance(node, NavigableString):

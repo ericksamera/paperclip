@@ -79,8 +79,60 @@ STRUCTURED_EXPECTED_ABSTRACT = [
             "The same clones were found in animals and humans, which may infer that both farm and pet animals may act as potential vehicles of infection for humans. Some other clones seem to be less widely distributed. Clustering analysis of genomic fingerprints of Salmonella Dublin and Salm. Enteritidis isolates confirms the existence of a close phylogenetic relationship between both serotypes. "
             "Significance and Impact of the Study: This paper describes the utility of a multiple genetic typing approach for Salm. Dublin. It gives useful information on clonal diversity among human and animal isolates."
         ),
-    }
+    },
 ]
+
+WILEY_BODY_HTML = """
+<html>
+<body>
+<main>
+<section class="article-section__content" id="section-1">
+<h2 class="article-section__title section__title">Introduction</h2>
+<p>Application of post-Sanger sequencing technologies in ecology has accelerated since the introduction of Restriction site Associated DNA sequencing (RADseq; Baird <i>et&nbsp;al.</i> <a href="#bib-1">2008</a>).</p>
+<div class="article-table-content" id="table-1">
+<header class="article-table-caption"><span class="table-caption__label">Table 1.</span> Example comparison</header>
+<div class="article-table-content-wrapper" tabindex="0">
+<table class="table article-section__table">
+<tbody>
+<tr>
+<td>RAD</td>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="article-section__table-footnotes">
+<ul>
+<li>n: no; y: yes.</li>
+</ul>
+</div>
+</div>
+<p>As a result, confusion may arise as to which protocol is appropriate.</p>
+</section>
+</main>
+</body>
+</html>
+"""
+
+
+WILEY_NESTED_BODY_HTML = """
+<html>
+  <body>
+    <div class="article__sections">
+      <section class="article-section" data-section-type="body">
+        <div class="article-section__content" id="section-2">
+          <h2 class="article-section__title section__title">Methods</h2>
+          <p>Sequencing libraries were prepared using a custom protocol.</p>
+          <section class="article-section__content--sub" id="section-2-1">
+            <h3 class="article-section__title section__subtitle">Sampling</h3>
+            <p>We sampled ten locations spanning the native range.</p>
+          </section>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>
+"""
 
 
 def test_wiley_parser_extracts_abstract_from_article_section() -> None:
@@ -105,3 +157,45 @@ def test_wiley_parser_detects_proxied_domains_for_server_capture() -> None:
     proxied_url = "https://onlinelibrary-wiley-com.ezproxy.example.edu/doi/full/10.1002/example"
     parsed = parse_html(proxied_url, STRUCTURED_WILEY_HTML)
     assert parsed.content_sections["abstract"] == STRUCTURED_EXPECTED_ABSTRACT
+
+
+
+def test_wiley_parser_extracts_body_sections() -> None:
+    url = "https://onlinelibrary.wiley.com/doi/10.1002/example"
+    parsed = parse_html(url, WILEY_BODY_HTML)
+    body = parsed.content_sections["body"]
+    assert body
+    first = body[0]
+    assert first["title"].strip() == "Introduction"
+    paragraphs = first.get("paragraphs") or []
+    assert any(
+        paragraph.get("markdown", "").startswith("Application of post-Sanger sequencing technologies")
+        for paragraph in paragraphs
+    )
+    assert any(
+        "Table 1." in paragraph.get("markdown", "")
+        for paragraph in paragraphs
+    )
+
+
+def test_wiley_parser_handles_nested_section_wrappers() -> None:
+    url = "https://onlinelibrary.wiley.com/doi/10.1002/example"
+    parsed = parse_html(url, WILEY_NESTED_BODY_HTML)
+    body = parsed.content_sections["body"]
+    assert body
+    first = body[0]
+    assert first["title"].strip() == "Methods"
+    paragraphs = first.get("paragraphs") or []
+    assert any(
+        paragraph.get("markdown", "").startswith("Sequencing libraries were prepared")
+        for paragraph in paragraphs
+    )
+    children = first.get("children") or []
+    assert children
+    child = children[0]
+    assert child["title"].strip() == "Sampling"
+    child_paragraphs = child.get("paragraphs") or []
+    assert any(
+        "sampled ten locations" in paragraph.get("markdown", "")
+        for paragraph in child_paragraphs
+    )
