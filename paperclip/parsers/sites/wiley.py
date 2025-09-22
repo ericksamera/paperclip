@@ -1,109 +1,136 @@
 from __future__ import annotations
 from urllib.parse import urlparse
-from typing import ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
 from ..base import BaseParser, ReferenceObj, DOI_RE
 from .sciencedirect.body import BodyExtractor
-from .sciencedirect.citations import SentenceCitationAnnotator
+
+if TYPE_CHECKING:  # pragma: no cover - import for type checking only
+    from .sciencedirect.citations import SentenceCitationAnnotator
 
 
 class WileyBodyExtractor(BodyExtractor):
-    def extract(self, soup: BeautifulSoup) -> list[dict[str, object]]:  # type: ignore[override]
+    _SECTION_TAGS: ClassVar[tuple[str, ...]] = ("section", "div")
+
+    def extract(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
         body_root = self._locate_body_root(soup)
-        sections: list[Tag] = []
-        seen: set[int] = set()
-
-        active: set[int] = set()
-
-        def consider(node: Tag) -> None:
-            if not isinstance(node, Tag):
-                return
-
-            if self.section_predicate(node):
-                marker = id(node)
-                if marker in seen:
-                    return
-                if marker in active:
-                    return
-                active.add(marker)
-                child_sections = [
-                    child
-                    for child in node.find_all(["section", "div"], recursive=False)
-                    if isinstance(child, Tag) and self.section_predicate(child)
-                ]
-                if child_sections:
-                    for child in child_sections:
-                        consider(child)
-
-                    has_direct_content = False
-                    for child in node.children:
-                        if isinstance(child, NavigableString):
-                            if child.strip():
-                                has_direct_content = True
-                                break
-                            continue
-                        if not isinstance(child, Tag):
-                            continue
-                        if child in child_sections:
-                            continue
-                        if child.get_text(" ", strip=True):
-                            has_direct_content = True
-                            break
-
-                    if not has_direct_content:
-                        active.discard(marker)
-                        return
-
-                for parent in node.parents:
-                    if not isinstance(parent, Tag) or parent is node:
-                        continue
-                    if not self.section_predicate(parent):
-                        continue
-                    parent_marker = id(parent)
-                    if parent_marker in active:
-                        continue
-                    if parent_marker not in seen:
-                        consider(parent)
-                    if parent_marker in seen:
-                        active.discard(marker)
-                        return
-                seen.add(marker)
-                sections.append(node)
-                active.discard(marker)
-                return
-
-            for child in node.find_all(["section", "div"], recursive=False):
-                consider(child)
-            return
-
-        try:
-            if body_root:
-                for child in body_root.find_all(["section", "div"], recursive=False):
-                    consider(child)
-
-            for selector in (
-                "section[id], div[id]",
-                "section.article-section.article-section__full, div.article-section.article-section__full",
-                "section.article-section, section.article-section__content, div.article-section__content",
-            ):
-                if sections:
-                    break
-                for candidate in soup.select(selector):
-                    consider(candidate)
-        finally:
-            active.clear()
+        sections = self._collect_top_level_sections(soup, body_root)
 
         if not sections:
             return super().extract(soup)
 
-        results: list[dict[str, object]] = []
-        for idx, section in enumerate(sections, start=1):
-            built = self._build_body_section(section, fallback_title=f"Section {idx}")
+        results: list[dict[str, Any]] = []
+        for index, section in enumerate(sections, start=1):
+            built = self._build_body_section(section, fallback_title=f"Section {index}")
             if built:
                 results.append(built)
         return results
+
+    def _collect_top_level_sections(
+        self, soup: BeautifulSoup, body_root: Tag | None
+    ) -> list[Tag]:
+        """Collect Wiley body sections in document order.
+
+        The DOM on Wiley frequently nests structural wrappers around the real
+        section content.  Rather than chasing parents and children recursively,
+        gather every matching node once and then retain the highest level nodes
+        that contain actual content.
+        """
+
+        candidates: list[Tag] = []
+        seen_nodes: set[int] = set()
+
+        def queue_nodes(root: Tag | BeautifulSoup) -> None:
+            if not isinstance(root, Tag):
+                return
+            if self.section_predicate(root):
+                marker = id(root)
+                if marker not in seen_nodes:
+                    seen_nodes.add(marker)
+                    candidates.append(root)
+
+            for node in root.find_all(self._SECTION_TAGS):
+                if not isinstance(node, Tag):
+                    continue
+                marker = id(node)
+                if marker in seen_nodes:
+                    continue
+                if not self.section_predicate(node):
+                    continue
+                seen_nodes.add(marker)
+                candidates.append(node)
+
+        if body_root:
+            queue_nodes(body_root)
+
+        if not candidates:
+            for selector in (
+                "section[id]",
+                "div[id]",
+                "section.article-section",
+                "div.article-section",
+                "div.article-section__content",
+                "section.article-section__content",
+            ):
+                for candidate in soup.select(selector):
+                    if isinstance(candidate, Tag):
+                        queue_nodes(candidate)
+                if candidates:
+                    break
+
+        if not candidates:
+            queue_nodes(soup)
+
+        if not candidates:
+            return []
+
+        top_level: list[Tag] = []
+        skipped_descendants: set[int] = set()
+
+        for node in candidates:
+            marker = id(node)
+            if marker in skipped_descendants:
+                continue
+            if self._has_section_ancestor(node):
+                continue
+            if not self._has_direct_content(node) and self._has_section_descendant(node):
+                continue
+            top_level.append(node)
+            for descendant in node.find_all(self._SECTION_TAGS):
+                if isinstance(descendant, Tag):
+                    skipped_descendants.add(id(descendant))
+
+        return top_level
+
+    def _has_section_ancestor(self, node: Tag) -> bool:
+        for parent in node.parents:
+            if isinstance(parent, Tag) and self.section_predicate(parent):
+                return True
+        return False
+
+    def _has_section_descendant(self, node: Tag) -> bool:
+        for descendant in node.find_all(self._SECTION_TAGS):
+            if descendant is node:
+                continue
+            if isinstance(descendant, Tag) and self.section_predicate(descendant):
+                return True
+        return False
+
+    def _has_direct_content(self, node: Tag) -> bool:
+        for child in node.children:
+            if isinstance(child, NavigableString):
+                if child.strip():
+                    return True
+                continue
+            if not isinstance(child, Tag):
+                continue
+            if self.section_predicate(child):
+                continue
+            if child.get_text(" ", strip=True):
+                return True
+        return False
 
     @staticmethod
     def _leading_heading(node: Tag) -> Tag | None:
@@ -332,6 +359,8 @@ class WileyParser(BaseParser):
     @classmethod
     def _get_body_extractor(cls) -> BodyExtractor:
         if cls._body_extractor is None:
+            from .sciencedirect.citations import SentenceCitationAnnotator
+
             cls._body_extractor = WileyBodyExtractor(
                 citation_annotator=SentenceCitationAnnotator(),
                 section_predicate=cls._is_wiley_section,
