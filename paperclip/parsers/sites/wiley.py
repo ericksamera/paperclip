@@ -20,13 +20,16 @@ class WileyBodyExtractor(BodyExtractor):
                 return
 
             if self.section_predicate(node):
-                if any(
-                    isinstance(parent, Tag)
-                    and parent is not node
-                    and self.section_predicate(parent)
-                    for parent in node.parents
-                ):
-                    return
+                for parent in node.parents:
+                    if not isinstance(parent, Tag) or parent is node:
+                        continue
+                    if not self.section_predicate(parent):
+                        continue
+                    parent_marker = id(parent)
+                    if parent_marker not in seen:
+                        consider(parent)
+                    if parent_marker in seen:
+                        return
                 marker = id(node)
                 if marker in seen:
                     return
@@ -43,6 +46,7 @@ class WileyBodyExtractor(BodyExtractor):
 
         for selector in (
             "section[id], div[id]",
+            "section.article-section.article-section__full, div.article-section.article-section__full",
             "section.article-section, section.article-section__content, div.article-section__content",
         ):
             if sections:

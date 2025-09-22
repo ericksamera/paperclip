@@ -186,6 +186,22 @@ WILEY_COMPLEX_BODY_HTML = """
 """
 
 
+WILEY_FULL_SECTION_NO_KNOWN_ROOT_HTML = """
+<html>
+  <body>
+    <div id="article-wrapper">
+      <div class="article-section article-section__full">
+        <div class="article-section__content" id="sec-main">
+          <h2 class="article-section__title section__title">Overview</h2>
+          <p>The overview content introduces the article themes.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+"""
+
+
 WILEY_ACCORDION_BODY_HTML = """
 <html>
   <body>
@@ -345,6 +361,20 @@ def test_wiley_parser_handles_complex_full_sections() -> None:
     data_input = next(child for child in children if child.get("title", "").strip() == "Data input")
     child_paragraphs = data_input.get("paragraphs") or []
     assert any("ref.DNAseq" in paragraph.get("markdown", "") for paragraph in child_paragraphs)
+
+
+def test_wiley_parser_handles_full_sections_without_known_root() -> None:
+    url = "https://onlinelibrary.wiley.com/doi/10.1002/example"
+    parsed = parse_html(url, WILEY_FULL_SECTION_NO_KNOWN_ROOT_HTML)
+    body = parsed.content_sections["body"]
+    assert body
+    overview = body[0]
+    assert overview["title"].strip() == "Overview"
+    paragraphs = overview.get("paragraphs") or []
+    assert any(
+        "overview content introduces" in paragraph.get("markdown", "").lower()
+        for paragraph in paragraphs
+    )
 
 
 def test_wiley_parser_handles_accordion_panels() -> None:
