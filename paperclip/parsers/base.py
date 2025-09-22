@@ -2,7 +2,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import re
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Mapping, Optional, Sequence, TypedDict
+from collections.abc import Mapping, Sequence
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    ClassVar,
+    Optional,
+    TypedDict,
+    TypeAlias,
+)
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -239,13 +248,98 @@ class ReferenceObj:
 
 # ---------- Base parser & utilities ----------
 
-@dataclass
+FigureEntry: TypeAlias = dict[str, Any]
+TableEntry: TypeAlias = dict[str, Any]
+ContentSections: TypeAlias = dict[str, Any]
+MetaUpdates: TypeAlias = dict[str, Any]
+
+
+@dataclass(slots=True)
 class ParseResult:
-    meta_updates: dict[str, Any]
-    content_sections: dict[str, Any]
+    meta_updates: MetaUpdates
+    content_sections: ContentSections
     references: list[ReferenceObj]
-    figures: list[dict[str, Any]]
-    tables: list[dict[str, Any]]
+    figures: list[FigureEntry]
+    tables: list[TableEntry]
+
+
+PipelineMetaBuilder: TypeAlias = Callable[[BeautifulSoup], Mapping[str, Any]]
+PipelineContentBuilder: TypeAlias = Callable[[BeautifulSoup], Mapping[str, Any]]
+PipelineReferenceHarvester: TypeAlias = Callable[[BeautifulSoup], Sequence[ReferenceObj]]
+PipelineAssetExtractor: TypeAlias = Callable[[BeautifulSoup], Sequence[dict[str, Any]]]
+PipelineFinalizer: TypeAlias = Callable[["PipelineArtifacts", str, BeautifulSoup], ParseResult]
+
+
+@dataclass(slots=True)
+class PipelineArtifacts:
+    meta_updates: MetaUpdates
+    content_sections: ContentSections
+    references: list[ReferenceObj]
+    figures: list[FigureEntry]
+    tables: list[TableEntry]
+
+
+@dataclass(frozen=True, slots=True)
+class ParserPipeline:
+    meta_builder: PipelineMetaBuilder
+    content_builder: PipelineContentBuilder
+    reference_harvester: PipelineReferenceHarvester
+    figure_extractor: PipelineAssetExtractor
+    table_extractor: PipelineAssetExtractor
+    finalizer: PipelineFinalizer
+
+    def run(self, url: str, soup: BeautifulSoup) -> ParseResult:
+        meta_updates_raw = self.meta_builder(soup)
+        if not isinstance(meta_updates_raw, Mapping):
+            raise TypeError(
+                "meta_builder must return a mapping of metadata updates, "
+                f"got {type(meta_updates_raw)!r}"
+            )
+        content_sections_raw = self.content_builder(soup)
+        if not isinstance(content_sections_raw, Mapping):
+            raise TypeError(
+                "content_builder must return a mapping of content sections, "
+                f"got {type(content_sections_raw)!r}"
+            )
+
+        references_raw = list(self.reference_harvester(soup))
+        references: list[ReferenceObj] = []
+        for ref in references_raw:
+            if not isinstance(ref, ReferenceObj):
+                raise TypeError(
+                    "reference_harvester must yield ReferenceObj instances, "
+                    f"got {type(ref)!r}"
+                )
+            references.append(ref)
+
+        figures_raw = list(self.figure_extractor(soup))
+        figures: list[FigureEntry] = []
+        for figure in figures_raw:
+            if not isinstance(figure, Mapping):
+                raise TypeError(
+                    "figure_extractor must yield mapping objects, "
+                    f"got {type(figure)!r}"
+                )
+            figures.append(dict(figure))
+
+        tables_raw = list(self.table_extractor(soup))
+        tables: list[TableEntry] = []
+        for table in tables_raw:
+            if not isinstance(table, Mapping):
+                raise TypeError(
+                    "table_extractor must yield mapping objects, "
+                    f"got {type(table)!r}"
+                )
+            tables.append(dict(table))
+
+        artifacts = PipelineArtifacts(
+            meta_updates=dict(meta_updates_raw),
+            content_sections=dict(content_sections_raw),
+            references=references,
+            figures=figures,
+            tables=tables,
+        )
+        return self.finalizer(artifacts, url, soup)
 
 class BaseParser:
     DOMAINS: tuple[str, ...] = tuple()
@@ -328,31 +422,48 @@ class BaseParser:
         return cls._run_generic_pipeline(url, soup)
 
     @classmethod
-    def _run_generic_pipeline(cls, url: str, soup: BeautifulSoup) -> ParseResult:
-        """Execute the generic parsing pipeline used by site adapters.
+    def build_pipeline(cls) -> ParserPipeline:
+        """Return the parsing pipeline used by this parser.
 
-        Sub-classes can override the helper methods (``_harvest_references_generic``
-        for example) while still relying on this shared orchestration logic.  This
-        keeps the overall parse flow consistent across the concrete parser
-        implementations.
+        Concrete site parsers can override this to provide custom orchestration
+        while still reusing the shared helper methods.  The default pipeline is
+        intentionally modular so individual extraction stages can be overridden
+        without rewriting the surrounding control flow.
         """
 
-        refs = cls._harvest_references_generic(soup)
-        meta_updates = cls._build_meta_updates(soup)
-        content_sections = cls._build_content_sections(soup)
+        return ParserPipeline(
+            meta_builder=cls._build_meta_updates,
+            content_builder=cls._build_content_sections,
+            reference_harvester=cls._harvest_references_generic,
+            figure_extractor=cls._extract_figures,
+            table_extractor=cls._extract_tables,
+            finalizer=cls._finalize_pipeline,
+        )
+
+    @classmethod
+    def _finalize_pipeline(
+        cls, artifacts: PipelineArtifacts, url: str, soup: BeautifulSoup
+    ) -> ParseResult:
+        """Finalize the parsing pipeline by normalizing and packaging artifacts."""
+
+        meta_updates: MetaUpdates = dict(artifacts.meta_updates)
         doi = cls.find_doi_in_meta(soup)
         if doi and not meta_updates.get("doi"):
             meta_updates["doi"] = doi
-        figures = cls._extract_figures(soup)
-        tables = cls._extract_tables(soup)
 
         return ParseResult(
             meta_updates=meta_updates,
-            content_sections=content_sections,
-            references=refs,
-            figures=figures,
-            tables=tables,
+            content_sections=artifacts.content_sections,
+            references=artifacts.references,
+            figures=artifacts.figures,
+            tables=artifacts.tables,
         )
+
+    @classmethod
+    def _run_generic_pipeline(cls, url: str, soup: BeautifulSoup) -> ParseResult:
+        """Execute the configured parsing pipeline for this parser."""
+
+        return cls.build_pipeline().run(url, soup)
 
     # ---- shared helpers ----
 
