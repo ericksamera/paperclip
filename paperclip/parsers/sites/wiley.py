@@ -11,6 +11,9 @@ if TYPE_CHECKING:  # pragma: no cover - import for type checking only
     from .sciencedirect.citations import SentenceCitationAnnotator
 
 
+# -------------------------------
+# Wiley-specific body extraction
+# -------------------------------
 class WileyBodyExtractor(BodyExtractor):
     _SECTION_TAGS: ClassVar[tuple[str, ...]] = ("section", "div")
 
@@ -28,36 +31,48 @@ class WileyBodyExtractor(BodyExtractor):
                 results.append(built)
         return results
 
+    # -------- Helpers for section collection --------
     def _collect_top_level_sections(
         self, soup: BeautifulSoup, body_root: Tag | None
     ) -> list[Tag]:
-        """Collect Wiley body sections in document order.
-
-        The DOM on Wiley frequently nests structural wrappers around the real
-        section content.  Rather than chasing parents and children recursively,
-        gather every matching node once and then retain the highest level nodes
-        that contain actual content.
         """
+        Collect Wiley body sections in document order.
 
+        Fixes a common Wiley pattern:
+            <section class="article-section article-section__full">
+               <section class="article-section__content"> ... </section>
+               <section class="article-section__content"> ... </section>
+            </section>
+
+        We now intentionally avoid treating the outer __full wrapper as a section
+        when it simply wraps real content sections. This prevents both the
+        wrapper (no direct content) and its descendants (have a section ancestor)
+        from being filtered out.
+        """
         candidates: list[Tag] = []
         seen_nodes: set[int] = set()
+
+        def section_pred(tag: Tag) -> bool:
+            return self.section_predicate(tag)
 
         def queue_nodes(root: Tag | BeautifulSoup) -> None:
             if not isinstance(root, Tag):
                 return
-            if self.section_predicate(root):
+
+            if section_pred(root):
                 marker = id(root)
                 if marker not in seen_nodes:
                     seen_nodes.add(marker)
                     candidates.append(root)
 
+            # include nested potential sections
             for node in root.find_all(self._SECTION_TAGS):
                 if not isinstance(node, Tag):
                     continue
                 marker = id(node)
                 if marker in seen_nodes:
                     continue
-                if not self.section_predicate(node):
+                if not section_pred(node):
                     continue
                 seen_nodes.add(marker)
                 candidates.append(node)
@@ -66,6 +81,7 @@ class WileyBodyExtractor(BodyExtractor):
             queue_nodes(body_root)
 
         if not candidates:
+            # fallbacks typical to Wiley
             for selector in (
                 "section[id]",
                 "div[id]",
@@ -94,9 +110,26 @@ class WileyBodyExtractor(BodyExtractor):
             if marker in skipped_descendants:
                 continue
             if self._has_section_ancestor(node):
-                continue
+                # if ancestor is wrapper-only (not a "real" content container), allow promotion
+                if getattr(node, "_wiley_promoted", False):
+                    # already promoted
+                    pass
+                else:
+                    continue
+
+            # keep nodes that have direct content; otherwise, if they only wrap child sections, skip wrapper
             if not self._has_direct_content(node) and self._has_section_descendant(node):
+                # This is a wrapper-only node; skip it and allow its first-level content sections to be collected.
+                for child in node.find_all(self._SECTION_TAGS, recursive=False):
+                    if isinstance(child, Tag) and self.section_predicate(child):
+                        child._wiley_promoted = True  # marker to bypass ancestor filter above
+                        top_level.append(child)
+                        for descendant in child.find_all(self._SECTION_TAGS):
+                            if isinstance(descendant, Tag):
+                                skipped_descendants.add(id(descendant))
+                # Do not add the wrapper itself
                 continue
+
             top_level.append(node)
             for descendant in node.find_all(self._SECTION_TAGS):
                 if isinstance(descendant, Tag):
@@ -127,17 +160,31 @@ class WileyBodyExtractor(BodyExtractor):
             if not isinstance(child, Tag):
                 continue
             if self.section_predicate(child):
+                # ignore nested section containers when checking for content
+                continue
+            # skip common non-content wrappers that shouldn't count as direct content
+            child_classes = {
+                c.lower() for c in (child.get("class") or []) if isinstance(c, str)
+            }
+            if (
+                "article-table-content" in child_classes
+                or "article-section__inline-figure" in child_classes
+                or "figure" == child.name
+            ):
+                # these may have text but are structural; real paragraphs live around them
                 continue
             if child.get_text(" ", strip=True):
                 return True
         return False
 
+    # -------- Heading detection tweaks --------
     @staticmethod
     def _leading_heading(node: Tag) -> Tag | None:
         heading = BaseParser._leading_heading(node)
         if heading:
             return heading
 
+        # Wiley heading classes
         heading = node.find(
             lambda tag: isinstance(tag, Tag)
             and tag.name in {"h1", "h2", "h3", "h4", "h5", "h6"}
@@ -154,6 +201,7 @@ class WileyBodyExtractor(BodyExtractor):
         if heading:
             return heading
 
+        # ARIA-labelled headings
         visited: set[str] = set()
         current: Tag | None = node
         while isinstance(current, Tag):
@@ -174,83 +222,56 @@ class WileyBodyExtractor(BodyExtractor):
 
         return None
 
+    # -------- Content root selection fixes --------
     def _content_root(self, node: Tag) -> Tag:  # type: ignore[override]
-        if node.name == "section":
+        """
+        Descend into immediate content containers whether they're <div> or <section>.
+        """
+        def class_set(el: Tag) -> set[str]:
+            return {v.lower() for v in (el.get("class") or []) if isinstance(v, str)}
+
+        # If this node is a wrapper <section>, prefer its direct content child
+        if node.name in {"section", "div"}:
             for child in node.find_all(True, recursive=False):
-                classes = {
-                    value.lower()
-                    for value in (child.get("class") or [])
-                    if isinstance(value, str)
-                }
-                if child.name == "div" and any(
-                    class_name.startswith("article-section__content")
-                    or class_name.startswith("article-section__full")
-                    or class_name.startswith("article-section__body")
-                    for class_name in classes
+                if not isinstance(child, Tag):
+                    continue
+                classes = class_set(child)
+                if child.name in {"div", "section"} and any(
+                    cls.startswith("article-section__content")
+                    or cls.startswith("article-section__full")
+                    or cls.startswith("article-section__body")
+                    or cls.startswith("article-section__sub-content")
+                    or cls.startswith("accordion__panel-body")
+                    for cls in classes
                 ):
                     return self._content_root(child)
-            return node
+            # If wrapper identified by data-* locator, descend to the first matching descendant
+            data_locator = node.get("data-test-locator") or node.get("data-testid")
+            if isinstance(data_locator, str) and "article-section" in data_locator.lower():
+                descendant = node.find(
+                    lambda t: isinstance(t, Tag)
+                    and t.name in {"div", "section"}
+                    and any(
+                        isinstance(val, str) and (
+                            val.lower().startswith("article-section__content")
+                            or val.lower().startswith("article-section__full")
+                            or val.lower().startswith("article-section__sub-content")
+                            or val.lower().startswith("accordion__panel-body")
+                        )
+                        for val in (t.get("class") or [])
+                    )
+                )
+                if isinstance(descendant, Tag):
+                    return self._content_root(descendant)
 
-        classes = {
-            value.lower() for value in (node.get("class") or []) if isinstance(value, str)
-        }
-        data_locator = node.get("data-test-locator") or node.get("data-testid")
-        candidate_children: list[Tag] = []
-
-        for child in node.find_all(True, recursive=False):
-            if not isinstance(child, Tag):
-                continue
-            child_classes = {
-                value.lower()
-                for value in (child.get("class") or [])
-                if isinstance(value, str)
-            }
-            child_data_locator = child.get("data-test-locator") or child.get("data-testid")
-            child_locator = child_data_locator.lower() if isinstance(child_data_locator, str) else ""
-            if any(
-                class_name.startswith("article-section__content")
-                or class_name.startswith("article-section__full")
-                or class_name.startswith("article-section__sub-content")
-                or class_name.startswith("accordion__panel-body")
-                for class_name in child_classes
-            ) or (child_locator and "article-section" in child_locator):
-                candidate_children.append(child)
-
-        if not candidate_children and isinstance(data_locator, str):
-            locator = data_locator.lower()
-            if "article-section" in locator:
-                for descendant in node.find_all(True):
-                    if not isinstance(descendant, Tag):
-                        continue
-                    descendant_classes = {
-                        value.lower()
-                        for value in (descendant.get("class") or [])
-                        if isinstance(value, str)
-                    }
-                    descendant_data = descendant.get("data-test-locator") or descendant.get("data-testid")
-                    descendant_locator = descendant_data.lower() if isinstance(descendant_data, str) else ""
-                    if any(
-                        class_name.startswith("article-section__content")
-                        or class_name.startswith("article-section__full")
-                        or class_name.startswith("article-section__sub-content")
-                        or class_name.startswith("accordion__panel-body")
-                        for class_name in descendant_classes
-                    ) or (descendant_locator and "article-section" in descendant_locator):
-                        candidate_children.append(descendant)
-                        break
-
-        for child in candidate_children:
-            return self._content_root(child)
-
+        # Special-case accordion panels sometimes used around body chunks
+        classes = class_set(node)
         if "accordion__panel" in classes:
             body = node.find(
                 lambda tag: isinstance(tag, Tag)
                 and (
-                    "accordion__panel-body" in {
-                        value.lower()
-                        for value in (tag.get("class") or [])
-                        if isinstance(value, str)
-                    }
+                    "accordion__panel-body"
+                    in {v.lower() for v in (tag.get("class") or []) if isinstance(v, str)}
                     or (
                         isinstance(tag.get("data-test-locator"), str)
                         and "article-section" in tag.get("data-test-locator").lower()
@@ -266,6 +287,7 @@ class WileyBodyExtractor(BodyExtractor):
 
         return node
 
+    # -------- Body root location --------
     def _locate_body_root(self, soup: BeautifulSoup) -> Tag | None:  # type: ignore[override]
         selectors = [
             "div.article__sections",
@@ -281,7 +303,8 @@ class WileyBodyExtractor(BodyExtractor):
             if isinstance(node, Tag):
                 return node
 
-        first_section = soup.select_one("section.article-section__content")
+        # Common Wiley pattern: find the first content section and use its parent as root
+        first_section = soup.select_one("section.article-section__content, div.article-section__content")
         if isinstance(first_section, Tag):
             parent = first_section.parent
             if isinstance(parent, Tag):
@@ -289,6 +312,10 @@ class WileyBodyExtractor(BodyExtractor):
 
         return super()._locate_body_root(soup)
 
+
+# -------------------------------
+# Wiley parser
+# -------------------------------
 class WileyParser(BaseParser):
     NAME = "Wiley"
     DOMAINS = ("onlinelibrary.wiley.com",)
@@ -368,18 +395,52 @@ class WileyParser(BaseParser):
             )
         return cls._body_extractor
 
+    # ---------- Wiley section predicate (FIXED) ----------
     @classmethod
     def _is_wiley_section(cls, node: Tag) -> bool:
+        """
+        Identify *real* content sections while ignoring common wrappers
+        and structural blocks (figures/tables) that should not split text.
+        """
         if node.name not in {"section", "div"}:
             return False
+
         classes = {
             value.lower()
             for value in (node.get("class") or [])
             if isinstance(value, str)
         }
 
+        # Fast rejects
         if any("abstract" in class_name for class_name in classes):
             return False
+        if "article-section__inline-figure" in classes:
+            return False  # figure block is not a text section
+        if "article-table-content" in classes:
+            return False  # table wrapper is not a section
+
+        def has_content_descendant(n: Tag) -> bool:
+            return n.find(
+                lambda t: isinstance(t, Tag)
+                and t.name in {"div", "section"}
+                and any(
+                    isinstance(v, str)
+                    and (
+                        v.lower().startswith("article-section__content")
+                        or v.lower().startswith("article-section__sub-content")
+                    )
+                    for v in (t.get("class") or [])
+                )
+            ) is not None
+
+        # Treat these as wrappers unless they *themselves* carry direct content without nested content blocks.
+        if any(
+            cn.startswith("article-section__full") or cn.startswith("article-section__body")
+            for cn in classes
+        ):
+            # If they wrap a proper content descendant, don't consider the wrapper a section.
+            if has_content_descendant(node):
+                return False
 
         data_section_type = node.get("data-section-type")
         if isinstance(data_section_type, str) and data_section_type.lower() in {
@@ -388,24 +449,34 @@ class WileyParser(BaseParser):
             "fulltext",
             "article-body",
         }:
+            # As above: only count if not just a wrapper for content
+            if has_content_descendant(node):
+                return False
             return True
 
         data_locator = node.get("data-test-locator") or node.get("data-testid")
         if isinstance(data_locator, str) and "article-section" in data_locator.lower():
+            # Still guard against wrapper case
+            if has_content_descendant(node) and not any(
+                cn.startswith("article-section__content") or cn.startswith("article-section__sub-content")
+                for cn in classes
+            ):
+                return False
             return True
 
+        # Minimal/no classes: look for explicit content descendants
         if not classes:
             content = node.find(
                 class_=lambda name: isinstance(name, str)
-                and name.lower().startswith("article-section__content")
+                and (name.lower().startswith("article-section__content"))
             )
             if content:
                 return True
 
+        # Positive cases
         if any(
             class_name.startswith("article-section__content")
             or class_name.startswith("article-section__sub-content")
-            or class_name.startswith("article-section__full")
             for class_name in classes
         ):
             return True
@@ -416,6 +487,7 @@ class WileyParser(BaseParser):
         ):
             return True
 
+        # Headings imply a real section (but avoid "abstract")
         heading = node.find(
             lambda tag: isinstance(tag, Tag)
             and any(
@@ -435,6 +507,7 @@ class WileyParser(BaseParser):
                 return False
             return True
 
+        # ARIA-labelled sections with headings that are not "Abstract"
         labelled = node.get("aria-labelledby")
         if isinstance(labelled, str) and labelled.strip():
             heading = node.find(id=labelled.strip())
