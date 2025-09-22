@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable, Optional
+from typing import Any, ClassVar, Iterable, Optional
 
 from urllib.parse import parse_qsl, urlparse
 
@@ -16,7 +16,7 @@ class ScienceDirectParser(BaseParser):
     DOMAINS = ("sciencedirect.com", "elsevier.com")
     SECTION_ID_RE = re.compile(r"^cesec", re.I)
     _citation_annotator = SentenceCitationAnnotator()
-    _body_extractor: Optional[BodyExtractor] = None
+    _body_extractor: ClassVar[Optional[BodyExtractor]] = None
 
     @classmethod
     def detect(cls, url: str, soup: BeautifulSoup) -> bool:

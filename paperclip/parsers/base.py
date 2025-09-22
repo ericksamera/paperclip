@@ -2,13 +2,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import re
-from typing import Any, Callable, ClassVar, Mapping, Optional, Sequence, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Mapping, Optional, Sequence, TypedDict
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-from .sites.sciencedirect.body import BodyExtractor
-from .sites.sciencedirect.citations import SentenceCitationAnnotator
+if TYPE_CHECKING:
+    from .sites.sciencedirect.body import BodyExtractor
+    from .sites.sciencedirect.citations import SentenceCitationAnnotator
 
 # DOI pattern
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\b")
@@ -403,6 +404,9 @@ class BaseParser:
         extractor = getattr(cls, "_body_extractor", None)
         owner = getattr(extractor, "_owner", None)
         if extractor is None or owner is not cls:
+            from .sites.sciencedirect.body import BodyExtractor
+            from .sites.sciencedirect.citations import SentenceCitationAnnotator
+
             extractor = BodyExtractor(
                 citation_annotator=SentenceCitationAnnotator(),
                 section_predicate=cls._is_generic_body_section,
@@ -433,14 +437,14 @@ class BaseParser:
         caption_node = node.find("figcaption")
         caption_text = cls._normalise_whitespace(cls._text(caption_node)) if caption_node else ""
         label = cls._figure_label(node, caption_node, index)
-        caption = caption_text
+        caption: Optional[str] = caption_text or None
         if caption and label:
-            caption = cls._strip_caption_label(caption, label, prefixes=("figure", "fig"))
+            caption = cls._strip_caption_label(caption, label, prefixes=("figure", "fig")) or caption
         if not caption:
             first_image = node.find("img")
             if isinstance(first_image, Tag):
-                caption = cls._normalise_whitespace(first_image.get("alt") or "")
-        caption = caption or None
+                alt_text = cls._normalise_whitespace(first_image.get("alt") or "")
+                caption = alt_text or caption
 
         images = cls._figure_images(node)
         html_content = node.decode().strip()
@@ -562,10 +566,9 @@ class BaseParser:
     def _build_table(cls, node: Tag, index: int) -> Optional[dict[str, Any]]:
         caption_text = cls._table_caption_text(node)
         label = cls._table_label(node, caption_text, index)
-        caption = caption_text
+        caption: Optional[str] = caption_text or None
         if caption and label:
-            caption = cls._strip_caption_label(caption, label, prefixes=("table",))
-        caption = caption or None
+            caption = cls._strip_caption_label(caption, label, prefixes=("table",)) or caption
 
         html_content = node.decode().strip()
         if not html_content and not caption:

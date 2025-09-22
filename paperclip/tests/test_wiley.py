@@ -186,6 +186,84 @@ WILEY_COMPLEX_BODY_HTML = """
 """
 
 
+WILEY_FULL_SECTION_NO_KNOWN_ROOT_HTML = """
+<html>
+  <body>
+    <div id="article-wrapper">
+      <div class="article-section article-section__full">
+        <div class="article-section__content" id="sec-main">
+          <h2 class="article-section__title section__title">Overview</h2>
+          <p>The overview content introduces the article themes.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+"""
+
+
+WILEY_ACCORDION_BODY_HTML = """
+<html>
+  <body>
+    <div class="accordion" id="article-sections">
+      <div class="accordion__panel" data-test-locator="article-section">
+        <div class="accordion__panel-body" data-test-locator="article-section-content" id="sec-1">
+          <h2 class="section__title">Introduction</h2>
+          <p>The introductory panel content describes the scope of the study.</p>
+        </div>
+      </div>
+      <div class="accordion__panel" data-testid="article-section">
+        <div class="accordion__panel-body" id="sec-2" aria-labelledby="sec-2-title">
+          <h2 class="section__title" id="sec-2-title">Results</h2>
+          <p>The results panel summarises the main findings.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+"""
+
+
+WILEY_ACCORDION_WITH_HEADER_HTML = """
+<html>
+  <body>
+    <div id="pb-page-content">
+      <div class="accordion" id="article-sections">
+        <div class="accordion__panel" data-testid="article-section">
+          <div class="accordion__panel-header">
+            <button class="accordion__panel-title" id="sec-a-title">Introduction</button>
+          </div>
+          <div
+            class="accordion__panel-body"
+            id="sec-a"
+            aria-labelledby="sec-a-title"
+            data-test-locator="article-section-content"
+          >
+            <div class="article-section__content">
+              <p>The introductory panel content describes the study background.</p>
+            </div>
+          </div>
+        </div>
+        <div class="accordion__panel" data-testid="article-section">
+          <div class="accordion__panel-header">
+            <button class="accordion__panel-title" id="sec-b-title">SimRAD workflow and functions</button>
+          </div>
+          <div class="accordion__panel-body" id="sec-b" aria-labelledby="sec-b-title">
+            <div class="accordion__panel-content">
+              <section class="article-section__content" id="men12273-sec-0002">
+                <h2 class="article-section__title section__title">SimRAD workflow and functions</h2>
+                <p>A subsample or the full reference genome sequence of a species can be used to simulate restriction enzyme digestion.</p>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+"""
+
+
 def test_wiley_parser_extracts_abstract_from_article_section() -> None:
     soup = BeautifulSoup(WILEY_SAMPLE_HTML, "html.parser")
     abstract = WileyParser._extract_abstract(soup)
@@ -283,3 +361,67 @@ def test_wiley_parser_handles_complex_full_sections() -> None:
     data_input = next(child for child in children if child.get("title", "").strip() == "Data input")
     child_paragraphs = data_input.get("paragraphs") or []
     assert any("ref.DNAseq" in paragraph.get("markdown", "") for paragraph in child_paragraphs)
+
+
+def test_wiley_parser_handles_full_sections_without_known_root() -> None:
+    url = "https://onlinelibrary.wiley.com/doi/10.1002/example"
+    parsed = parse_html(url, WILEY_FULL_SECTION_NO_KNOWN_ROOT_HTML)
+    body = parsed.content_sections["body"]
+    assert body
+    overview = body[0]
+    assert overview["title"].strip() == "Overview"
+    paragraphs = overview.get("paragraphs") or []
+    assert any(
+        "overview content introduces" in paragraph.get("markdown", "").lower()
+        for paragraph in paragraphs
+    )
+
+
+def test_wiley_parser_handles_accordion_panels() -> None:
+    url = "https://onlinelibrary.wiley.com/doi/10.1002/example"
+    parsed = parse_html(url, WILEY_ACCORDION_BODY_HTML)
+    body = parsed.content_sections["body"]
+    assert body
+    titles = {section.get("title", "").strip() for section in body}
+    assert {"Introduction", "Results"}.issubset(titles)
+
+    intro = next(section for section in body if section.get("title", "").strip() == "Introduction")
+    intro_paragraphs = intro.get("paragraphs") or []
+    assert any(
+        "introductory panel content" in paragraph.get("markdown", "")
+        for paragraph in intro_paragraphs
+    )
+
+    results = next(section for section in body if section.get("title", "").strip() == "Results")
+    results_paragraphs = results.get("paragraphs") or []
+    assert any(
+        "summarises the main findings" in paragraph.get("markdown", "")
+        for paragraph in results_paragraphs
+    )
+
+
+def test_wiley_parser_handles_accordion_header_titles() -> None:
+    url = "https://onlinelibrary.wiley.com/doi/10.1002/example"
+    parsed = parse_html(url, WILEY_ACCORDION_WITH_HEADER_HTML)
+    body = parsed.content_sections["body"]
+    assert body
+    titles = {section.get("title", "").strip() for section in body}
+    assert {"Introduction", "SimRAD workflow and functions"}.issubset(titles)
+
+    intro = next(section for section in body if section.get("title", "").strip() == "Introduction")
+    intro_paragraphs = intro.get("paragraphs") or []
+    assert any(
+        "study background" in paragraph.get("markdown", "")
+        for paragraph in intro_paragraphs
+    )
+
+    workflow = next(
+        section
+        for section in body
+        if section.get("title", "").strip() == "SimRAD workflow and functions"
+    )
+    workflow_paragraphs = workflow.get("paragraphs") or []
+    assert any(
+        "full reference genome sequence" in paragraph.get("markdown", "")
+        for paragraph in workflow_paragraphs
+    )
