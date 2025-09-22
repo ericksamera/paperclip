@@ -260,6 +260,18 @@ def _content_sections_to_markdown_paragraphs(
 
     simplified_content: ReducedCaptureView = {}
 
+    def _section_identity(section: MarkdownSection) -> tuple[Any, ...]:
+        """Return a hashable identity for a normalised section."""
+
+        title = section.get("title")
+        paragraphs = tuple(section.get("paragraphs", []))
+        raw_children = section.get("children")
+        if isinstance(raw_children, list):
+            children = tuple(_section_identity(child) for child in raw_children)
+        else:
+            children = tuple()
+        return (title, paragraphs, children)
+
     abstract_sections = content.get("abstract")
     if isinstance(abstract_sections, Iterable) and not isinstance(abstract_sections, (str, bytes)):
         abstract_list: list[MarkdownSection] = []
@@ -290,11 +302,19 @@ def _content_sections_to_markdown_paragraphs(
     body_sections = content.get("body")
     if isinstance(body_sections, Iterable) and not isinstance(body_sections, (str, bytes)):
         body_list: list[MarkdownSection] = []
+        seen_sections: set[tuple[Any, ...]] = set()
         for section in body_sections:
             if not isinstance(section, Mapping):
                 continue
             simplified_section = _simplify_body_section(section)
             if simplified_section:
+                title = simplified_section.get("title")
+                if isinstance(title, str) and title.strip().lower() == "references":
+                    continue
+                identity = _section_identity(simplified_section)
+                if identity in seen_sections:
+                    continue
+                seen_sections.add(identity)
                 body_list.append(simplified_section)
         if body_list:
             simplified_content["body"] = body_list

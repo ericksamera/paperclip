@@ -6,11 +6,13 @@ from .base import ParseResult
 # Import site adapters (registration happens on import)
 from .sites.generic import GenericParser
 from .sites.oup import OUPParser
+from .sites.plos import PLOSParser
 from .sites.wiley import WileyParser
 from .sites.sciencedirect import ScienceDirectParser
 
 # Register in order of specificity (Generic last)
 register(OUPParser)
+register(PLOSParser)
 register(WileyParser)
 register(ScienceDirectParser)
 register(GenericParser)
