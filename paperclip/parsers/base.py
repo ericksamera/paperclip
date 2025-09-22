@@ -2,13 +2,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import re
-from typing import Any, Callable, ClassVar, Mapping, Optional, Sequence, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Mapping, Optional, Sequence, TypedDict
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-from .sites.sciencedirect.body import BodyExtractor
-from .sites.sciencedirect.citations import SentenceCitationAnnotator
+if TYPE_CHECKING:
+    from .sites.sciencedirect.body import BodyExtractor
+    from .sites.sciencedirect.citations import SentenceCitationAnnotator
 
 # DOI pattern
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\b")
@@ -403,6 +404,9 @@ class BaseParser:
         extractor = getattr(cls, "_body_extractor", None)
         owner = getattr(extractor, "_owner", None)
         if extractor is None or owner is not cls:
+            from .sites.sciencedirect.body import BodyExtractor
+            from .sites.sciencedirect.citations import SentenceCitationAnnotator
+
             extractor = BodyExtractor(
                 citation_annotator=SentenceCitationAnnotator(),
                 section_predicate=cls._is_generic_body_section,
