@@ -184,16 +184,35 @@ class WileyParser(BaseParser):
             for value in (node.get("class") or [])
             if isinstance(value, str)
         }
+
+        if any("abstract" in class_name for class_name in classes):
+            return False
+
+        data_section_type = node.get("data-section-type")
+        if isinstance(data_section_type, str) and data_section_type.lower() in {
+            "body",
+            "full",
+            "fulltext",
+            "article-body",
+        }:
+            return True
+
+        data_locator = node.get("data-test-locator") or node.get("data-testid")
+        if isinstance(data_locator, str) and "article-section" in data_locator.lower():
+            return True
+
         if not classes:
             content = node.find(
                 class_=lambda name: isinstance(name, str)
                 and name.lower().startswith("article-section__content")
             )
-            return bool(content)
+            if content:
+                return True
 
         if any(
             class_name.startswith("article-section__content")
             or class_name.startswith("article-section__sub-content")
+            or class_name.startswith("article-section__full")
             for class_name in classes
         ):
             return True
@@ -203,5 +222,32 @@ class WileyParser(BaseParser):
             and name.lower().startswith("article-section__content")
         ):
             return True
+
+        heading = node.find(
+            lambda tag: isinstance(tag, Tag)
+            and any(
+                isinstance(value, str)
+                and (
+                    "article-section__title" in value.lower()
+                    or "article-section__sub-title" in value.lower()
+                    or "section__title" in value.lower()
+                    or "section__subtitle" in value.lower()
+                )
+                for value in (tag.get("class") or [])
+            )
+        )
+        if heading:
+            text = heading.get_text(" ", strip=True).lower()
+            if text and "abstract" in text:
+                return False
+            return True
+
+        labelled = node.get("aria-labelledby")
+        if isinstance(labelled, str) and labelled.strip():
+            heading = node.find(id=labelled.strip())
+            if isinstance(heading, Tag):
+                text = heading.get_text(" ", strip=True).lower()
+                if text and "abstract" not in text:
+                    return True
 
         return False
