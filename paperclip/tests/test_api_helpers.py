@@ -18,7 +18,7 @@ pytest.importorskip("bs4")
 
 import paperclip.api as api_module
 from paperclip.api import (
-    _build_markdown_capture_view,
+    _build_reduced_capture_view,
     _content_sections_to_markdown_paragraphs,
     _enrich_reference_objs_with_doi,
     _reference_to_server_view,
@@ -115,7 +115,7 @@ def test_content_sections_to_markdown_paragraphs_simplifies_structure() -> None:
     }
 
 
-def test_build_markdown_capture_view_orders_metadata_and_references() -> None:
+def test_build_reduced_capture_view_orders_metadata_and_references() -> None:
     content = {
         "abstract": [
             {"title": "Summary", "body": "Overview."},
@@ -137,7 +137,7 @@ def test_build_markdown_capture_view_orders_metadata_and_references() -> None:
         {"ref_id": "ref-2", "raw": "Reference 2."},
     ]
 
-    view = _build_markdown_capture_view(
+    view = _build_reduced_capture_view(
         content=content,
         meta=meta,
         references=cast(Sequence[Mapping[str, Any]], references),
@@ -149,7 +149,6 @@ def test_build_markdown_capture_view_orders_metadata_and_references() -> None:
         "abstract",
         "body",
         "keywords",
-        "markdown",
         "references",
     ]
     assert view["metadata"] == meta
@@ -157,9 +156,7 @@ def test_build_markdown_capture_view_orders_metadata_and_references() -> None:
     assert view["body"][0]["paragraphs"] == ["Paragraph one."]
     assert len(view["references"]) == 2
     assert view["references"][0]["ref_id"] == "ref-1"
-    markdown = view["markdown"]
-    assert markdown.startswith("## Metadata")
-    assert "## References" in markdown
+    assert "markdown" not in view
 
 
 def _sample_csl() -> dict:

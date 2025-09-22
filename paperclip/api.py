@@ -165,20 +165,19 @@ class MarkdownSection(TypedDict, total=False):
     children: list["MarkdownSection"]
 
 
-class MarkdownCaptureView(TypedDict, total=False):
-    """Structure returned by :func:`_build_markdown_capture_view`."""
+class ReducedCaptureView(TypedDict, total=False):
+    """Structure returned by :func:`_build_reduced_capture_view`."""
 
     metadata: dict[str, Any]
     abstract: list[MarkdownSection]
     body: list[MarkdownSection]
     keywords: list[str]
     references: list[dict[str, Any]]
-    markdown: str
 
 
 def _content_sections_to_markdown_paragraphs(
     content: JsonMapping | None,
-) -> MarkdownCaptureView:
+) -> ReducedCaptureView:
     """Normalise parser content into markdown-friendly structures.
 
     The parser output contains nested structures with optional ``markdown`` and
@@ -259,7 +258,7 @@ def _content_sections_to_markdown_paragraphs(
 
         return simplified
 
-    simplified_content: MarkdownCaptureView = {}
+    simplified_content: ReducedCaptureView = {}
 
     abstract_sections = content.get("abstract")
     if isinstance(abstract_sections, Iterable) and not isinstance(abstract_sections, (str, bytes)):
@@ -309,33 +308,20 @@ def _content_sections_to_markdown_paragraphs(
     return simplified_content
 
 
-def _build_markdown_capture_view(
+def _build_reduced_capture_view(
     *,
     content: JsonMapping | None,
     meta: JsonMapping | None,
     references: Sequence[JsonMapping] | None,
     title: str | None = None,
-) -> MarkdownCaptureView:
-    """Assemble a markdown-friendly representation of the capture data.
+) -> ReducedCaptureView:
+    """Assemble a lightweight representation of the capture data.
 
-    The resulting dictionary is lightweight but still expressive enough for
-    client consumption:
-
-    ``metadata``
-        Arbitrary metadata values preserved as key/value pairs.  The capture
-        title is injected when available so the markdown view always exposes a
-        top-level heading.
-    ``abstract`` and ``body``
-        Lists of :class:`MarkdownSection` entries with paragraphs suitable for
-        direct rendering.
-    ``references``
-        Normalised reference payloads that mirror the data returned by the API
-        serializer.
-    ``markdown``
-        A fully-rendered markdown string that concatenates the above sections.
+    The resulting dictionary exposes only structured data so consumers can
+    decide how to render it on their end.
     """
 
-    view: MarkdownCaptureView = {}
+    view: ReducedCaptureView = {}
 
     metadata: dict[str, Any] = {}
     if isinstance(meta, Mapping):
@@ -356,101 +342,7 @@ def _build_markdown_capture_view(
             if data:
                 normalized_refs.append(data)
 
-    def _append_section_markdown(
-        sections: Sequence[MarkdownSection] | None,
-        *,
-        level: int,
-        lines: list[str],
-    ) -> None:
-        if not sections:
-            return
-
-        for section in sections:
-            if not isinstance(section, Mapping):
-                continue
-            title_text = section.get("title")
-            heading_level = max(1, min(level, 6))
-            if isinstance(title_text, str) and title_text.strip():
-                lines.append(f"{'#' * heading_level} {title_text.strip()}")
-                lines.append("")
-
-            paragraphs = section.get("paragraphs")
-            if isinstance(paragraphs, Sequence) and not isinstance(paragraphs, (str, bytes)):
-                for paragraph in paragraphs:
-                    if isinstance(paragraph, str) and paragraph.strip():
-                        lines.append(paragraph.strip())
-                        lines.append("")
-
-            children = section.get("children")
-            if isinstance(children, Sequence) and not isinstance(children, (str, bytes)):
-                _append_section_markdown(children, level=heading_level + 1, lines=lines)
-
-    markdown_lines: list[str] = []
-
-    if metadata:
-        markdown_lines.append("## Metadata")
-        markdown_lines.append("")
-        for key in sorted(metadata):
-            value = metadata[key]
-            if value is None:
-                continue
-            rendered = str(value).strip()
-            if rendered:
-                pretty_key = key.replace("_", " ").strip()
-                markdown_lines.append(f"- **{pretty_key}**: {rendered}")
-        markdown_lines.append("")
-
-    abstract_sections = simplified_sections.get("abstract")
-    if isinstance(abstract_sections, Sequence) and abstract_sections:
-        markdown_lines.append("## Abstract")
-        markdown_lines.append("")
-        _append_section_markdown(
-            cast(Sequence[Mapping[str, Any]] | None, abstract_sections),
-            level=3,
-            lines=markdown_lines,
-        )
-
-    body_sections = simplified_sections.get("body")
-    if isinstance(body_sections, Sequence) and body_sections:
-        markdown_lines.append("## Body")
-        markdown_lines.append("")
-        _append_section_markdown(
-            cast(Sequence[Mapping[str, Any]] | None, body_sections),
-            level=3,
-            lines=markdown_lines,
-        )
-
-    keywords = simplified_sections.get("keywords")
-    if isinstance(keywords, Sequence) and keywords:
-        markdown_lines.append("## Keywords")
-        markdown_lines.append("")
-        keyword_items = [str(word).strip() for word in keywords if str(word).strip()]
-        if keyword_items:
-            markdown_lines.append(", ".join(keyword_items))
-            markdown_lines.append("")
-
-    view["markdown"] = "\n".join(line for line in markdown_lines if line is not None).strip()
-
     view["references"] = normalized_refs
-
-    if normalized_refs:
-        ref_lines: list[str] = []
-        ref_lines.append("## References")
-        ref_lines.append("")
-        for idx, ref in enumerate(normalized_refs, start=1):
-            raw = str(ref.get("raw", "")).strip()
-            if raw:
-                ref_lines.append(f"{idx}. {raw}")
-            else:
-                ref_lines.append(f"{idx}. (reference details unavailable)")
-        markdown_fragment = "\n".join(ref_lines)
-        if view["markdown"]:
-            view["markdown"] = f"{view['markdown'].rstrip()}\n\n{markdown_fragment}"
-        else:
-            view["markdown"] = markdown_fragment
-
-    if view["markdown"]:
-        view["markdown"] = view["markdown"].rstrip() + "\n"
 
     return view
 
@@ -701,7 +593,7 @@ class CaptureViewSet(viewsets.ViewSet):
         request: HttpRequest,
         capture_id: str,
         enriched: bool,
-        has_markdown_view: bool,
+        has_reduced_view: bool,
     ) -> dict[str, str]:
         base = request.build_absolute_uri("/").rstrip("/")
         urls = {
@@ -710,9 +602,9 @@ class CaptureViewSet(viewsets.ViewSet):
             "parsed_json": f"{base}/captures/{capture_id}/artifact/parsed.json",
             "server_parsed": f"{base}/captures/{capture_id}/artifact/server_parsed.json",
         }
-        if has_markdown_view:
-            urls["server_parsed_markdown"] = (
-                f"{base}/captures/{capture_id}/artifact/server_parsed_markdown.json"
+        if has_reduced_view:
+            urls["output_reduced"] = (
+                f"{base}/captures/{capture_id}/artifact/server_output_reduced.json"
             )
         if enriched:
             urls["enrichment"] = f"{base}/captures/{capture_id}/artifact/enrichment.json"
@@ -746,7 +638,7 @@ class CaptureViewSet(viewsets.ViewSet):
             for ref in (final_state.get("references") or [])
         ]
 
-        markdown_view = _build_markdown_capture_view(
+        reduced_view = _build_reduced_capture_view(
             content=content_sections,
             meta=final_state.get("meta"),
             references=serialized_refs,
@@ -763,17 +655,17 @@ class CaptureViewSet(viewsets.ViewSet):
         }
         if content_sections:
             server_view["content"] = content_sections
-        if markdown_view:
-            server_view["content_markdown"] = markdown_view
+        if reduced_view:
+            server_view["output_reduced"] = reduced_view
         write_json_artifact(capture.id, "server_parsed.json", server_view)
-        if markdown_view:
-            write_json_artifact(capture.id, "server_parsed_markdown.json", markdown_view)
+        if reduced_view:
+            write_json_artifact(capture.id, "server_output_reduced.json", reduced_view)
 
         artifact_urls = self._build_artifact_urls(
             request,
             capture.id,
             bool(enrichment_blob),
-            bool(markdown_view),
+            bool(reduced_view),
         )
 
         refs_qs = capture.references.all()[:3]
