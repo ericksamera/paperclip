@@ -254,6 +254,59 @@ def _content_sections_to_markdown_paragraphs(
                 return text
         return None
 
+    def _looks_like_section(entry: Mapping[str, Any]) -> bool:
+        if "paragraphs" in entry or "children" in entry or "sections" in entry:
+            return True
+
+        title = entry.get("title") or entry.get("heading") or entry.get("label")
+        markdown = entry.get("markdown")
+        if isinstance(title, str) and title.strip() and isinstance(markdown, str) and markdown.strip():
+            return True
+
+        return False
+
+    def _collect_section_list(raw: Any, *, visited: set[int] | None = None) -> list[Mapping[str, Any]]:
+        if visited is None:
+            visited = set()
+
+        if isinstance(raw, Mapping):
+            node_id = id(raw)
+            if node_id in visited:
+                return []
+            visited.add(node_id)
+
+            mapping_entry = cast(Mapping[str, Any], raw)
+            if _looks_like_section(mapping_entry):
+                return [mapping_entry]
+
+            candidate_keys = ("sections", "content", "children", "items", "values", "data")
+            for key in candidate_keys:
+                candidate = mapping_entry.get(key)
+                if candidate is not None:
+                    extracted = _collect_section_list(candidate, visited=visited)
+                    if extracted:
+                        return extracted
+
+            for value in mapping_entry.values():
+                extracted = _collect_section_list(value, visited=visited)
+                if extracted:
+                    return extracted
+
+            return []
+
+        if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
+            items = list(raw)
+            section_like = [item for item in items if isinstance(item, Mapping) and _looks_like_section(item)]
+            if section_like:
+                return cast(list[Mapping[str, Any]], section_like)
+
+            for item in items:
+                extracted = _collect_section_list(item, visited=visited)
+                if extracted:
+                    return extracted
+
+        return []
+
     def _extract_paragraphs(raw: Any) -> list[str]:
         paragraphs: list[str] = []
         entries: Iterable[Any]
@@ -326,6 +379,9 @@ def _content_sections_to_markdown_paragraphs(
         return (title, paragraphs, children)
 
     abstract_sections = content.get("abstract")
+    if isinstance(abstract_sections, Mapping):
+        abstract_sections = _collect_section_list(abstract_sections)
+
     if isinstance(abstract_sections, Iterable) and not isinstance(abstract_sections, (str, bytes)):
         abstract_list: list[MarkdownSection] = []
         for entry in abstract_sections:
@@ -353,6 +409,13 @@ def _content_sections_to_markdown_paragraphs(
             simplified_content["abstract"] = abstract_list
 
     body_sections = content.get("body")
+    if isinstance(body_sections, Mapping):
+        body_sections = _collect_section_list(body_sections)
+    elif not isinstance(body_sections, (str, bytes)):
+        collected = _collect_section_list(body_sections)
+        if collected:
+            body_sections = collected
+
     if isinstance(body_sections, Iterable) and not isinstance(body_sections, (str, bytes)):
         body_list: list[MarkdownSection] = []
         seen_sections: set[tuple[Any, ...]] = set()

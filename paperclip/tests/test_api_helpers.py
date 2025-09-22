@@ -260,6 +260,44 @@ def test_build_reduced_capture_view_orders_metadata_and_references() -> None:
     assert "markdown" not in view
 
 
+def test_content_sections_to_markdown_paragraphs_coerces_nested_body_sections() -> None:
+    content = {
+        "body": {
+            "sections": [
+                {
+                    "title": "Nested Intro",
+                    "paragraphs": [
+                        {"markdown": "Intro paragraph."},
+                    ],
+                }
+            ]
+        }
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["body"] == [
+        {"title": "Nested Intro", "paragraphs": ["Intro paragraph."]}
+    ]
+
+
+def test_content_sections_to_markdown_paragraphs_handles_abstract_containers() -> None:
+    content = {
+        "abstract": {
+            "sections": [
+                {"title": "Overview", "body": " Summary of work.  "},
+                {"title": "Ignored", "paragraphs": []},
+            ]
+        }
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["abstract"] == [
+        {"title": "Overview", "paragraphs": ["Summary of work."]}
+    ]
+
+
 def _sample_csl() -> dict:
     return {
         "title": "Filled Title",
