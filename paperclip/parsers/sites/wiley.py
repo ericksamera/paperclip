@@ -2,7 +2,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 from typing import ClassVar
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 from ..base import BaseParser, ReferenceObj, DOI_RE
 from .sciencedirect.body import BodyExtractor
@@ -20,6 +20,33 @@ class WileyBodyExtractor(BodyExtractor):
                 return
 
             if self.section_predicate(node):
+                child_sections = [
+                    child
+                    for child in node.find_all(["section", "div"], recursive=False)
+                    if isinstance(child, Tag) and self.section_predicate(child)
+                ]
+                if child_sections:
+                    for child in child_sections:
+                        consider(child)
+
+                    has_direct_content = False
+                    for child in node.children:
+                        if isinstance(child, NavigableString):
+                            if child.strip():
+                                has_direct_content = True
+                                break
+                            continue
+                        if not isinstance(child, Tag):
+                            continue
+                        if child in child_sections:
+                            continue
+                        if child.get_text(" ", strip=True):
+                            has_direct_content = True
+                            break
+
+                    if not has_direct_content:
+                        return
+
                 for parent in node.parents:
                     if not isinstance(parent, Tag) or parent is node:
                         continue
