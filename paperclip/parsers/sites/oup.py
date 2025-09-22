@@ -1,8 +1,8 @@
 from __future__ import annotations
 from bs4 import BeautifulSoup
-from ..base import BaseParser, ReferenceObj, DOI_RE
+from ..base import GeneralParser, ReferenceObj, DOI_RE
 
-class OUPParser(BaseParser):
+class OUPParser(GeneralParser):
     NAME = "OUP"
     DOMAINS = ("academic.oup.com",)
 

@@ -325,6 +325,18 @@ class BaseParser:
 
     @classmethod
     def parse(cls, url: str, soup: BeautifulSoup) -> ParseResult:
+        return cls._run_generic_pipeline(url, soup)
+
+    @classmethod
+    def _run_generic_pipeline(cls, url: str, soup: BeautifulSoup) -> ParseResult:
+        """Execute the generic parsing pipeline used by site adapters.
+
+        Sub-classes can override the helper methods (``_harvest_references_generic``
+        for example) while still relying on this shared orchestration logic.  This
+        keeps the overall parse flow consistent across the concrete parser
+        implementations.
+        """
+
         refs = cls._harvest_references_generic(soup)
         meta_updates = cls._build_meta_updates(soup)
         content_sections = cls._build_content_sections(soup)
@@ -1109,3 +1121,20 @@ class BaseParser:
             if m:
                 return m.group(0)
         return None
+
+
+class GeneralParser(BaseParser):
+    """Concrete parser that runs the default parsing pipeline.
+
+    Site-specific adapters should inherit from this class so they get the
+    shared orchestration provided by :class:`BaseParser` while remaining free
+    to override individual extraction hooks.
+    """
+
+    @classmethod
+    def detect(cls, url: str, soup: BeautifulSoup) -> bool:
+        return cls.matches_domain(url)
+
+    @classmethod
+    def parse(cls, url: str, soup: BeautifulSoup) -> ParseResult:
+        return cls._run_generic_pipeline(url, soup)

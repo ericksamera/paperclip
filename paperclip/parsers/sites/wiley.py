@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-from ..base import BaseParser, ReferenceObj, DOI_RE
+from ..base import BaseParser, GeneralParser, ReferenceObj, DOI_RE
 from .sciencedirect.body import BodyExtractor
 
 if TYPE_CHECKING:  # pragma: no cover - import for type checking only
@@ -316,7 +316,7 @@ class WileyBodyExtractor(BodyExtractor):
 # -------------------------------
 # Wiley parser
 # -------------------------------
-class WileyParser(BaseParser):
+class WileyParser(GeneralParser):
     NAME = "Wiley"
     DOMAINS = ("onlinelibrary.wiley.com",)
     ABSTRACT_SELECTORS = BaseParser.ABSTRACT_SELECTORS + (
