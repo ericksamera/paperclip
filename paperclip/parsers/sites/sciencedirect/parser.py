@@ -384,14 +384,6 @@ class ScienceDirectParser(BaseParser):
         return False
 
     @classmethod
-    def _build_content_sections(cls, soup: BeautifulSoup) -> dict[str, Any]:
-        content = super()._build_content_sections(soup)
-        body_sections = cls._extract_body_sections(soup)
-        if body_sections:
-            content["body"] = body_sections
-        return content
-
-    @classmethod
     def _extract_body_sections(cls, soup: BeautifulSoup) -> list[dict[str, Any]]:
         extractor = cls._get_body_extractor()
         return extractor.extract(soup)

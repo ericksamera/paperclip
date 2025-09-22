@@ -2,10 +2,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import re
-from typing import Any, Callable, Mapping, Optional, Sequence, TypedDict
+from typing import Any, Callable, ClassVar, Mapping, Optional, Sequence, TypedDict
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, NavigableString, Tag
+
+from .sites.sciencedirect.body import BodyExtractor
+from .sites.sciencedirect.citations import SentenceCitationAnnotator
 
 # DOI pattern
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\b")
@@ -327,12 +330,15 @@ class BaseParser:
         doi = cls.find_doi_in_meta(soup)
         if doi and not meta_updates.get("doi"):
             meta_updates["doi"] = doi
+        figures = cls._extract_figures(soup)
+        tables = cls._extract_tables(soup)
+
         return ParseResult(
             meta_updates=meta_updates,
             content_sections=content_sections,
             references=refs,
-            figures=[],
-            tables=[],
+            figures=figures,
+            tables=tables,
         )
 
     # ---- shared helpers ----
@@ -354,7 +360,353 @@ class BaseParser:
         keywords = cls._extract_keywords(soup)
         if keywords:
             content["keywords"] = keywords
+        body_sections = cls._extract_body_sections(soup)
+        if body_sections:
+            content["body"] = body_sections
         return content
+
+    @staticmethod
+    def _normalise_whitespace(text: str) -> str:
+        return " ".join((text or "").split())
+
+    @staticmethod
+    def _first_nonempty(*values: Optional[str]) -> Optional[str]:
+        for value in values:
+            if value:
+                stripped = str(value).strip()
+                if stripped:
+                    return stripped
+        return None
+
+    @staticmethod
+    def _node_has_caption_marker(node: Tag) -> bool:
+        if not isinstance(node, Tag):
+            return False
+        if node.name in {"figcaption", "caption"}:
+            return True
+        classes = [
+            c.lower()
+            for c in (node.get("class") or [])
+            if isinstance(c, str)
+        ]
+        return any("caption" in cls_name for cls_name in classes)
+
+    _body_extractor: ClassVar[BodyExtractor | None] = None
+
+    @classmethod
+    def _extract_body_sections(cls, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        extractor = cls._get_body_extractor()
+        return extractor.extract(soup)
+
+    @classmethod
+    def _get_body_extractor(cls) -> BodyExtractor:
+        extractor = getattr(cls, "_body_extractor", None)
+        owner = getattr(extractor, "_owner", None)
+        if extractor is None or owner is not cls:
+            extractor = BodyExtractor(
+                citation_annotator=SentenceCitationAnnotator(),
+                section_predicate=cls._is_generic_body_section,
+                heading_finder=cls._leading_heading,
+            )
+            setattr(extractor, "_owner", cls)
+            cls._body_extractor = extractor
+        return extractor
+
+    @classmethod
+    def _extract_figures(cls, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        figures: list[dict[str, Any]] = []
+        candidates: list[Tag] = []
+        for node in soup.select("figure"):
+            if isinstance(node, Tag):
+                if node.find_parent("figure"):
+                    continue
+                candidates.append(node)
+        candidates = cls._dedupe_nodes(candidates)
+        for index, node in enumerate(candidates, start=1):
+            built = cls._build_figure(node, index)
+            if built:
+                figures.append(built)
+        return figures
+
+    @classmethod
+    def _build_figure(cls, node: Tag, index: int) -> Optional[dict[str, Any]]:
+        caption_node = node.find("figcaption")
+        caption_text = cls._normalise_whitespace(cls._text(caption_node)) if caption_node else ""
+        label = cls._figure_label(node, caption_node, index)
+        caption = caption_text
+        if caption and label:
+            caption = cls._strip_caption_label(caption, label, prefixes=("figure", "fig"))
+        if not caption:
+            first_image = node.find("img")
+            if isinstance(first_image, Tag):
+                caption = cls._normalise_whitespace(first_image.get("alt") or "")
+        caption = caption or None
+
+        images = cls._figure_images(node)
+        html_content = node.decode().strip()
+        if not html_content and not images and not caption:
+            return None
+
+        data: dict[str, Any] = {
+            "id": node.get("id") or f"fig-{index}",
+            "label": label,
+        }
+        if caption:
+            data["caption"] = caption
+        if images:
+            data["images"] = images
+        if html_content:
+            data["html"] = html_content
+        return data
+
+    @classmethod
+    def _figure_label(cls, node: Tag, caption_node: Optional[Tag], index: int) -> str:
+        direct = cls._first_nonempty(
+            node.get("data-label"),
+            node.get("aria-label"),
+            node.get("data-figure-label"),
+        )
+        if direct:
+            return cls._normalise_whitespace(direct)
+
+        if caption_node:
+            strong = caption_node.find(["strong", "b"])
+            if isinstance(strong, Tag):
+                candidate = cls._normalise_whitespace(strong.get_text(" ", strip=True))
+                if candidate:
+                    candidate = candidate.rstrip(".: ")
+                    if candidate:
+                        return candidate
+            text = cls._normalise_whitespace(caption_node.get_text(" ", strip=True))
+            if text:
+                match = re.match(r"^(fig(?:ure)?\.?\s*[\w.-]+)", text, re.I)
+                if match:
+                    prefix = match.group(1)
+                    prefix = re.sub(r"(?i)^fig\.", "Figure", prefix)
+                    prefix = re.sub(r"\s+", " ", prefix)
+                    return prefix.rstrip(".: ")
+
+        ident = (node.get("id") or "").strip()
+        if ident:
+            match = re.match(r"^(fig(?:ure)?)[-_\s]*(\d+[\w.-]*)", ident, re.I)
+            if match:
+                number = match.group(2).replace("_", " ").replace("-", " ")
+                return f"Figure {number.strip()}".strip()
+
+        return f"Figure {index}"
+
+    @classmethod
+    def _figure_images(cls, node: Tag) -> list[dict[str, Any]]:
+        images: list[dict[str, Any]] = []
+        for img in node.find_all("img"):
+            if not isinstance(img, Tag):
+                continue
+            src = cls._figure_image_src(img)
+            alt = cls._normalise_whitespace(img.get("alt") or "") or None
+            if not src and not alt:
+                continue
+            entry: dict[str, Any] = {}
+            if src:
+                entry["src"] = src
+            if alt:
+                entry["alt"] = alt
+            if entry:
+                images.append(entry)
+        return images
+
+    @staticmethod
+    def _figure_image_src(img: Tag) -> Optional[str]:
+        for attr in (
+            "data-src",
+            "data-srcset",
+            "data-href",
+            "data-large",
+            "data-highres",
+            "data-original",
+            "data-url",
+            "data-lg-src",
+            "src",
+        ):
+            value = img.get(attr)
+            if isinstance(value, str) and value.strip():
+                if attr == "data-srcset":
+                    parts = [part.strip() for part in value.split(",") if part.strip()]
+                    if not parts:
+                        continue
+                    value = parts[-1].split()[0]
+                return value.strip()
+        srcset = img.get("srcset")
+        if isinstance(srcset, str) and srcset.strip():
+            parts = [part.strip() for part in srcset.split(",") if part.strip()]
+            if parts:
+                return parts[-1].split()[0]
+        return None
+
+    @classmethod
+    def _extract_tables(cls, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        tables: list[dict[str, Any]] = []
+        candidates: list[Tag] = []
+        for node in soup.select("table"):
+            if isinstance(node, Tag):
+                if node.find_parent("table"):
+                    continue
+                candidates.append(node)
+        candidates = cls._dedupe_nodes(candidates)
+        for index, node in enumerate(candidates, start=1):
+            built = cls._build_table(node, index)
+            if built:
+                tables.append(built)
+        return tables
+
+    @classmethod
+    def _build_table(cls, node: Tag, index: int) -> Optional[dict[str, Any]]:
+        caption_text = cls._table_caption_text(node)
+        label = cls._table_label(node, caption_text, index)
+        caption = caption_text
+        if caption and label:
+            caption = cls._strip_caption_label(caption, label, prefixes=("table",))
+        caption = caption or None
+
+        html_content = node.decode().strip()
+        if not html_content and not caption:
+            return None
+
+        data: dict[str, Any] = {
+            "id": node.get("id") or f"tbl-{index}",
+            "label": label,
+        }
+        if caption:
+            data["caption"] = caption
+        if html_content:
+            data["html"] = html_content
+        return data
+
+    @classmethod
+    def _table_caption_text(cls, node: Tag) -> str:
+        caption_node = node.find("caption")
+        if isinstance(caption_node, Tag):
+            text = caption_node.get_text(" ", strip=True)
+            if text:
+                return cls._normalise_whitespace(text)
+
+        container = node.parent if isinstance(node.parent, Tag) else None
+        depth = 0
+        while container and depth < 3:
+            for candidate in container.find_all(["header", "div", "p"], recursive=False):
+                if cls._node_has_caption_marker(candidate):
+                    text = candidate.get_text(" ", strip=True)
+                    if text:
+                        return cls._normalise_whitespace(text)
+            depth += 1
+            container = container.parent if isinstance(container.parent, Tag) else None
+
+        for sibling in node.previous_siblings:
+            if not isinstance(sibling, Tag):
+                continue
+            if cls._node_has_caption_marker(sibling) or sibling.name in {"header", "p"}:
+                text = sibling.get_text(" ", strip=True)
+                if text:
+                    return cls._normalise_whitespace(text)
+            if sibling.name not in {"div", "section", "header", "p"}:
+                break
+        return ""
+
+    @classmethod
+    def _table_label(cls, node: Tag, caption_text: str, index: int) -> str:
+        direct = cls._first_nonempty(
+            node.get("data-label"),
+            node.get("aria-label"),
+            node.get("data-table-label"),
+        )
+        if direct:
+            return cls._normalise_whitespace(direct)
+
+        text = caption_text or ""
+        if text:
+            match = re.match(r"^(table\s*[\w.-]+)", text, re.I)
+            if match:
+                label = match.group(1)
+                label = re.sub(r"\s+", " ", label)
+                label = re.sub(r"(?i)^table", "Table", label)
+                return label.rstrip(".: ")
+
+        ident = (node.get("id") or "").strip()
+        if ident:
+            match = re.match(r"^(tbl|table)[-_\s]*(\d+[\w.-]*)", ident, re.I)
+            if match:
+                number = match.group(2).replace("_", " ").replace("-", " ")
+                return f"Table {number.strip()}".strip()
+
+        return f"Table {index}"
+
+    @classmethod
+    def _strip_caption_label(
+        cls,
+        caption: str,
+        label: str,
+        *,
+        prefixes: Sequence[str],
+    ) -> str:
+        if not caption:
+            return caption
+        caption_norm = caption.strip()
+        label_norm = label.strip()
+        if not caption_norm or not label_norm:
+            return caption
+
+        pattern_parts = [re.escape(label_norm)]
+        if prefixes:
+            last_token = label_norm.split()[-1]
+            for prefix in prefixes:
+                prefix_clean = prefix.strip().rstrip(". ")
+                if not prefix_clean or not last_token:
+                    continue
+                pattern_parts.append(rf"{re.escape(prefix_clean)}\.?\s*{re.escape(last_token)}")
+        pattern = rf"^(?:{'|'.join(pattern_parts)})\s*[\.:\-–—]*\s*"
+        stripped = re.sub(pattern, "", caption_norm, flags=re.I)
+        return stripped.strip()
+
+    @classmethod
+    def _is_generic_body_section(cls, node: Tag) -> bool:
+        if node.name not in {"section", "div"}:
+            return False
+
+        ident = (node.get("id") or "").strip().lower()
+        if ident and any(token in ident for token in ("abstract", "graphical", "references")):
+            return False
+
+        classes = {
+            value.lower()
+            for value in (node.get("class") or [])
+            if isinstance(value, str)
+        }
+        if any(
+            token in classes
+            for token in {
+                "abstract",
+                "graphical",
+                "references",
+                "acknowledgements",
+            }
+        ):
+            return False
+
+        if cls._leading_heading(node):
+            return True
+
+        if node.name == "section" and (ident or any("section" in value for value in classes)):
+            return True
+
+        if node.name == "div" and any(
+            "section" in value or "article-body" in value or "article__section" in value
+            for value in classes
+        ):
+            return True
+
+        if ident and any(token in ident for token in ("section", "body")):
+            return True
+
+        return False
 
     @classmethod
     def _extract_abstract(cls, soup: BeautifulSoup) -> list[AbstractSection]:

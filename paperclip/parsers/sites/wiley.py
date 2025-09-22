@@ -18,31 +18,36 @@ class WileyBodyExtractor(BodyExtractor):
         def consider(node: Tag) -> None:
             if not isinstance(node, Tag):
                 return
-            if not self.section_predicate(node):
-                return
-            if any(
-                isinstance(parent, Tag)
-                and parent is not node
-                and self.section_predicate(parent)
-                for parent in node.parents
-            ):
-                return
-            marker = id(node)
-            if marker in seen:
-                return
-            seen.add(marker)
-            sections.append(node)
 
-        if body_root:
-            for child in body_root.find_all("section", recursive=False):
+            if self.section_predicate(node):
+                if any(
+                    isinstance(parent, Tag)
+                    and parent is not node
+                    and self.section_predicate(parent)
+                    for parent in node.parents
+                ):
+                    return
+                marker = id(node)
+                if marker in seen:
+                    return
+                seen.add(marker)
+                sections.append(node)
+                return
+
+            for child in node.find_all(["section", "div"], recursive=False):
                 consider(child)
 
-        if not sections:
-            for candidate in soup.select("section[id]"):
-                consider(candidate)
+        if body_root:
+            for child in body_root.find_all(["section", "div"], recursive=False):
+                consider(child)
 
-        if not sections:
-            for candidate in soup.select("section.article-section, section.article-section__content"):
+        for selector in (
+            "section[id], div[id]",
+            "section.article-section, section.article-section__content, div.article-section__content",
+        ):
+            if sections:
+                break
+            for candidate in soup.select(selector):
                 consider(candidate)
 
         if not sections:
@@ -155,15 +160,6 @@ class WileyParser(BaseParser):
 
         return super()._harvest_references_generic(soup)
 
-    @classmethod
-    def _build_content_sections(cls, soup: BeautifulSoup) -> dict[str, object]:
-        content = super()._build_content_sections(soup)
-        body_sections = cls._extract_body_sections(soup)
-        if body_sections:
-            content["body"] = body_sections
-        return content
-
-    @classmethod
     def _extract_body_sections(cls, soup: BeautifulSoup) -> list[dict[str, object]]:
         extractor = cls._get_body_extractor()
         return extractor.extract(soup)
@@ -180,7 +176,7 @@ class WileyParser(BaseParser):
 
     @classmethod
     def _is_wiley_section(cls, node: Tag) -> bool:
-        if node.name != "section":
+        if node.name not in {"section", "div"}:
             return False
         classes = {
             value.lower()
@@ -193,14 +189,18 @@ class WileyParser(BaseParser):
                 and name.lower().startswith("article-section__content")
             )
             return bool(content)
-        if "article-section__content" in classes:
+
+        if any(
+            class_name.startswith("article-section__content")
+            or class_name.startswith("article-section__sub-content")
+            for class_name in classes
+        ):
             return True
+
         if "article-section" in classes and node.find(
             class_=lambda name: isinstance(name, str)
             and name.lower().startswith("article-section__content")
         ):
             return True
-        return any(
-            class_name.startswith("article-section__content")
-            for class_name in classes
-        )
+
+        return False

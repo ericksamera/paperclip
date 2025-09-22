@@ -135,6 +135,57 @@ WILEY_NESTED_BODY_HTML = """
 """
 
 
+WILEY_COMPLEX_BODY_HTML = """
+<html>
+  <body>
+    <div id="pb-page-content">
+      <section class="article-section article-section__full">
+        <section class="article-section__content" id="men12273-sec-0001">
+          <h2 class="article-section__title section__title section1" id="men12273-sec-0001-title"> Introduction</h2>
+          <p>Application of post-Sanger sequencing technologies in the field of ecology has accelerated since the introduction of Restriction site Associated DNA sequencing (RADseq; Baird <i>et&nbsp;al.</i> <a href="#men12273-bib-0002">2008</a>).</p>
+          <div class="article-table-content" id="men12273-tbl-0001">
+            <header class="article-table-caption"><span class="table-caption__label">Table 1.</span> Comparison of approaches used to reduce the number of loci targeted in common genotyping by sequencing methods</header>
+            <div class="article-table-content-wrapper" tabindex="0">
+              <table class="table article-section__table">
+                <tbody>
+                  <tr><td>RAD</td><td>1</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="article-section__table-footnotes">
+              <ul><li>n: no; y: yes.</li></ul>
+            </div>
+          </div>
+          <p>As a result, confusion may arise as to which of the available protocols may be most appropriate for a given experimental design.</p>
+        </section>
+      </section>
+      <section class="article-section article-section__full">
+        <section class="article-section__content" id="men12273-sec-0002">
+          <h2 class="article-section__title section__title section1" id="men12273-sec-0002-title"> SimRAD workflow and functions</h2>
+          <p>A subsample or the full reference genome sequence of a species can be used to simulate restriction enzyme digestion.</p>
+          <section class="article-section__inline-figure">
+            <figure class="figure" id="men12273-fig-0001">
+              <figcaption class="figure__caption">
+                <div class="figure__caption__header"><strong class="figure__title">Figure 1</strong></div>
+                <div class="figure__caption-text">SimRAD workflow overview.</div>
+              </figcaption>
+            </figure>
+          </section>
+          <section class="article-section__sub-content" id="men12273-sec-0003">
+            <h3 class="article-section__sub-title section2" id="men12273-sec-0003-title"> Data input</h3>
+            <p>When reference sequences for a species are available the function <i>ref.DNAseq</i> can be used to load sequences contained in a FASTA file.</p>
+            <div class="article-table-content" id="men12273-tbl-0002">
+              <header class="article-table-caption"><span class="table-caption__label">Table 2.</span> Comparison of the number of loci predicted using SimRAD and reported in the literature.</header>
+            </div>
+          </section>
+        </section>
+      </section>
+    </div>
+  </body>
+</html>
+"""
+
+
 def test_wiley_parser_extracts_abstract_from_article_section() -> None:
     soup = BeautifulSoup(WILEY_SAMPLE_HTML, "html.parser")
     abstract = WileyParser._extract_abstract(soup)
@@ -199,3 +250,36 @@ def test_wiley_parser_handles_nested_section_wrappers() -> None:
         "sampled ten locations" in paragraph.get("markdown", "")
         for paragraph in child_paragraphs
     )
+
+
+def test_wiley_parser_handles_complex_full_sections() -> None:
+    url = "https://onlinelibrary.wiley.com/doi/10.1111/1755-0998.12273"
+    parsed = parse_html(url, WILEY_COMPLEX_BODY_HTML)
+    body = parsed.content_sections["body"]
+    assert body
+    titles = [section.get("title", "").strip() for section in body]
+    assert "Introduction" in titles
+    assert "SimRAD workflow and functions" in titles
+
+    introduction = next(section for section in body if section.get("title", "").strip() == "Introduction")
+    intro_paragraphs = introduction.get("paragraphs") or []
+    assert any(
+        "Application of post-Sanger sequencing technologies" in paragraph.get("markdown", "")
+        for paragraph in intro_paragraphs
+    )
+    assert any(
+        "Table 1." in paragraph.get("markdown", "")
+        for paragraph in intro_paragraphs
+    )
+
+    workflow = next(section for section in body if section.get("title", "").strip() == "SimRAD workflow and functions")
+    workflow_paragraphs = workflow.get("paragraphs") or []
+    assert any(
+        "full reference genome sequence" in paragraph.get("markdown", "")
+        for paragraph in workflow_paragraphs
+    )
+    children = workflow.get("children") or []
+    assert children
+    data_input = next(child for child in children if child.get("title", "").strip() == "Data input")
+    child_paragraphs = data_input.get("paragraphs") or []
+    assert any("ref.DNAseq" in paragraph.get("markdown", "") for paragraph in child_paragraphs)
