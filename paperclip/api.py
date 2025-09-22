@@ -213,18 +213,26 @@ def _content_sections_to_markdown_paragraphs(
 
         return chunks
 
+    def _normalise_text(value: Any) -> str | None:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                return stripped
+        return None
+
+    def _extract_mapping_text(entry: Mapping[str, Any]) -> str | None:
+        for key in ("markdown", "text", "body", "content"):
+            text = _normalise_text(entry.get(key))
+            if text:
+                return text
+        return None
+
     def _extract_paragraphs(raw: Any) -> list[str]:
         paragraphs: list[str] = []
         if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
             for entry in raw:
                 if isinstance(entry, Mapping):
-                    text: str | None = None
-
-                    markdown = entry.get("markdown")
-                    if isinstance(markdown, str):
-                        candidate = markdown.strip()
-                        if candidate:
-                            text = candidate
+                    text = _extract_mapping_text(entry)
 
                     if text is None:
                         sentences_raw = entry.get("sentences")
@@ -234,22 +242,20 @@ def _content_sections_to_markdown_paragraphs(
                             sentence_chunks: list[str] = []
                             for sentence in sentences_raw:
                                 if isinstance(sentence, Mapping):
-                                    fragment = sentence.get("markdown")
+                                    fragment = _extract_mapping_text(sentence)
                                 else:
-                                    fragment = sentence
-                                if isinstance(fragment, str):
-                                    stripped_fragment = fragment.strip()
-                                    if stripped_fragment:
-                                        sentence_chunks.append(stripped_fragment)
+                                    fragment = _normalise_text(sentence)
+                                if fragment:
+                                    sentence_chunks.append(fragment)
                             if sentence_chunks:
                                 text = " ".join(sentence_chunks).strip()
 
                     if text:
                         paragraphs.append(text)
-                elif isinstance(entry, str):
-                    stripped = entry.strip()
-                    if stripped:
-                        paragraphs.append(stripped)
+                else:
+                    text = _normalise_text(entry)
+                    if text:
+                        paragraphs.append(text)
         return paragraphs
 
     def _simplify_body_section(section: JsonMapping) -> MarkdownSection:

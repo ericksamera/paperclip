@@ -147,6 +147,42 @@ def test_content_sections_to_markdown_paragraphs_uses_sentence_fallback() -> Non
     ]
 
 
+def test_content_sections_to_markdown_paragraphs_handles_text_fields() -> None:
+    content = {
+        "body": [
+            {
+                "title": "Various Shapes",
+                "paragraphs": [
+                    {"markdown": "", "text": "Primary paragraph."},
+                    {"content": "Secondary paragraph."},
+                    {
+                        "markdown": "",
+                        "sentences": [
+                            {"text": "Sentence alpha"},
+                            {"body": "Sentence beta."},
+                        ],
+                    },
+                    "Trailing paragraph.",
+                ],
+            }
+        ]
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["body"] == [
+        {
+            "title": "Various Shapes",
+            "paragraphs": [
+                "Primary paragraph.",
+                "Secondary paragraph.",
+                "Sentence alpha Sentence beta.",
+                "Trailing paragraph.",
+            ],
+        }
+    ]
+
+
 def test_build_reduced_capture_view_orders_metadata_and_references() -> None:
     content = {
         "abstract": [
