@@ -15,11 +15,19 @@ class WileyBodyExtractor(BodyExtractor):
         sections: list[Tag] = []
         seen: set[int] = set()
 
+        active: set[int] = set()
+
         def consider(node: Tag) -> None:
             if not isinstance(node, Tag):
                 return
 
             if self.section_predicate(node):
+                marker = id(node)
+                if marker in seen:
+                    return
+                if marker in active:
+                    return
+                active.add(marker)
                 child_sections = [
                     child
                     for child in node.find_all(["section", "div"], recursive=False)
@@ -45,6 +53,7 @@ class WileyBodyExtractor(BodyExtractor):
                             break
 
                     if not has_direct_content:
+                        active.discard(marker)
                         return
 
                 for parent in node.parents:
@@ -53,33 +62,38 @@ class WileyBodyExtractor(BodyExtractor):
                     if not self.section_predicate(parent):
                         continue
                     parent_marker = id(parent)
+                    if parent_marker in active:
+                        continue
                     if parent_marker not in seen:
                         consider(parent)
                     if parent_marker in seen:
+                        active.discard(marker)
                         return
-                marker = id(node)
-                if marker in seen:
-                    return
                 seen.add(marker)
                 sections.append(node)
+                active.discard(marker)
                 return
 
             for child in node.find_all(["section", "div"], recursive=False):
                 consider(child)
+            return
 
-        if body_root:
-            for child in body_root.find_all(["section", "div"], recursive=False):
-                consider(child)
+        try:
+            if body_root:
+                for child in body_root.find_all(["section", "div"], recursive=False):
+                    consider(child)
 
-        for selector in (
-            "section[id], div[id]",
-            "section.article-section.article-section__full, div.article-section.article-section__full",
-            "section.article-section, section.article-section__content, div.article-section__content",
-        ):
-            if sections:
-                break
-            for candidate in soup.select(selector):
-                consider(candidate)
+            for selector in (
+                "section[id], div[id]",
+                "section.article-section.article-section__full, div.article-section.article-section__full",
+                "section.article-section, section.article-section__content, div.article-section__content",
+            ):
+                if sections:
+                    break
+                for candidate in soup.select(selector):
+                    consider(candidate)
+        finally:
+            active.clear()
 
         if not sections:
             return super().extract(soup)
