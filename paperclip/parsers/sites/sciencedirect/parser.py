@@ -1,16 +1,22 @@
 from __future__ import annotations
+
 import re
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from urllib.parse import parse_qsl, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
-from ..base import BaseParser, ReferenceObj, DOI_RE
+from ...base import BaseParser, ReferenceObj, DOI_RE
+from .body import BodyExtractor
+from .citations import SentenceCitationAnnotator
 
 class ScienceDirectParser(BaseParser):
     NAME = "ScienceDirect"
     DOMAINS = ("sciencedirect.com", "elsevier.com")
+    SECTION_ID_RE = re.compile(r"^cesec", re.I)
+    _citation_annotator = SentenceCitationAnnotator()
+    _body_extractor: Optional[BodyExtractor] = None
 
     @classmethod
     def detect(cls, url: str, soup: BeautifulSoup) -> bool:
@@ -376,3 +382,33 @@ class ScienceDirectParser(BaseParser):
             if heading_text.startswith("graphical summary"):
                 return True
         return False
+
+    @classmethod
+    def _build_content_sections(cls, soup: BeautifulSoup) -> dict[str, Any]:
+        content = super()._build_content_sections(soup)
+        body_sections = cls._extract_body_sections(soup)
+        if body_sections:
+            content["body"] = body_sections
+        return content
+
+    @classmethod
+    def _extract_body_sections(cls, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        extractor = cls._get_body_extractor()
+        return extractor.extract(soup)
+
+    @classmethod
+    def _get_body_extractor(cls) -> BodyExtractor:
+        if cls._body_extractor is None:
+            cls._body_extractor = BodyExtractor(
+                citation_annotator=cls._citation_annotator,
+                section_predicate=cls._is_sciencedirect_section,
+                heading_finder=BaseParser._leading_heading,
+            )
+        return cls._body_extractor
+
+    @classmethod
+    def _is_sciencedirect_section(cls, node: Tag) -> bool:
+        if node.name != "section":
+            return False
+        ident = node.get("id") or ""
+        return bool(ident and cls.SECTION_ID_RE.search(ident))
