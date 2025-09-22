@@ -213,20 +213,112 @@ def _content_sections_to_markdown_paragraphs(
 
         return chunks
 
+    def _normalise_text(value: Any) -> str | None:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                return stripped
+        return None
+
+    def _coerce_iterable_text(raw: Any) -> str | None:
+        if isinstance(raw, Mapping):
+            return _coerce_iterable_text(raw.values())
+
+        if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
+            parts: list[str] = []
+            for item in raw:
+                text: str | None = None
+                if isinstance(item, Mapping):
+                    text = _extract_mapping_text(item)
+                    if text is None:
+                        sentences = item.get("sentences")
+                        text = _coerce_iterable_text(sentences)
+                else:
+                    text = _normalise_text(item)
+                if text:
+                    parts.append(text)
+            if parts:
+                return " ".join(parts).strip()
+            return None
+
+        return _normalise_text(raw)
+
+    def _extract_mapping_text(entry: Mapping[str, Any]) -> str | None:
+        for key in ("markdown", "text", "body", "content", "value", "plain"):
+            raw_value = entry.get(key)
+            if key == "content" and not isinstance(raw_value, (str, bytes)):
+                text = _coerce_iterable_text(raw_value)
+            else:
+                text = _normalise_text(raw_value)
+            if text:
+                return text
+        return None
+
+    def _looks_like_section(entry: Mapping[str, Any]) -> bool:
+        if "paragraphs" in entry or "children" in entry or "sections" in entry:
+            return True
+
+        title = entry.get("title") or entry.get("heading") or entry.get("label")
+        markdown = entry.get("markdown")
+        if isinstance(title, str) and title.strip() and isinstance(markdown, str) and markdown.strip():
+            return True
+
+        body_value = entry.get("body")
+        if isinstance(body_value, str) and body_value.strip():
+            return True
+
+        return False
+
+    def _iter_section_mappings(
+        raw: Any, *, visited: set[int] | None = None
+    ) -> Iterable[Mapping[str, Any]]:
+        if visited is None:
+            visited = set()
+
+        if isinstance(raw, Mapping):
+            node_id = id(raw)
+            if node_id in visited:
+                return
+            visited.add(node_id)
+
+            mapping_entry = cast(Mapping[str, Any], raw)
+            if _looks_like_section(mapping_entry):
+                yield mapping_entry
+
+            for value in mapping_entry.values():
+                yield from _iter_section_mappings(value, visited=visited)
+            return
+
+        if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
+            for item in raw:
+                yield from _iter_section_mappings(item, visited=visited)
+
     def _extract_paragraphs(raw: Any) -> list[str]:
         paragraphs: list[str] = []
-        if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
-            for entry in raw:
-                if isinstance(entry, Mapping):
-                    text = entry.get("markdown")
-                    if isinstance(text, str):
-                        stripped = text.strip()
-                        if stripped:
-                            paragraphs.append(stripped)
-                elif isinstance(entry, str):
-                    stripped = entry.strip()
-                    if stripped:
-                        paragraphs.append(stripped)
+        entries: Iterable[Any]
+
+        if isinstance(raw, Mapping):
+            entries = cast(Iterable[Any], raw.values())
+        elif isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
+            entries = cast(Iterable[Any], raw)
+        else:
+            return paragraphs
+
+        for entry in entries:
+            if isinstance(entry, Mapping):
+                text = _extract_mapping_text(entry)
+
+                if text is None:
+                    sentences_raw = entry.get("sentences")
+                    text = _coerce_iterable_text(sentences_raw)
+
+                if text:
+                    paragraphs.append(text)
+            else:
+                text = _normalise_text(entry)
+                if text:
+                    paragraphs.append(text)
+
         return paragraphs
 
     def _simplify_body_section(section: JsonMapping) -> MarkdownSection:
@@ -273,9 +365,9 @@ def _content_sections_to_markdown_paragraphs(
         return (title, paragraphs, children)
 
     abstract_sections = content.get("abstract")
-    if isinstance(abstract_sections, Iterable) and not isinstance(abstract_sections, (str, bytes)):
+    if abstract_sections is not None:
         abstract_list: list[MarkdownSection] = []
-        for entry in abstract_sections:
+        for entry in _iter_section_mappings(abstract_sections):
             if not isinstance(entry, Mapping):
                 continue
             simplified_entry: MarkdownSection = {}
@@ -300,10 +392,10 @@ def _content_sections_to_markdown_paragraphs(
             simplified_content["abstract"] = abstract_list
 
     body_sections = content.get("body")
-    if isinstance(body_sections, Iterable) and not isinstance(body_sections, (str, bytes)):
+    if body_sections is not None:
         body_list: list[MarkdownSection] = []
         seen_sections: set[tuple[Any, ...]] = set()
-        for section in body_sections:
+        for section in _iter_section_mappings(body_sections):
             if not isinstance(section, Mapping):
                 continue
             simplified_section = _simplify_body_section(section)

@@ -115,6 +115,161 @@ def test_content_sections_to_markdown_paragraphs_simplifies_structure() -> None:
     }
 
 
+def test_content_sections_to_markdown_paragraphs_uses_sentence_fallback() -> None:
+    content = {
+        "body": [
+            {
+                "title": "Fallback",
+                "paragraphs": [
+                    {
+                        "markdown": "",
+                        "sentences": [
+                            {"markdown": "Sentence one."},
+                            {"markdown": "Sentence two."},
+                        ],
+                    },
+                    {"sentences": ["Trailing sentence."]},
+                ],
+            }
+        ]
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["body"] == [
+        {
+            "title": "Fallback",
+            "paragraphs": [
+                "Sentence one. Sentence two.",
+                "Trailing sentence.",
+            ],
+        }
+    ]
+
+
+def test_content_sections_to_markdown_paragraphs_handles_text_fields() -> None:
+    content = {
+        "body": [
+            {
+                "title": "Various Shapes",
+                "paragraphs": [
+                    {"markdown": "", "text": "Primary paragraph."},
+                    {"content": "Secondary paragraph."},
+                    {
+                        "markdown": "",
+                        "sentences": [
+                            {"text": "Sentence alpha"},
+                            {"body": "Sentence beta."},
+                        ],
+                    },
+                    {"content": ["Nested", {"text": "content"}]},
+                    "Trailing paragraph.",
+                ],
+            }
+        ]
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["body"] == [
+        {
+            "title": "Various Shapes",
+            "paragraphs": [
+                "Primary paragraph.",
+                "Secondary paragraph.",
+                "Sentence alpha Sentence beta.",
+                "Nested content",
+                "Trailing paragraph.",
+            ],
+        }
+    ]
+
+
+def test_content_sections_to_markdown_paragraphs_supports_mapping_paragraphs() -> None:
+    content = {
+        "body": [
+            {
+                "title": "Mapping",
+                "paragraphs": {
+                    "first": {"value": "First paragraph."},
+                    "second": {
+                        "content": [
+                            {"text": "Second"},
+                            {"plain": "paragraph."},
+                        ]
+                    },
+                },
+            }
+        ]
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["body"] == [
+        {
+            "title": "Mapping",
+            "paragraphs": [
+                "First paragraph.",
+                "Second paragraph.",
+            ],
+        }
+    ]
+
+
+def test_content_sections_to_markdown_paragraphs_handles_deeply_nested_body_sections() -> None:
+    content = {
+        "body": {
+            "content": [
+                {
+                    "sections": [
+                        {
+                            "title": "Intro",
+                            "paragraphs": [
+                                {"markdown": "Intro paragraph."},
+                            ],
+                        },
+                        {
+                            "title": "Methods",
+                            "paragraphs": [
+                                {"text": "Methods details."},
+                            ],
+                        },
+                    ]
+                },
+                {
+                    "values": [
+                        {
+                            "data": {
+                                "sections": [
+                                    {
+                                        "title": "Results",
+                                        "paragraphs": [
+                                            {
+                                                "content": [
+                                                    "Results",
+                                                    {"text": "summary."},
+                                                ]
+                                            }
+                                        ],
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+            ]
+        }
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["body"] == [
+        {"title": "Intro", "paragraphs": ["Intro paragraph."]},
+        {"title": "Methods", "paragraphs": ["Methods details."]},
+        {"title": "Results", "paragraphs": ["Results summary."]},
+    ]
+
+
 def test_build_reduced_capture_view_orders_metadata_and_references() -> None:
     content = {
         "abstract": [
@@ -157,6 +312,44 @@ def test_build_reduced_capture_view_orders_metadata_and_references() -> None:
     assert len(view["references"]) == 2
     assert view["references"][0]["ref_id"] == "ref-1"
     assert "markdown" not in view
+
+
+def test_content_sections_to_markdown_paragraphs_coerces_nested_body_sections() -> None:
+    content = {
+        "body": {
+            "sections": [
+                {
+                    "title": "Nested Intro",
+                    "paragraphs": [
+                        {"markdown": "Intro paragraph."},
+                    ],
+                }
+            ]
+        }
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["body"] == [
+        {"title": "Nested Intro", "paragraphs": ["Intro paragraph."]}
+    ]
+
+
+def test_content_sections_to_markdown_paragraphs_handles_abstract_containers() -> None:
+    content = {
+        "abstract": {
+            "sections": [
+                {"title": "Overview", "body": " Summary of work.  "},
+                {"title": "Ignored", "paragraphs": []},
+            ]
+        }
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["abstract"] == [
+        {"title": "Overview", "paragraphs": ["Summary of work."]}
+    ]
 
 
 def _sample_csl() -> dict:
