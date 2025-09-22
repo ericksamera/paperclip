@@ -162,6 +162,7 @@ def test_content_sections_to_markdown_paragraphs_handles_text_fields() -> None:
                             {"body": "Sentence beta."},
                         ],
                     },
+                    {"content": ["Nested", {"text": "content"}]},
                     "Trailing paragraph.",
                 ],
             }
@@ -177,7 +178,39 @@ def test_content_sections_to_markdown_paragraphs_handles_text_fields() -> None:
                 "Primary paragraph.",
                 "Secondary paragraph.",
                 "Sentence alpha Sentence beta.",
+                "Nested content",
                 "Trailing paragraph.",
+            ],
+        }
+    ]
+
+
+def test_content_sections_to_markdown_paragraphs_supports_mapping_paragraphs() -> None:
+    content = {
+        "body": [
+            {
+                "title": "Mapping",
+                "paragraphs": {
+                    "first": {"value": "First paragraph."},
+                    "second": {
+                        "content": [
+                            {"text": "Second"},
+                            {"plain": "paragraph."},
+                        ]
+                    },
+                },
+            }
+        ]
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified["body"] == [
+        {
+            "title": "Mapping",
+            "paragraphs": [
+                "First paragraph.",
+                "Second paragraph.",
             ],
         }
     ]
