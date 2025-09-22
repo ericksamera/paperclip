@@ -99,7 +99,6 @@ def test_content_sections_to_markdown_paragraphs_simplifies_structure() -> None:
         "body": [
             {
                 "title": "Introduction",
-                "markdown": "Intro paragraph.\n\nSecond intro paragraph.",
                 "paragraphs": [
                     "Intro paragraph.",
                     "Second intro paragraph.",
@@ -142,14 +141,25 @@ def test_build_markdown_capture_view_orders_metadata_and_references() -> None:
         content=content,
         meta=meta,
         references=cast(Sequence[Mapping[str, Any]], references),
+        title="Sample",
     )
 
-    assert list(view.keys()) == ["metadata", "abstract", "body", "keywords", "references"]
+    assert list(view.keys()) == [
+        "metadata",
+        "abstract",
+        "body",
+        "keywords",
+        "markdown",
+        "references",
+    ]
     assert view["metadata"] == meta
     assert view["abstract"][0]["paragraphs"] == ["Overview."]
     assert view["body"][0]["paragraphs"] == ["Paragraph one."]
     assert len(view["references"]) == 2
     assert view["references"][0]["ref_id"] == "ref-1"
+    markdown = view["markdown"]
+    assert markdown.startswith("## Metadata")
+    assert "## References" in markdown
 
 
 def _sample_csl() -> dict:

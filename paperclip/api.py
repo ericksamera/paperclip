@@ -153,6 +153,29 @@ def _content_sections_to_markdown_paragraphs(
     if not isinstance(content, Mapping):
         return {}
 
+    def _split_markdown_chunks(markdown: str) -> list[str]:
+        if not markdown.strip():
+            return []
+
+        chunks: list[str] = []
+        buffer: list[str] = []
+        for line in markdown.splitlines():
+            if not line.strip():
+                if buffer:
+                    chunk = "\n".join(buffer).strip()
+                    if chunk:
+                        chunks.append(chunk)
+                    buffer = []
+                continue
+            buffer.append(line.rstrip())
+
+        if buffer:
+            chunk = "\n".join(buffer).strip()
+            if chunk:
+                chunks.append(chunk)
+
+        return chunks
+
     def _extract_paragraphs(raw: Any) -> list[str]:
         paragraphs: list[str] = []
         if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
@@ -176,11 +199,12 @@ def _content_sections_to_markdown_paragraphs(
         if isinstance(title, str) and title.strip():
             simplified["title"] = title.strip()
 
-        markdown = section.get("markdown")
-        if isinstance(markdown, str) and markdown.strip():
-            simplified["markdown"] = markdown.strip()
-
         paragraphs = _extract_paragraphs(section.get("paragraphs"))
+        if not paragraphs:
+            markdown = section.get("markdown")
+            if isinstance(markdown, str):
+                paragraphs = _split_markdown_chunks(markdown)
+
         if paragraphs:
             simplified["paragraphs"] = paragraphs
 
@@ -252,13 +276,18 @@ def _build_markdown_capture_view(
     content: Mapping[str, Any] | None,
     meta: Mapping[str, Any] | None,
     references: Sequence[Mapping[str, Any]] | None,
+    title: str | None = None,
 ) -> dict[str, Any]:
     """Produce a lightweight markdown-friendly capture view."""
 
     view: dict[str, Any] = {}
 
-    if isinstance(meta, Mapping) and meta:
-        view["metadata"] = dict(meta)
+    metadata: dict[str, Any] = {}
+    if isinstance(meta, Mapping):
+        metadata.update(meta)
+    if title and not metadata.get("title"):
+        metadata["title"] = title
+    view["metadata"] = metadata
 
     simplified_sections = _content_sections_to_markdown_paragraphs(content)
     for key, value in simplified_sections.items():
@@ -271,8 +300,102 @@ def _build_markdown_capture_view(
             data = dict(ref)
             if data:
                 normalized_refs.append(data)
+
+    def _append_section_markdown(
+        sections: Sequence[Mapping[str, Any]] | None,
+        *,
+        level: int,
+        lines: list[str],
+    ) -> None:
+        if not sections:
+            return
+
+        for section in sections:
+            if not isinstance(section, Mapping):
+                continue
+            title_text = section.get("title")
+            heading_level = max(1, min(level, 6))
+            if isinstance(title_text, str) and title_text.strip():
+                lines.append(f"{'#' * heading_level} {title_text.strip()}")
+                lines.append("")
+
+            paragraphs = section.get("paragraphs")
+            if isinstance(paragraphs, Sequence) and not isinstance(paragraphs, (str, bytes)):
+                for paragraph in paragraphs:
+                    if isinstance(paragraph, str) and paragraph.strip():
+                        lines.append(paragraph.strip())
+                        lines.append("")
+
+            children = section.get("children")
+            if isinstance(children, Sequence) and not isinstance(children, (str, bytes)):
+                _append_section_markdown(children, level=heading_level + 1, lines=lines)
+
+    markdown_lines: list[str] = []
+
+    if metadata:
+        markdown_lines.append("## Metadata")
+        markdown_lines.append("")
+        for key in sorted(metadata):
+            value = metadata[key]
+            if value is None:
+                continue
+            rendered = str(value).strip()
+            if rendered:
+                pretty_key = key.replace("_", " ").strip()
+                markdown_lines.append(f"- **{pretty_key}**: {rendered}")
+        markdown_lines.append("")
+
+    abstract_sections = simplified_sections.get("abstract")
+    if isinstance(abstract_sections, Sequence) and abstract_sections:
+        markdown_lines.append("## Abstract")
+        markdown_lines.append("")
+        _append_section_markdown(
+            cast(Sequence[Mapping[str, Any]] | None, abstract_sections),
+            level=3,
+            lines=markdown_lines,
+        )
+
+    body_sections = simplified_sections.get("body")
+    if isinstance(body_sections, Sequence) and body_sections:
+        markdown_lines.append("## Body")
+        markdown_lines.append("")
+        _append_section_markdown(
+            cast(Sequence[Mapping[str, Any]] | None, body_sections),
+            level=3,
+            lines=markdown_lines,
+        )
+
+    keywords = simplified_sections.get("keywords")
+    if isinstance(keywords, Sequence) and keywords:
+        markdown_lines.append("## Keywords")
+        markdown_lines.append("")
+        keyword_items = [str(word).strip() for word in keywords if str(word).strip()]
+        if keyword_items:
+            markdown_lines.append(", ".join(keyword_items))
+            markdown_lines.append("")
+
+    view["markdown"] = "\n".join(line for line in markdown_lines if line is not None).strip()
+
+    view["references"] = normalized_refs
+
     if normalized_refs:
-        view["references"] = normalized_refs
+        ref_lines: list[str] = []
+        ref_lines.append("## References")
+        ref_lines.append("")
+        for idx, ref in enumerate(normalized_refs, start=1):
+            raw = str(ref.get("raw", "")).strip()
+            if raw:
+                ref_lines.append(f"{idx}. {raw}")
+            else:
+                ref_lines.append(f"{idx}. (reference details unavailable)")
+        markdown_fragment = "\n".join(ref_lines)
+        if view["markdown"]:
+            view["markdown"] = f"{view['markdown'].rstrip()}\n\n{markdown_fragment}"
+        else:
+            view["markdown"] = markdown_fragment
+
+    if view["markdown"]:
+        view["markdown"] = view["markdown"].rstrip() + "\n"
 
     return view
 
@@ -572,6 +695,7 @@ class CaptureViewSet(viewsets.ViewSet):
             content=content_sections,
             meta=final_state.get("meta"),
             references=serialized_refs,
+            title=capture.title,
         )
 
         server_view = {
