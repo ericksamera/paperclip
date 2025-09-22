@@ -18,6 +18,7 @@ class WileyBodyExtractor(BodyExtractor):
         def consider(node: Tag) -> None:
             if not isinstance(node, Tag):
                 return
+
             if self.section_predicate(node):
                 if any(
                     isinstance(parent, Tag)
@@ -159,7 +160,6 @@ class WileyParser(BaseParser):
 
         return super()._harvest_references_generic(soup)
 
-    @classmethod
     def _extract_body_sections(cls, soup: BeautifulSoup) -> list[dict[str, object]]:
         extractor = cls._get_body_extractor()
         return extractor.extract(soup)
