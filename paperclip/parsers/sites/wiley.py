@@ -1,8 +1,101 @@
 from __future__ import annotations
 from urllib.parse import urlparse
+from typing import ClassVar
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
+
 from ..base import BaseParser, ReferenceObj, DOI_RE
+from .sciencedirect.body import BodyExtractor
+from .sciencedirect.citations import SentenceCitationAnnotator
+
+
+class WileyBodyExtractor(BodyExtractor):
+    def extract(self, soup: BeautifulSoup) -> list[dict[str, object]]:  # type: ignore[override]
+        body_root = self._locate_body_root(soup)
+        sections: list[Tag] = []
+        seen: set[int] = set()
+
+        def consider(node: Tag) -> None:
+            if not isinstance(node, Tag):
+                return
+            if self.section_predicate(node):
+                if any(
+                    isinstance(parent, Tag)
+                    and parent is not node
+                    and self.section_predicate(parent)
+                    for parent in node.parents
+                ):
+                    return
+                marker = id(node)
+                if marker in seen:
+                    return
+                seen.add(marker)
+                sections.append(node)
+                return
+
+            for child in node.find_all(["section", "div"], recursive=False):
+                consider(child)
+
+        if body_root:
+            for child in body_root.find_all(["section", "div"], recursive=False):
+                consider(child)
+
+        for selector in (
+            "section[id], div[id]",
+            "section.article-section, section.article-section__content, div.article-section__content",
+        ):
+            if sections:
+                break
+            for candidate in soup.select(selector):
+                consider(candidate)
+
+        if not sections:
+            return super().extract(soup)
+
+        results: list[dict[str, object]] = []
+        for idx, section in enumerate(sections, start=1):
+            built = self._build_body_section(section, fallback_title=f"Section {idx}")
+            if built:
+                results.append(built)
+        return results
+
+    def _content_root(self, node: Tag) -> Tag:  # type: ignore[override]
+        if node.name != "section":
+            return node
+        for child in node.find_all(True, recursive=False):
+            if child.name != "div":
+                continue
+            classes = {
+                value.lower()
+                for value in (child.get("class") or [])
+                if isinstance(value, str)
+            }
+            if any(class_name.startswith("article-section__content") for class_name in classes):
+                return child
+        return node
+
+    def _locate_body_root(self, soup: BeautifulSoup) -> Tag | None:  # type: ignore[override]
+        selectors = [
+            "div.article__sections",
+            "div.article__body",
+            "section.article-body",
+            "div#pb-page-content",
+            "div#article-body",
+            "div#main-content",
+            "article.article",
+        ]
+        for selector in selectors:
+            node = soup.select_one(selector)
+            if isinstance(node, Tag):
+                return node
+
+        first_section = soup.select_one("section.article-section__content")
+        if isinstance(first_section, Tag):
+            parent = first_section.parent
+            if isinstance(parent, Tag):
+                return parent
+
+        return super()._locate_body_root(soup)
 
 class WileyParser(BaseParser):
     NAME = "Wiley"
@@ -11,6 +104,7 @@ class WileyParser(BaseParser):
         "div.abstract-group div.article-section__content",
         "section.article-section__abstract div.article-section__content",
     )
+    _body_extractor: ClassVar[BodyExtractor | None] = None
 
     @classmethod
     def detect(cls, url: str, soup: BeautifulSoup) -> bool:
@@ -64,3 +158,49 @@ class WileyParser(BaseParser):
             return refs
 
         return super()._harvest_references_generic(soup)
+
+    @classmethod
+    def _extract_body_sections(cls, soup: BeautifulSoup) -> list[dict[str, object]]:
+        extractor = cls._get_body_extractor()
+        return extractor.extract(soup)
+
+    @classmethod
+    def _get_body_extractor(cls) -> BodyExtractor:
+        if cls._body_extractor is None:
+            cls._body_extractor = WileyBodyExtractor(
+                citation_annotator=SentenceCitationAnnotator(),
+                section_predicate=cls._is_wiley_section,
+                heading_finder=BaseParser._leading_heading,
+            )
+        return cls._body_extractor
+
+    @classmethod
+    def _is_wiley_section(cls, node: Tag) -> bool:
+        if node.name not in {"section", "div"}:
+            return False
+        classes = {
+            value.lower()
+            for value in (node.get("class") or [])
+            if isinstance(value, str)
+        }
+        if not classes:
+            content = node.find(
+                class_=lambda name: isinstance(name, str)
+                and name.lower().startswith("article-section__content")
+            )
+            return bool(content)
+
+        if any(
+            class_name.startswith("article-section__content")
+            or class_name.startswith("article-section__sub-content")
+            for class_name in classes
+        ):
+            return True
+
+        if "article-section" in classes and node.find(
+            class_=lambda name: isinstance(name, str)
+            and name.lower().startswith("article-section__content")
+        ):
+            return True
+
+        return False
