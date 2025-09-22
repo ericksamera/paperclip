@@ -308,6 +308,9 @@ def _content_sections_to_markdown_paragraphs(
                 continue
             simplified_section = _simplify_body_section(section)
             if simplified_section:
+                title = simplified_section.get("title")
+                if isinstance(title, str) and title.strip().lower() == "references":
+                    continue
                 identity = _section_identity(simplified_section)
                 if identity in seen_sections:
                     continue
