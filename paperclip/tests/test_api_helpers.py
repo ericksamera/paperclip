@@ -18,6 +18,7 @@ pytest.importorskip("bs4")
 
 import paperclip.api as api_module
 from paperclip.api import (
+    _content_sections_to_markdown_paragraphs,
     _enrich_reference_objs_with_doi,
     _reference_to_server_view,
     apply_doi_enrichment,
@@ -57,6 +58,61 @@ def test_reference_to_server_view_preserves_fields_and_adds_alias() -> None:
 
     # Original reference should remain untouched by alias injection
     assert "id" not in reference
+
+
+def test_content_sections_to_markdown_paragraphs_simplifies_structure() -> None:
+    content = {
+        "abstract": [
+            {"title": "Summary", "body": "Overview of findings."},
+            {"body": ""},
+        ],
+        "body": [
+            {
+                "title": "Introduction",
+                "markdown": "Intro paragraph.\n\nSecond intro paragraph.",
+                "paragraphs": [
+                    {"markdown": "Intro paragraph.", "sentences": []},
+                    {"markdown": "Second intro paragraph.", "sentences": []},
+                    {"markdown": "", "sentences": []},
+                ],
+                "children": [
+                    {
+                        "title": "Background",
+                        "paragraphs": [
+                            {"markdown": "Background details.", "sentences": []},
+                        ],
+                    },
+                    "ignored",
+                ],
+            }
+        ],
+        "keywords": [" methods ", "", "results"],
+    }
+
+    simplified = _content_sections_to_markdown_paragraphs(content)
+
+    assert simplified == {
+        "abstract": [
+            {"title": "Summary", "paragraphs": ["Overview of findings."]},
+        ],
+        "body": [
+            {
+                "title": "Introduction",
+                "markdown": "Intro paragraph.\n\nSecond intro paragraph.",
+                "paragraphs": [
+                    "Intro paragraph.",
+                    "Second intro paragraph.",
+                ],
+                "children": [
+                    {
+                        "title": "Background",
+                        "paragraphs": ["Background details."],
+                    }
+                ],
+            }
+        ],
+        "keywords": ["methods", "results"],
+    }
 
 
 def _sample_csl() -> dict:

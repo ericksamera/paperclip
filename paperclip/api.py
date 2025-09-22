@@ -145,6 +145,108 @@ def apply_doi_enrichment(
     return DoiEnrichmentResult(blob=cast(EnrichmentPayload, blob), doi=doi)
 
 
+def _content_sections_to_markdown_paragraphs(
+    content: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Build a markdown-only view of parsed content sections."""
+
+    if not isinstance(content, Mapping):
+        return {}
+
+    def _extract_paragraphs(raw: Any) -> list[str]:
+        paragraphs: list[str] = []
+        if isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
+            for entry in raw:
+                if isinstance(entry, Mapping):
+                    text = entry.get("markdown")
+                    if isinstance(text, str):
+                        stripped = text.strip()
+                        if stripped:
+                            paragraphs.append(stripped)
+                elif isinstance(entry, str):
+                    stripped = entry.strip()
+                    if stripped:
+                        paragraphs.append(stripped)
+        return paragraphs
+
+    def _simplify_body_section(section: Mapping[str, Any]) -> dict[str, Any]:
+        simplified: dict[str, Any] = {}
+
+        title = section.get("title")
+        if isinstance(title, str) and title.strip():
+            simplified["title"] = title.strip()
+
+        markdown = section.get("markdown")
+        if isinstance(markdown, str) and markdown.strip():
+            simplified["markdown"] = markdown.strip()
+
+        paragraphs = _extract_paragraphs(section.get("paragraphs"))
+        if paragraphs:
+            simplified["paragraphs"] = paragraphs
+
+        children_raw = section.get("children")
+        if isinstance(children_raw, Iterable) and not isinstance(children_raw, (str, bytes)):
+            children: list[dict[str, Any]] = []
+            for child in children_raw:
+                if isinstance(child, Mapping):
+                    simplified_child = _simplify_body_section(child)
+                    if simplified_child:
+                        children.append(simplified_child)
+            if children:
+                simplified["children"] = children
+
+        return simplified
+
+    simplified_content: dict[str, Any] = {}
+
+    abstract_sections = content.get("abstract")
+    if isinstance(abstract_sections, Iterable) and not isinstance(abstract_sections, (str, bytes)):
+        abstract_list: list[dict[str, Any]] = []
+        for entry in abstract_sections:
+            if not isinstance(entry, Mapping):
+                continue
+            simplified_entry: dict[str, Any] = {}
+            title = entry.get("title")
+            if isinstance(title, str) and title.strip():
+                simplified_entry["title"] = title.strip()
+            body = entry.get("body")
+            paragraphs: list[str] = []
+            if isinstance(body, str):
+                lines = [line.strip() for line in body.splitlines() if line.strip()]
+                if lines:
+                    paragraphs = lines
+                else:
+                    stripped = body.strip()
+                    if stripped:
+                        paragraphs = [stripped]
+            if paragraphs:
+                simplified_entry["paragraphs"] = paragraphs
+            if simplified_entry:
+                abstract_list.append(simplified_entry)
+        if abstract_list:
+            simplified_content["abstract"] = abstract_list
+
+    body_sections = content.get("body")
+    if isinstance(body_sections, Iterable) and not isinstance(body_sections, (str, bytes)):
+        body_list: list[dict[str, Any]] = []
+        for section in body_sections:
+            if not isinstance(section, Mapping):
+                continue
+            simplified_section = _simplify_body_section(section)
+            if simplified_section:
+                body_list.append(simplified_section)
+        if body_list:
+            simplified_content["body"] = body_list
+
+    keywords = content.get("keywords")
+    if isinstance(keywords, Iterable) and not isinstance(keywords, (str, bytes)):
+        keyword_values = [str(value).strip() for value in keywords if str(value).strip()]
+        if keyword_values:
+            simplified_content["keywords"] = keyword_values
+
+    return simplified_content
+
+
 class ReferencePayload(TypedDict, total=False):
     id: str | None
     raw: str
@@ -387,7 +489,11 @@ class CaptureViewSet(viewsets.ViewSet):
         return parsed.content_sections or None
 
     def _build_artifact_urls(
-        self, request: HttpRequest, capture_id: str, enriched: bool
+        self,
+        request: HttpRequest,
+        capture_id: str,
+        enriched: bool,
+        has_markdown_view: bool,
     ) -> dict[str, str]:
         base = request.build_absolute_uri("/").rstrip("/")
         urls = {
@@ -396,6 +502,10 @@ class CaptureViewSet(viewsets.ViewSet):
             "parsed_json": f"{base}/captures/{capture_id}/artifact/parsed.json",
             "server_parsed": f"{base}/captures/{capture_id}/artifact/server_parsed.json",
         }
+        if has_markdown_view:
+            urls["server_parsed_markdown"] = (
+                f"{base}/captures/{capture_id}/artifact/server_parsed_markdown.json"
+            )
         if enriched:
             urls["enrichment"] = f"{base}/captures/{capture_id}/artifact/enrichment.json"
         return urls
@@ -419,6 +529,7 @@ class CaptureViewSet(viewsets.ViewSet):
 
         parsed = parse_with_fallback(capture.url, capture.content_html, capture.dom_html)
         content_sections = self._reconcile_parser_results(capture, parsed)
+        content_markdown = _content_sections_to_markdown_paragraphs(content_sections)
 
         final_state = CaptureOutSerializer(capture).data
         write_json_artifact(capture.id, "parsed.json", final_state)
@@ -438,9 +549,18 @@ class CaptureViewSet(viewsets.ViewSet):
         }
         if content_sections:
             server_view["content"] = content_sections
+        if content_markdown:
+            server_view["content_markdown"] = content_markdown
         write_json_artifact(capture.id, "server_parsed.json", server_view)
+        if content_markdown:
+            write_json_artifact(capture.id, "server_parsed_markdown.json", content_markdown)
 
-        artifact_urls = self._build_artifact_urls(request, capture.id, bool(enrichment_blob))
+        artifact_urls = self._build_artifact_urls(
+            request,
+            capture.id,
+            bool(enrichment_blob),
+            bool(content_markdown),
+        )
 
         refs_qs = capture.references.all()[:3]
         summary = {
