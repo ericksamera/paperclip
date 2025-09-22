@@ -4,10 +4,10 @@ from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
-from ..base import BaseParser
+from ..base import GeneralParser
 
 
-class PLOSParser(BaseParser):
+class PLOSParser(GeneralParser):
     """Parser for PLOS journal articles."""
 
     NAME = "PLOS"

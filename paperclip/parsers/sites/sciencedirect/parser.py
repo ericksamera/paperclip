@@ -7,11 +7,11 @@ from urllib.parse import parse_qsl, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
-from ...base import BaseParser, ReferenceObj, DOI_RE
+from ...base import BaseParser, GeneralParser, ReferenceObj, DOI_RE
 from .body import BodyExtractor
 from .citations import SentenceCitationAnnotator
 
-class ScienceDirectParser(BaseParser):
+class ScienceDirectParser(GeneralParser):
     NAME = "ScienceDirect"
     DOMAINS = ("sciencedirect.com", "elsevier.com")
     SECTION_ID_RE = re.compile(r"^(?:cesec|sec\d+)", re.I)

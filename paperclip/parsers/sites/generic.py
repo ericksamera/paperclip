@@ -1,8 +1,8 @@
 from __future__ import annotations
 from bs4 import BeautifulSoup
-from ..base import BaseParser
+from ..base import GeneralParser
 
-class GenericParser(BaseParser):
+class GenericParser(GeneralParser):
     NAME = "Generic"
     DOMAINS = tuple()
 
