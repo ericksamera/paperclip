@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Sequence
-from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING, TypedDict
 
 from urllib.parse import quote
 
@@ -17,6 +17,12 @@ else:  # pragma: no cover - runtime fallback when typing info unavailable
 
 
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Za-z0-9]+\b")
+
+
+class EnrichmentPayload(TypedDict):
+    source: str
+    csl: dict[str, Any]
+    raw: dict[str, Any]
 
 
 def normalize_doi(candidate: str) -> Optional[str]:
@@ -230,7 +236,7 @@ def _join_pages(first_page: Any, last_page: Any) -> Optional[str]:
     return first_page or last_page
 
 
-def enrich_from_doi(doi: str) -> Optional[Dict[str, Any]]:
+def enrich_from_doi(doi: str) -> Optional[EnrichmentPayload]:
     """Fetch CSL metadata for a DOI via Crossref/OpenAlex."""
 
     message, response = fetch_crossref(doi)

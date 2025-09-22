@@ -1,6 +1,7 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Iterable, Mapping
+from datetime import datetime
+from typing import Any, Callable, Iterable, Mapping, NamedTuple, TypedDict, cast
 
 from bs4 import BeautifulSoup
 from django.conf import settings
@@ -11,8 +12,13 @@ from django.http import HttpRequest
 from .models import Capture, Reference
 from .artifacts import write_text_artifact, write_json_artifact
 from .parsers import parse_with_fallback
-from .parsers.base import BaseParser, ReferenceObj
-from .services.doi import enrich_from_doi, csl_to_doc_meta, normalize_doi
+from .parsers.base import BaseParser, ParseResult, ReferenceObj
+from .services.doi import (
+    EnrichmentPayload,
+    csl_to_doc_meta,
+    enrich_from_doi,
+    normalize_doi,
+)
 
 
 def _reference_to_server_view(ref: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -42,7 +48,7 @@ def _reference_needs_enrichment(ref: ReferenceObj) -> bool:
 
 def _enrich_reference_objs_with_doi(
     references: Iterable[ReferenceObj],
-    fetcher: Callable[[str], Any] = enrich_from_doi,
+    fetcher: Callable[[str], EnrichmentPayload | None] = enrich_from_doi,
 ) -> None:
     """Populate missing structured fields for references that expose a DOI."""
 
@@ -66,7 +72,7 @@ def _enrich_reference_objs_with_doi(
     if not doi_to_refs:
         return
 
-    cache: dict[str, Any] = {}
+    cache: dict[str, EnrichmentPayload | None] = {}
 
     def _fetch_and_store(doi: str) -> None:
         cache[doi] = fetcher(doi)
@@ -93,12 +99,96 @@ def _enrich_reference_objs_with_doi(
         if not blob:
             continue
 
-        csl = blob.get("csl") if isinstance(blob, dict) else None
+        csl = blob["csl"]
         if not csl:
             continue
 
         for ref in doi_to_refs.get(doi, []):
             ref.merge_csl(csl)
+
+
+class DoiEnrichmentResult(NamedTuple):
+    blob: EnrichmentPayload | None
+    doi: str | None
+
+
+def apply_doi_enrichment(
+    capture: Capture,
+    *,
+    allow_head_lookup: bool = False,
+) -> DoiEnrichmentResult:
+    doi = normalize_doi((capture.meta or {}).get("doi") or "")
+    if not doi and allow_head_lookup:
+        dom_soup = BeautifulSoup(capture.dom_html or "", "html.parser")
+        head_doi = BaseParser.find_doi_in_meta(dom_soup)
+        doi = normalize_doi(head_doi or "")
+
+    if not doi:
+        return DoiEnrichmentResult(blob=None, doi=None)
+
+    blob = enrich_from_doi(doi)
+    if not blob:
+        return DoiEnrichmentResult(blob=None, doi=doi)
+
+    csl = blob.get("csl")
+    if not csl:
+        return DoiEnrichmentResult(blob=None, doi=doi)
+
+    capture.csl = csl or capture.csl
+    meta_updates = csl_to_doc_meta(csl)
+    if meta_updates.get("title"):
+        capture.title = meta_updates["title"]
+    capture.meta = {**(capture.meta or {}), **meta_updates}
+    capture.save(update_fields=["csl", "meta", "title"])
+    write_json_artifact(capture.id, "enrichment.json", blob)
+
+    return DoiEnrichmentResult(blob=cast(EnrichmentPayload, blob), doi=doi)
+
+
+class ReferencePayload(TypedDict, total=False):
+    id: str | None
+    raw: str
+    doi: str | None
+    bibtex: str | None
+    apa: str | None
+    csl: dict[str, Any]
+    title: str | None
+    authors: list[dict[str, str]]
+    container_title: str | None
+    issued_year: str | None
+    volume: str | None
+    issue: str | None
+    pages: str | None
+    publisher: str | None
+    url: str | None
+    issn: str | None
+    isbn: str | None
+
+
+class ExtractionPayload(TypedDict, total=False):
+    meta: dict[str, Any]
+    csl: dict[str, Any]
+    content_html: str
+    references: list[ReferencePayload]
+    figures: list[dict[str, Any]]
+    tables: list[dict[str, Any]]
+
+
+class RenderedPayload(TypedDict, total=False):
+    markdown: str
+
+
+class _CapturePayloadRequired(TypedDict):
+    source_url: str
+    captured_at: datetime
+    dom_html: str
+    extraction: ExtractionPayload
+    rendered: RenderedPayload
+    client: dict[str, Any]
+
+
+class CapturePayload(_CapturePayloadRequired, total=False):
+    selection_html: str | None
 
 # ---------- Serializers ----------
 
@@ -176,98 +266,162 @@ class CaptureOutSerializer(serializers.ModelSerializer):
 # ---------- Views ----------
 
 class CaptureViewSet(viewsets.ViewSet):
+    def _create_capture_record(self, capture_id: str, payload: CapturePayload) -> Capture:
+        extraction = payload["extraction"]
+        rendered = payload.get("rendered", {})
+
+        markdown = rendered.get("markdown") if isinstance(rendered, dict) else ""
+
+        raw_meta = extraction.get("meta")
+        meta = raw_meta if isinstance(raw_meta, dict) else {}
+
+        raw_csl = extraction.get("csl")
+        csl = raw_csl if isinstance(raw_csl, dict) else {}
+
+        figures = extraction.get("figures")
+        if not isinstance(figures, list):
+            figures = []
+
+        tables = extraction.get("tables")
+        if not isinstance(tables, list):
+            tables = []
+
+        content_html = extraction.get("content_html")
+        if not isinstance(content_html, str):
+            content_html = ""
+
+        return Capture.objects.create(
+            id=capture_id,
+            url=payload["source_url"],
+            title=meta.get("title", ""),
+            captured_at=payload["captured_at"],
+            dom_html=payload["dom_html"],
+            content_html=content_html,
+            markdown=markdown or "",
+            meta=meta,
+            csl=csl,
+            figures=figures,
+            tables=tables,
+        )
+
+    def _seed_client_references(
+        self,
+        capture: Capture,
+        references: Iterable[ReferencePayload] | None,
+    ) -> None:
+        payloads = list(references or [])
+        if not payloads:
+            return
+
+        objects = []
+        for ref_payload in payloads:
+            objects.append(
+                Reference(
+                    capture=capture,
+                    ref_id=ref_payload.get("id"),
+                    raw=ref_payload.get("raw", ""),
+                    doi=ref_payload.get("doi"),
+                    bibtex=ref_payload.get("bibtex"),
+                    apa=ref_payload.get("apa"),
+                    csl=ref_payload.get("csl") or {},
+                    title=ref_payload.get("title") or "",
+                    authors=ref_payload.get("authors") or [],
+                    container_title=ref_payload.get("container_title") or "",
+                    issued_year=ref_payload.get("issued_year") or "",
+                    volume=ref_payload.get("volume") or "",
+                    issue=ref_payload.get("issue") or "",
+                    pages=ref_payload.get("pages") or "",
+                    publisher=ref_payload.get("publisher") or "",
+                    url=ref_payload.get("url") or None,
+                    issn=ref_payload.get("issn") or "",
+                    isbn=ref_payload.get("isbn") or "",
+                )
+            )
+
+        Reference.objects.bulk_create(objects)
+
+    def _apply_head_doi(self, capture: Capture) -> None:
+        dom_soup = BeautifulSoup(capture.dom_html or "", "html.parser")
+        head_doi = BaseParser.find_doi_in_meta(dom_soup)
+        if not head_doi:
+            return
+
+        normalized = normalize_doi(head_doi)
+        if not normalized:
+            return
+
+        capture.meta = {**(capture.meta or {}), "doi": normalized}
+        capture.save(update_fields=["meta"])
+
+    def _write_initial_artifacts(self, capture: Capture) -> None:
+        write_text_artifact(capture.id, "page.html", capture.dom_html)
+        write_json_artifact(capture.id, "raw_ingest.json", CaptureOutSerializer(capture).data)
+
+    def _apply_doi_enrichment(self, capture: Capture) -> EnrichmentPayload | None:
+        if not getattr(settings, "ENABLE_DOI_ENRICHMENT", True):
+            return None
+
+        result = apply_doi_enrichment(capture)
+        return result.blob
+
+    def _reconcile_parser_results(self, capture: Capture, parsed: ParseResult) -> dict[str, Any] | None:
+        if parsed.meta_updates:
+            current_meta = capture.meta or {}
+            if not current_meta.get("doi") and parsed.meta_updates.get("doi"):
+                merged_meta = {**current_meta, "doi": parsed.meta_updates["doi"]}
+            else:
+                merged_meta = {
+                    **current_meta,
+                    **{k: v for k, v in parsed.meta_updates.items() if k != "doi"},
+                }
+            capture.meta = merged_meta
+            capture.save(update_fields=["meta"])
+
+        if parsed.references:
+            _enrich_reference_objs_with_doi(parsed.references)
+            capture.references.all().delete()
+            Reference.objects.bulk_create(
+                [Reference(capture=capture, **ref.to_model_kwargs()) for ref in parsed.references]
+            )
+
+        return parsed.content_sections or None
+
+    def _build_artifact_urls(
+        self, request: HttpRequest, capture_id: str, enriched: bool
+    ) -> dict[str, str]:
+        base = request.build_absolute_uri("/").rstrip("/")
+        urls = {
+            "page_html": f"{base}/captures/{capture_id}/artifact/page.html",
+            "raw_ingest": f"{base}/captures/{capture_id}/artifact/raw_ingest.json",
+            "parsed_json": f"{base}/captures/{capture_id}/artifact/parsed.json",
+            "server_parsed": f"{base}/captures/{capture_id}/artifact/server_parsed.json",
+        }
+        if enriched:
+            urls["enrichment"] = f"{base}/captures/{capture_id}/artifact/enrichment.json"
+        return urls
+
     def create(self, request: HttpRequest) -> Response:
         data = CaptureInSerializer(data=request.data)
         data.is_valid(raise_exception=True)
-        payload = data.validated_data
-        ext = payload["extraction"]
+        payload = cast(CapturePayload, data.validated_data)
+        extraction = payload["extraction"]
 
         capture_id = f"c_{uuid.uuid4().hex}"
-        cap = Capture.objects.create(
-            id=capture_id,
-            url=payload["source_url"],
-            title=(ext.get("meta") or {}).get("title", ""),
-            captured_at=payload["captured_at"],
-            dom_html=payload["dom_html"],
-            content_html=ext.get("content_html", ""),
-            markdown=payload.get("rendered", {}).get("markdown", ""),
-            meta=ext.get("meta", {}) or {},
-            csl=ext.get("csl", {}) or {},
-            figures=ext.get("figures", []) or [],
-            tables=ext.get("tables", []) or []
-        )
+        capture = self._create_capture_record(capture_id, payload)
 
-        # Seed with client-side refs first (lossless & structured if provided)
-        for r in (ext.get("references") or []):
-            Reference.objects.create(
-                capture=cap,
-                ref_id=r.get("id"),
-                raw=r.get("raw", ""),
-                doi=r.get("doi"),
-                bibtex=r.get("bibtex"),
-                apa=r.get("apa"),
-                csl=r.get("csl") or {},
-                title=r.get("title") or "",
-                authors=r.get("authors") or [],
-                container_title=r.get("container_title") or "",
-                issued_year=r.get("issued_year") or "",
-                volume=r.get("volume") or "",
-                issue=r.get("issue") or "",
-                pages=r.get("pages") or "",
-                publisher=r.get("publisher") or "",
-                url=r.get("url") or None,
-                issn=r.get("issn") or "",
-                isbn=r.get("isbn") or "",
-            )
+        raw_references = extraction.get("references")
+        references = cast(list[ReferencePayload] | None, raw_references if isinstance(raw_references, list) else None)
+        self._seed_client_references(capture, references)
+        self._apply_head_doi(capture)
+        self._write_initial_artifacts(capture)
 
-        # ---- Early DOI from <head> (dom_html) ----
-        dom_soup = BeautifulSoup(cap.dom_html or "", "html.parser")
-        head_doi = BaseParser.find_doi_in_meta(dom_soup)
-        if head_doi:
-            cap.meta = {**(cap.meta or {}), "doi": head_doi}
-            cap.save(update_fields=["meta"])
+        enrichment_blob = self._apply_doi_enrichment(capture)
 
-        # ---- Artifacts (pre-parse snapshot) ----
-        write_text_artifact(cap.id, "page.html", cap.dom_html)
-        write_json_artifact(cap.id, "raw_ingest.json", CaptureOutSerializer(cap).data)
+        parsed = parse_with_fallback(capture.url, capture.content_html, capture.dom_html)
+        content_sections = self._reconcile_parser_results(capture, parsed)
 
-        # ---- DOI enrichment (Crossref → OpenAlex fallback) ----
-        doi = normalize_doi((cap.meta or {}).get("doi") or "")
-        enrichment_blob = None
-        if getattr(settings, "ENABLE_DOI_ENRICHMENT", True) and doi:
-            enrichment_blob = enrich_from_doi(doi)
-            if enrichment_blob and enrichment_blob.get("csl"):
-                csl = enrichment_blob["csl"]
-                cap.csl = csl or cap.csl
-                meta_up = csl_to_doc_meta(csl)
-                if meta_up.get("title"):
-                    cap.title = meta_up["title"]
-                cap.meta = {**(cap.meta or {}), **meta_up}
-                cap.save(update_fields=["csl", "meta", "title"])
-                write_json_artifact(cap.id, "enrichment.json", enrichment_blob)
-
-        # ---- Server-side parsing (site adapters) ----
-        parsed = parse_with_fallback(cap.url, cap.content_html, cap.dom_html)
-
-        # Merge any parser meta (e.g., DOI) if still missing
-        if parsed.meta_updates:
-            if not cap.meta.get("doi") and parsed.meta_updates.get("doi"):
-                cap.meta = {**cap.meta, "doi": parsed.meta_updates["doi"]}
-            else:
-                cap.meta = {**cap.meta, **{k: v for k, v in parsed.meta_updates.items() if k != "doi"}}
-            cap.save(update_fields=["meta"])
-
-        # Replace references if parser found any (Python becomes source of truth)
-        if parsed.references:
-            _enrich_reference_objs_with_doi(parsed.references)
-            cap.references.all().delete()
-            Reference.objects.bulk_create([
-                Reference(capture=cap, **r.to_model_kwargs()) for r in parsed.references
-            ])
-
-        # ---- Final snapshots (post-parse) ----
-        final_state = CaptureOutSerializer(cap).data
-        write_json_artifact(cap.id, "parsed.json", final_state)
+        final_state = CaptureOutSerializer(capture).data
+        write_json_artifact(capture.id, "parsed.json", final_state)
 
         serialized_refs = [
             _reference_to_server_view(ref)
@@ -275,46 +429,39 @@ class CaptureViewSet(viewsets.ViewSet):
         ]
 
         server_view = {
-            "id": cap.id,
-            "url": cap.url,
-            "meta": cap.meta,
+            "id": capture.id,
+            "url": capture.url,
+            "meta": capture.meta,
             "reference_count": len(serialized_refs),
             "references": serialized_refs,
             "enriched": bool(enrichment_blob),
         }
-        if parsed.content_sections:
-            server_view["content"] = parsed.content_sections
-        write_json_artifact(cap.id, "server_parsed.json", server_view)
+        if content_sections:
+            server_view["content"] = content_sections
+        write_json_artifact(capture.id, "server_parsed.json", server_view)
 
-        base = request.build_absolute_uri("/").rstrip("/")
-        artifact_urls = {
-            "page_html": f"{base}/captures/{cap.id}/artifact/page.html",
-            "raw_ingest": f"{base}/captures/{cap.id}/artifact/raw_ingest.json",
-            "parsed_json": f"{base}/captures/{cap.id}/artifact/parsed.json",
-            "server_parsed": f"{base}/captures/{cap.id}/artifact/server_parsed.json",
-            "enrichment": f"{base}/captures/{cap.id}/artifact/enrichment.json",
-        }
+        artifact_urls = self._build_artifact_urls(request, capture.id, bool(enrichment_blob))
 
-        refs_qs = cap.references.all()[:3]
+        refs_qs = capture.references.all()[:3]
         summary = {
-            "title": cap.title,
-            "url": cap.url,
-            "reference_count": cap.references.count(),
-            "figure_count": len(cap.figures or []),
-            "table_count": len(cap.tables or []),
-            "first_3_references": [{"apa": r.apa, "doi": r.doi} for r in refs_qs]
+            "title": capture.title,
+            "url": capture.url,
+            "reference_count": capture.references.count(),
+            "figure_count": len(capture.figures or []),
+            "table_count": len(capture.tables or []),
+            "first_3_references": [{"apa": r.apa, "doi": r.doi} for r in refs_qs],
         }
         return Response(
             {"capture_id": capture_id, "summary": summary, "artifacts": artifact_urls},
-            status=status.HTTP_201_CREATED
+            status=status.HTTP_201_CREATED,
         )
 
-    def retrieve(self, request, pk=None):
+    def retrieve(self, request: HttpRequest, pk: str | None = None) -> Response:
         from django.shortcuts import get_object_or_404
         cap = get_object_or_404(Capture, pk=pk)
         return Response(CaptureOutSerializer(cap).data)
 
-    def list(self, request):
+    def list(self, request: HttpRequest) -> Response:
         qs = Capture.objects.order_by("-captured_at")
         limit = int(request.query_params.get("limit", 20))
         data = [CaptureOutSerializer(c).data for c in qs[:limit]]
@@ -323,31 +470,18 @@ class CaptureViewSet(viewsets.ViewSet):
 # ---- Health & enrichment endpoints ----
 
 @api_view(["GET"])
-def healthz(_request):
+def healthz(_request: HttpRequest) -> Response:
     return Response({"status": "ok"})
 
 @api_view(["POST"])
-def enrich_doi(request, pk: str):
+def enrich_doi(request: HttpRequest, pk: str) -> Response:
     from django.shortcuts import get_object_or_404
     cap = get_object_or_404(Capture, pk=pk)
-    doi = normalize_doi((cap.meta or {}).get("doi") or "")
-    if not doi:
-        dom_soup = BeautifulSoup(cap.dom_html or "", "html.parser")
-        head_doi = BaseParser.find_doi_in_meta(dom_soup)
-        doi = normalize_doi(head_doi or "")
-    if not doi:
+    result = apply_doi_enrichment(cap, allow_head_lookup=True)
+
+    if result.doi is None:
         return Response({"detail": "No DOI available to enrich."}, status=400)
-    blob = enrich_from_doi(doi)
-    if not blob or not blob.get("csl"):
+    if not result.blob:
         return Response({"detail": "Enrichment failed or not found."}, status=502)
 
-    csl = blob["csl"]
-    cap.csl = csl or cap.csl
-    meta_up = csl_to_doc_meta(csl)
-    if meta_up.get("title"):
-        cap.title = meta_up["title"]
-    cap.meta = {**(cap.meta or {}), **meta_up}
-    cap.save(update_fields=["csl", "meta", "title"])
-
-    write_json_artifact(cap.id, "enrichment.json", blob)
     return Response({"ok": True, "meta": cap.meta, "csl": cap.csl})

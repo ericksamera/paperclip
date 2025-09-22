@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import re
-from typing import Any, Callable, Optional, Sequence, TypedDict
+from typing import Any, Callable, Mapping, Optional, Sequence, TypedDict
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -47,6 +47,27 @@ class ReferenceObj:
     def from_csl(cls, raw: str, csl: dict[str, Any], id: Optional[str] = None) -> "ReferenceObj":
         if not isinstance(csl, dict):
             csl = {}
+
+        def _iter_author_dicts(value: Any) -> Sequence[Mapping[str, Any]]:
+            if isinstance(value, Mapping):
+                return [value]
+            if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+                return [entry for entry in value if isinstance(entry, Mapping)]
+            return []
+
+        def _first_string(value: Any) -> Optional[str]:
+            if isinstance(value, str):
+                return value
+            if isinstance(value, (int, float)):
+                return str(value)
+            if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+                for item in value:
+                    if isinstance(item, str):
+                        return item
+                    if isinstance(item, (int, float)):
+                        return str(item)
+            return None
+
         title = csl.get("title")
         container = csl.get("container-title") or csl.get("container_title")
         if isinstance(container, list):
@@ -62,14 +83,14 @@ class ReferenceObj:
             match = re.search(r"\b(19|20)\d{2}[a-z]?\b", issued)
             if match:
                 issued_year = match.group(0)
-        authors = []
-        for a in csl.get("author", []) or []:
-            fam = (a.get("family") or "").strip()
-            giv = (a.get("given") or "").strip()
+        authors: list[dict[str, str]] = []
+        for author in _iter_author_dicts(csl.get("author")):
+            fam = (str(author.get("family") or "").strip())
+            giv = (str(author.get("given") or "").strip())
             if fam or giv:
                 authors.append({"family": fam, "given": giv})
-        doi = csl.get("DOI") or csl.get("doi")
-        pages = csl.get("page") or csl.get("pages")
+        doi = _first_string(csl.get("DOI")) or _first_string(csl.get("doi"))
+        pages = _first_string(csl.get("page") or csl.get("pages"))
         return cls(
             id=id,
             raw=raw or title or "",
@@ -77,14 +98,14 @@ class ReferenceObj:
             authors=authors,
             container_title=container,
             issued_year=issued_year,
-            volume=(csl.get("volume") or None),
-            issue=(csl.get("issue") or None),
+            volume=_first_string(csl.get("volume")),
+            issue=_first_string(csl.get("issue")),
             pages=pages,
-            publisher=(csl.get("publisher") or None),
-            url=(csl.get("URL") or csl.get("url") or None),
+            publisher=_first_string(csl.get("publisher")),
+            url=_first_string(csl.get("URL") or csl.get("url")),
             doi=doi,
-            issn=(csl.get("ISSN") or csl.get("issn") or None),
-            isbn=(csl.get("ISBN") or csl.get("isbn") or None),
+            issn=_first_string(csl.get("ISSN")) or _first_string(csl.get("issn")),
+            isbn=_first_string(csl.get("ISBN")) or _first_string(csl.get("isbn")),
             csl=csl
         )
 
