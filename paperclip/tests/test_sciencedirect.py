@@ -214,6 +214,73 @@ EXPECTED_BODY_SECTIONS = [
 ]
 
 
+SCIENCEDIRECT_BODY_SHORT_IDS_HTML = """
+<html>
+  <body>
+    <section class="Sections" id="body0010">
+      <section id="sec1">
+        <h2 class="u-h4">Introduction</h2>
+        <p>Short introduction paragraph.</p>
+      </section>
+      <section id="sec2">
+        <h2 class="u-h4">Results</h2>
+        <p>Summary of results.</p>
+        <section id="sec2s0001">
+          <h3>Details</h3>
+          <p>Detailed findings.</p>
+        </section>
+      </section>
+    </section>
+  </body>
+</html>
+"""
+
+
+EXPECTED_BODY_SECTIONS_SHORT_IDS = [
+    {
+        "title": "Introduction",
+        "markdown": "Short introduction paragraph.",
+        "paragraphs": [
+            {
+                "type": "paragraph",
+                "markdown": "Short introduction paragraph.",
+                "sentences": [
+                    {"markdown": "Short introduction paragraph.", "citations": []},
+                ],
+            }
+        ],
+    },
+    {
+        "title": "Results",
+        "markdown": "Summary of results.",
+        "paragraphs": [
+            {
+                "type": "paragraph",
+                "markdown": "Summary of results.",
+                "sentences": [
+                    {"markdown": "Summary of results.", "citations": []},
+                ],
+            }
+        ],
+        "children": [
+            {
+                "title": "Details",
+                "markdown": "Detailed findings.",
+                "paragraphs": [
+                    {
+                        "type": "paragraph",
+                        "markdown": "Detailed findings.",
+                        "sentences": [
+                            {"markdown": "Detailed findings.", "citations": []},
+                        ],
+                    }
+                ],
+            }
+        ],
+    },
+]
+
+
 SCIENCEDIRECT_BODY_WITH_CITATIONS_HTML = """
 <html>
   <body>
@@ -305,6 +372,12 @@ def test_extracts_body_sections() -> None:
     url = "https://www.sciencedirect.com/science/article/pii/S9876543210987654"
     parsed = parse_html(url, SCIENCEDIRECT_BODY_HTML)
     assert parsed.content_sections["body"] == EXPECTED_BODY_SECTIONS
+
+
+def test_extracts_body_sections_with_short_ids() -> None:
+    url = "https://www.sciencedirect.com/science/article/pii/S2222222222222222"
+    parsed = parse_html(url, SCIENCEDIRECT_BODY_SHORT_IDS_HTML)
+    assert parsed.content_sections["body"] == EXPECTED_BODY_SECTIONS_SHORT_IDS
 
 
 def test_body_sentences_include_reference_annotations() -> None:

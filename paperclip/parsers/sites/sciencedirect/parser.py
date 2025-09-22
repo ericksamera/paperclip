@@ -14,7 +14,7 @@ from .citations import SentenceCitationAnnotator
 class ScienceDirectParser(BaseParser):
     NAME = "ScienceDirect"
     DOMAINS = ("sciencedirect.com", "elsevier.com")
-    SECTION_ID_RE = re.compile(r"^cesec", re.I)
+    SECTION_ID_RE = re.compile(r"^(?:cesec|sec\d+)", re.I)
     _citation_annotator = SentenceCitationAnnotator()
     _body_extractor: ClassVar[Optional[BodyExtractor]] = None
 
