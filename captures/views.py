@@ -238,7 +238,8 @@ class LibraryView(TemplateView):
             "dir": direction,
             "facets": facets,
             "selected": {"year": filter_year, "journal": filter_journal, "site": filter_site},
-            "current_params": {k: v for k, v in request.GET.items()},
+            # IMPORTANT: hand the real QueryDict to templates so {{ current_params.urlencode }} works
+            "current_params": request.GET,
         }
         return render(request, self.template_name, context)
 

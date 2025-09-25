@@ -24,9 +24,9 @@ urlpatterns = [
     path("captures/<uuid:pk>/view/", cap_views.capture_view, name="capture_view"),
     path("captures/<uuid:pk>/delete/", cap_views.capture_delete, name="capture_delete"),
 
-    # Artifacts (two names kept for compatibility with templates)
+    # Artifacts (both names map to the SAME parameter "basename")
     path("captures/<uuid:pk>/artifact/<str:basename>/", cap_views.capture_artifact, name="capture_artifact"),
-    path("captures/<uuid:pk>/artifact/<str:name>/", cap_views.capture_artifact, name="artifact"),
+    path("captures/<uuid:pk>/artifact/<str:basename>/", cap_views.capture_artifact, name="artifact"),
 
     # Analysis pages
     path("runs/", analysis_views.RunsListView.as_view(), name="analysis_runs"),

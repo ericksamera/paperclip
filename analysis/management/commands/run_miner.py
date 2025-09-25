@@ -5,16 +5,6 @@ from django.core.management.base import BaseCommand
 from django.conf import settings
 from analysis.models import AnalysisRun
 
-from libs.paperclip_miner.io import load_documents
-from libs.paperclip_miner.embeddings import compute_embeddings
-from libs.paperclip_miner.cluster import kmeans_labels, auto_k_silhouette
-from libs.paperclip_miner.graph_build import build_graph
-from libs.paperclip_miner.themes import label_clusters
-from libs.paperclip_miner.recommend import recommend_next, write_reading_plan_csv
-from libs.paperclip_miner.bib import aggregate_bib
-from libs.paperclip_miner.utils import safe_json
-from libs.paperclip_miner.vis import write_graph_html
-
 class Command(BaseCommand):
     help = "PaperClip miner: embeddings → clusters → graph → themes → recs → BibTeX → graph.html"
 
@@ -31,14 +21,32 @@ class Command(BaseCommand):
         p.add_argument("--csv", default=None)
 
     def handle(self, *args, **o):
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        outdir = Path(settings.ARTIFACTS_DIR) / "__runs" / ts
+        outdir.mkdir(parents=True, exist_ok=True)
+
+        # Import heavy deps lazily so missing libs don't crash the server
+        try:
+            from libs.paperclip_miner.io import load_documents
+            from libs.paperclip_miner.embeddings import compute_embeddings
+            from libs.paperclip_miner.cluster import kmeans_labels, auto_k_silhouette
+            from libs.paperclip_miner.graph_build import build_graph
+            from libs.paperclip_miner.themes import label_clusters
+            from libs.paperclip_miner.recommend import recommend_next, write_reading_plan_csv
+            from libs.paperclip_miner.bib import aggregate_bib
+            from libs.paperclip_miner.utils import safe_json
+            from libs.paperclip_miner.vis import write_graph_html
+        except Exception as e:
+            AnalysisRun.objects.create(out_dir=str(outdir), status="error", log=f"Missing libs.paperclip_miner: {e}")
+            self.stderr.write(self.style.ERROR(f"Analysis aborted: {e}"))
+            return
+
         artifacts = Path(settings.ARTIFACTS_DIR)
         in_glob = str(artifacts / "*/server_parsed.json")
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        outdir = artifacts / "__runs" / ts
-        outdir.mkdir(parents=True, exist_ok=True)
 
         docs = load_documents([in_glob])
         if not docs:
+            AnalysisRun.objects.create(out_dir=str(outdir), status="empty", log="No documents found.")
             self.stdout.write("No documents found.")
             return
 
@@ -64,8 +72,9 @@ class Command(BaseCommand):
 
         (outdir / "references.bib").write_text(aggregate_bib(docs), encoding="utf-8")
         if o["csv"]:
-            p_csv = Path(o["csv"]); 
-            if not p_csv.is_absolute(): p_csv = outdir / p_csv
+            p_csv = Path(o["csv"])
+            if not p_csv.is_absolute():
+                p_csv = outdir / p_csv
             write_reading_plan_csv(docs, degree, labels, X, str(p_csv))
 
         write_graph_html(graph, themes, outdir / "graph.html")
