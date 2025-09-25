@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% load static %}
+{% block nav_library_active %}active{% endblock %}
+{% block title %}Library{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="{% static 'captures/libraries.css' %}">
+  <script defer src="{% static 'captures/table.js' %}"></script>
+  <script defer src="{% static 'captures/library.js' %}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="pc-lib">
+  <!-- Backdrop / scrim (click to close) -->
+  <div id="pc-scrim" class="pc-scrim" aria-hidden="true"></div>
+
+  <!-- Left sidebar: Collections (placeholder) -->
+  <aside id="pc-sidebar" class="pc-sidebar" aria-label="Collections">
+    <h2>Collections</h2>
+    <nav class="pc-collections">
+      <ul>
+        <li><a href="{% url 'library' %}">All Items</a></li>
+        <li><a href="#">Collection 1</a></li>
+        <li><a href="#">Collection 2</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Center: full‑width table -->
+  <section class="pc-main" aria-label="Library">
+    <div class="pc-toolbar">
+      <h1>Library <span class="pc-count">{{ count }} item{{ count|pluralize }}</span></h1>
+      <div class="pc-toolbar-actions">
+        <button id="pc-filter-btn" class="pc-btn" type="button">Filter</button>
+        <button id="pc-columns-btn" class="pc-btn" type="button">Columns</button>
+      </div>
+    </div>
+    <div class="pc-table-wrap">
+      <table id="pc-table" class="pc-table resizable">
+        <colgroup>
+          <col data-key="title"   style="width:640px">
+          <col data-key="authors" style="width:260px">
+          <col data-key="year"    style="width:100px">
+          <col data-key="journal" style="width:300px">
+          <col data-key="doi"     style="width:260px">
+          <col data-key="added"   style="width:140px">
+          <col data-key="refs"    style="width:90px">
+        </colgroup>
+        <thead>
+          <tr>
+            <th class="pc-th pc-col-title">
+              <a href="?{% if current_params %}{{ current_params.urlencode }}&{% endif %}sort=title&dir={% if sort == 'title' and dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Title{% if sort == 'title' %}<span class="pc-arrow">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
+              </a>
+              <span class="pc-resizer"></span>
+            </th>
+            <th class="pc-th pc-th--no-sort pc-col-authors">Authors<span class="pc-resizer"></span></th>
+            <th class="pc-th pc-col-year">
+              <a href="?{% if current_params %}{{ current_params.urlencode }}&{% endif %}sort=year&dir={% if sort == 'year' and dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Year{% if sort == 'year' %}<span class="pc-arrow">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
+              </a>
+              <span class="pc-resizer"></span>
+            </th>
+            <th class="pc-th pc-col-journal">
+              <a href="?{% if current_params %}{{ current_params.urlencode }}&{% endif %}sort=journal&dir={% if sort == 'journal' and dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Journal{% if sort == 'journal' %}<span class="pc-arrow">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
+              </a>
+              <span class="pc-resizer"></span>
+            </th>
+            <th class="pc-th pc-col-doi">
+              <a href="?{% if current_params %}{{ current_params.urlencode }}&{% endif %}sort=doi&dir={% if sort == 'doi' and dir == 'asc' %}desc{% else %}asc{% endif %}">
+                DOI{% if sort == 'doi' %}<span class="pc-arrow">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
+              </a>
+              <span class="pc-resizer"></span>
+            </th>
+            <th class="pc-th pc-col-added">
+              <a href="?{% if current_params %}{{ current_params.urlencode }}&{% endif %}sort=added&dir={% if sort == 'added' and dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Added{% if sort == 'added' %}<span class="pc-arrow">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
+              </a>
+              <span class="pc-resizer"></span>
+            </th>
+            <th class="pc-th pc-col-refs">
+              <a href="?{% if current_params %}{{ current_params.urlencode }}&{% endif %}sort=refs&dir={% if sort == 'refs' and dir == 'asc' %}desc{% else %}asc{% endif %}">
+                Refs{% if sort == 'refs' %}<span class="pc-arrow">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
+              </a>
+              <span class="pc-resizer"></span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr id="capture-{{ r.id }}" data-id="{{ r.id }}"
+              data-title="{{ r.title|escape }}"
+              data-authors="{{ r.authors|escape }}"
+              data-journal="{{ r.journal|escape }}"
+              data-doi="{{ r.doi|escape }}"
+              data-year="{{ r.year|escape }}"
+              data-source="{{ r.url|escape }}"
+              data-site="{{ r.site_label|escape|default:'' }}"
+              data-abstract="{{ r.abstract|default:''|escape }}"
+          >
+            <td class="pc-col-title" title="{{ r.title|escape }}">
+              <a class="pc-title" href="{% url 'capture_view' r.id %}">{{ r.title }}</a>
+            </td>
+            <td class="pc-col-authors" title="{{ r.authors|escape }}">{{ r.authors|default:"" }}</td>
+            <td class="pc-col-year">{{ r.year }}</td>
+            <td class="pc-col-journal" title="{{ r.journal|escape }}">{{ r.journal }}</td>
+            <td class="pc-col-doi" title="{{ r.doi|escape }}">
+              {% if r.doi_url %}
+                <a href="{{ r.doi_url }}" target="_blank" rel="noopener">{{ r.doi }}</a>
+              {% else %}
+                {{ r.doi }}
+              {% endif %}
+            </td>
+            <td class="pc-col-added" title="{{ r.added|escape }}">{{ r.added }}</td>
+            <td class="pc-col-refs">{{ r.refs }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7" class="pc-empty">No results.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Right details panel -->
+  <aside id="pc-info" class="pc-info" aria-label="Details">
+    <div class="pc-info__placeholder">Select a reference to see details.</div>
+  </aside>
+
+  <!-- Filter modal -->
+  <div id="pc-filter-modal" class="pc-modal" role="dialog" aria-modal="true" aria-labelledby="pc-filter-label" hidden>
+    <div class="pc-modal-content">
+      <h2 id="pc-filter-label">Filters</h2>
+      <div class="pc-search">
+        <input id="pc-q" type="text" value="{{ q }}" placeholder="Search title, DOI, URL, journal…">
+        {% if q %}
+          <a class="pc-clear" href="{% url 'library' %}">Clear</a>
+        {% endif %}
+      </div>
+      <nav class="pc-facets">
+        <div class="pc-facet">
+          <div class="pc-facet__title">Years</div>
+          <ul>
+            {% for y,c in facets.years %}
+              <li>
+                <a class="{% if selected.year == y %}is-active{% endif %}"
+                   href="{% url 'library' %}?{{ current_params.urlencode|default:'' }}&year={{ y }}">
+                  {{ y }} <span>{{ c }}</span>
+                </a>
+              </li>
+            {% empty %}
+              <li class="pc-empty">—</li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div class="pc-facet">
+          <div class="pc-facet__title">Journals</div>
+          <ul>
+            {% for j,c in facets.journals %}
+              <li>
+                <a class="{% if selected.journal == j %}is-active{% endif %}" title="{{ j }}"
+                   href="{% url 'library' %}?{{ current_params.urlencode|default:'' }}&journal={{ j|urlencode }}">
+                  {{ j }} <span>{{ c }}</span>
+                </a>
+              </li>
+            {% empty %}
+              <li class="pc-empty">—</li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div class="pc-facet">
+          <div class="pc-facet__title">Sites</div>
+          <ul>
+            {% for s,c in facets.sites %}
+              <li>
+                <a class="{% if selected.site == s %}is-active{% endif %}"
+                   href="{% url 'library' %}?{{ current_params.urlencode|default:'' }}&site={{ s|urlencode }}">
+                  {{ s }} <span>{{ c }}</span>
+                </a>
+              </li>
+            {% empty %}
+              <li class="pc-empty">—</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% if selected.year or selected.journal or selected.site %}
+        <div class="pc-facet">
+          <a class="pc-clear-all" href="{% url 'library' %}">Clear filters</a>
+        </div>
+        {% endif %}
+      </nav>
+      <div class="pc-modal-actions">
+        <button id="pc-filter-close" type="button" class="pc-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Columns visibility modal -->
+  <div id="pc-columns-modal" class="pc-modal" role="dialog" aria-modal="true" aria-labelledby="pc-columns-label" hidden>
+    <div class="pc-modal-content">
+      <h2 id="pc-columns-label">Columns</h2>
+      <ul class="pc-columns-list">
+        <li><label><input type="checkbox" data-col="authors" checked> Authors</label></li>
+        <li><label><input type="checkbox" data-col="year" checked> Year</label></li>
+        <li><label><input type="checkbox" data-col="journal" checked> Journal</label></li>
+        <li><label><input type="checkbox" data-col="doi" checked> DOI</label></li>
+        <li><label><input type="checkbox" data-col="added" checked> Added</label></li>
+        <li><label><input type="checkbox" data-col="refs" checked> Refs</label></li>
+      </ul>
+      <div class="pc-modal-actions">
+        <button id="pc-columns-close" type="button" class="pc-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <form id="pc-delete-form" method="post" style="display:none;">{% csrf_token %}</form>
+</div>
+{% endblock %}

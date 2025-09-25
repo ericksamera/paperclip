@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block nav_runs_active %}active{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <div class="toolbar">
+    <h1>Analysis Runs</h1>
+    <form method="post" action="{% url 'analysis_run' %}">
+      {% csrf_token %}
+      <button type="submit" class="btn">Run now</button>
+    </form>
+  </div>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th class="col-started">Started</th>
+        <th>Output folder</th>
+        <th class="col-status">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td class="muted">{{ r.created_at|date:"Y-m-d H:i:s" }}</td>
+        <td>{{ r.out_dir }}</td>
+        <td class="muted">{{ r.status }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="3" class="empty">No runs yet.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

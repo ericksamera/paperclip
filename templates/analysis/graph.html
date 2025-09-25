@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block nav_graph_active %}active{% endblock %}
+
+{% block content %}
+  {% if no_run %}
+    <div class="panel">No graph yet. Run an analysis first.</div>
+  {% else %}
+    <!-- When a run exists, the latest graph is streamed directly; this template handles only the 'no_run' case. -->
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block nav_library_active %}active{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <div class="toolbar">
+    <h1>{{ cap.title|default:"(untitled)" }}</h1>
+    <div class="toolbar-actions">
+      <a class="btn" href="{% url 'library' %}">Back to Library</a>
+      <form method="post" action="{% url 'capture_delete' cap.id %}" onsubmit="return confirm('Delete this capture and its artifacts?');">
+        {% csrf_token %}
+        <button class="btn btn-danger" type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <!-- Left column: metadata and content -->
+    <div>
+      {% if cap.doi %}
+        <div><strong>DOI:</strong> <a href="https://doi.org/{{ cap.doi }}" target="_blank">{{ cap.doi }}</a></div>
+      {% endif %}
+      {% if cap.url %}
+        <div class="mt-1"><strong>URL:</strong> <a href="{{ cap.url }}" target="_blank">{{ cap.url }}</a></div>
+      {% endif %}
+      {% if cap.meta and cap.meta.abstract %}
+        <div class="mt-3">
+          <strong>Abstract</strong>
+          <div class="muted mt-2">{{ cap.meta.abstract }}</div>
+        </div>
+      {% endif %}
+
+      <h2>Content</h2>
+      <div class="panel scrollable">
+        {{ content|safe }}
+      </div>
+    </div>
+
+    <!-- Right column: artifact links -->
+    <div>
+      <h2>Artifacts</h2>
+      <ul class="muted relaxed">
+        <li><a href="{% url 'artifact' cap.id 'server_parsed.json' %}">server_parsed.json</a></li>
+        <li><a href="{% url 'artifact' cap.id 'parsed.json' %}">parsed.json</a></li>
+        <li><a href="{% url 'artifact' cap.id 'server_output_reduced.json' %}">server_output_reduced.json</a></li>
+        <li><a href="{% url 'artifact' cap.id 'page.html' %}">page.html</a></li>
+        <li><a href="{% url 'artifact' cap.id 'content.html' %}">content.html</a></li>
+        <li><a href="{% url 'artifact' cap.id 'content.md' %}">content.md</a></li>
+        <li><a href="{% url 'artifact' cap.id 'raw_ingest.json' %}">raw_ingest.json</a></li>
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

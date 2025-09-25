@@ -1,0 +1,28 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}Paperclip{% endblock %}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Include external CSS instead of inline styles -->
+  <link rel="stylesheet" href="{% static 'base.css' %}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="container">
+    <!-- Main navigation bar -->
+    <nav class="nav">
+      <div class="brand">Paperclip</div>
+      <a class="link {% block nav_library_active %}{% endblock %}" href="{% url 'library' %}">Library</a>
+      <a class="link {% block nav_graph_active %}{% endblock %}" href="{% url 'analysis_graph' %}">Graph</a>
+      <a class="link {% block nav_runs_active %}{% endblock %}" href="{% url 'analysis_runs' %}">Runs</a>
+    </nav>
+
+    <!-- Main content area -->
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>
