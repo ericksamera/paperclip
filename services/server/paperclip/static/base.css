@@ -1,0 +1,139 @@
+/* ---------- THEME VARIABLES ---------- */
+:root {
+  --bg: #0d1117; --fg: #e6edf3; --muted: #9aa7ba; --line: #2f3742;
+  --panel: #141a22; --panel-strong: #0e1622;
+  --chip-bg: #0f141a; --chip-border: #2f3742;
+  --accent: #3b82f6; --accent-weak: #1f3a58;
+  --danger: #dc3545;             /* red-500ish */
+  --danger-weak: #5a1520;
+  --shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+
+:root[data-theme="light"] {
+  --bg:#ffffff; --fg:#0b1220; --muted:#5b6574; --line:#d0d7de;
+  --panel:#f9fbfe; --panel-strong:#eef3fb;
+  --chip-bg:#ffffff; --chip-border:#ccd5e1;
+  --accent:#2156e5; --accent-weak:#bcd0ff;
+  --danger:#c4303a; --danger-weak:#ffd6da;
+  --shadow: 0 1px 2px rgba(0,0,0,.08);
+}
+
+/* ---------- BASE LAYOUT ---------- */
+* { box-sizing: border-box }
+html, body { height: 100% }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px; line-height: 1.42;
+}
+.container.full-bleed { max-width: 100%; margin: 0 auto; padding: 0 12px }
+
+/* Top nav */
+.nav { display:flex; gap:10px; align-items:center; padding:8px 10px; border-bottom:1px solid var(--line); background:var(--panel-strong) }
+.brand { font-weight: 800; margin-right: 12px }
+.link { color: var(--fg); text-decoration: none; padding: 6px 10px; border-radius: 8px; }
+.link.active, .link:hover { background: color-mix(in oklab, var(--panel-strong) 70%, var(--fg) 7%) }
+
+/* ---------- Buttons ---------- */
+.btn {
+  --btn-bg: color-mix(in oklab, var(--panel) 92%, var(--fg) 8%);
+  --btn-bd: var(--line);
+  --btn-fg: var(--fg);
+  border:1px solid var(--btn-bd);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  padding:6px 10px; border-radius:8px; cursor:pointer; text-decoration:none;
+  box-shadow: var(--shadow);
+}
+.btn:hover { filter: brightness(1.04) }
+.btn:disabled { opacity:.55; cursor:default }
+.btn--subtle { --btn-bg: color-mix(in oklab, var(--panel-strong) 92%, var(--fg) 8%); }
+.btn--primary { --btn-bg: var(--accent); --btn-bd: color-mix(in oklab, var(--accent) 65%, var(--line) 35%); --btn-fg:#fff; }
+.btn--danger  { --btn-bg: color-mix(in oklab, var(--danger) 75%, var(--panel) 25%); --btn-bd: color-mix(in oklab, var(--danger) 65%, var(--line) 35%); --btn-fg:#fff; }
+:root[data-theme="light"] .btn { --btn-bg: color-mix(in oklab, var(--panel) 96%, var(--fg) 4%); }
+:root[data-theme="light"] .btn--subtle { --btn-bg: color-mix(in oklab, var(--panel) 98%, var(--accent) 2%); }
+:root[data-theme="light"] .btn--danger  { --btn-bg: color-mix(in oklab, var(--danger) 92%, var(--panel) 8%); --btn-fg:#fff; }
+
+/* Theme switch pill */
+.theme-switch { display:inline-flex; align-items:center; gap:0; margin-left:10px; border:1px solid var(--line); border-radius:999px; background: color-mix(in oklab, var(--panel-strong) 88%, var(--fg) 6%); box-shadow: var(--shadow) }
+.theme-btn { border:0; background:transparent; color:var(--fg); padding:6px 10px; font-weight:700; cursor:pointer; border-radius:999px }
+.theme-btn.active { background: var(--accent); color:#fff }
+
+/* Panels & table */
+.panel { background: var(--panel); border: 1px solid var(--line); padding: 12px; border-radius: 10px; color: var(--fg) }
+.table { width: 100%; border-collapse: separate; border-spacing: 0 }
+.table th, .table td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; font-size: 13.5px; vertical-align: middle; }
+
+.muted { color: var(--muted) }
+.no-wrap { white-space: nowrap }
+.empty  { color: var(--muted) }
+.mt-2 { margin-top: 8px } .mt-3 { margin-top: 12px }
+.relaxed p { line-height: 1.6 }
+
+/* Sticky crumbs (captures/detail) */
+.sticky-crumbs{
+  position: sticky; top: 6px; z-index: 5;
+  /* collapsed by default */
+  height: 0; padding: 0; margin: 0; border: 0;
+  opacity: 0; transform: translateY(-6px);
+  overflow: hidden;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.sticky-crumbs:not(.is-hidden){
+  /* expanded */
+  background: color-mix(in oklab, var(--panel-strong) 85%, var(--fg) 5%);
+  border: 1px solid var(--line); border-left: 5px solid var(--accent);
+  border-radius: 10px; padding: 12px 14px; margin: 8px 0 12px 0;
+  color: var(--muted); font-size: 15px; font-weight: 800; box-shadow: var(--shadow);
+  opacity: 1; transform: translateY(0);
+}
+.sticky-crumbs .crumb { color: var(--fg); font-weight: 900 }
+.sticky-crumbs .crumb-sep { opacity: .7; margin: 0 8px }
+
+/* Reference cards, chips, etc… */
+.chip { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; line-height:1; background: var(--chip-bg); border:1px solid var(--chip-border); padding:4px 9px; border-radius:999px; color:var(--fg); text-decoration:none }
+.chip:hover { background: color-mix(in oklab, var(--chip-bg) 80%, var(--fg) 6%) }
+.chip--tag { opacity:.95 }
+.chip--doi { background: color-mix(in oklab, var(--accent) 18%, var(--panel) 82%); border-color: color-mix(in oklab, var(--accent) 40%, var(--chip-border) 60%); color: var(--fg) }
+.chip--doi:hover { background: color-mix(in oklab, var(--accent) 24%, var(--panel) 76%) }
+.mono { font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace }
+
+/* ---------- Capture detail Sections styling ---------- */
+.sec-list { margin-top: 8px }
+details.sec {
+  margin: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--panel) 95%, var(--fg) 5%);
+}
+.sec__summary {
+  font-size: 16px;     /* smaller per request */
+  font-weight: 800;
+  padding: 8px 10px;
+  cursor: pointer;
+  letter-spacing: .01em;
+}
+.sec__body { padding: 2px 10px 8px }
+.sec-list .sec-list {
+  margin-left: 6px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+
+.sec-list .sec-list .sec-list {
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--line);
+}
+
+/* Danger button override */
+.btn--danger {
+  background: var(--danger) !important;
+  border-color: color-mix(in oklab, var(--danger) 65%, var(--line) 35%) !important;
+  color: #fff !important;
+}
+.btn--danger:hover { filter: brightness(1.06); }
+:root[data-theme="light"] .btn--danger {
+  background: color-mix(in oklab, var(--danger) 92%, var(--panel) 8%) !important;
+  color: #fff !important;
+}

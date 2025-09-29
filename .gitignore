@@ -1,0 +1,75 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Virtual envs / tooling
+.venv/
+venv/
+env/
+.python-version
+
+# Packaging / build
+build/
+dist/
+.eggs/
+*.egg-info/
+pip-wheel-metadata/
+
+# Tests / coverage / type-check
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.pytype/
+.pyre/
+.ruff_cache/
+.pyright/
+
+# Django / DB
+*.sqlite3
+services/server/db.sqlite3
+
+# Logs / runtime
+*.log
+logs/
+celerybeat-schedule
+celerybeat.pid
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*.bak
+.DS_Store
+Thumbs.db
+
+# Node (just in case)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+.pnp.*
+
+# Generated data & artifacts
+data/
+!data/.gitkeep
+
+# Static build output (if collectstatic is used later)
+staticfiles/
+STATIC_ROOT/
+
+# Chrome extension bundles
+extensions/chrome/*.zip
+
+# Env files
+.env
+.env.*
+
+*codebase*

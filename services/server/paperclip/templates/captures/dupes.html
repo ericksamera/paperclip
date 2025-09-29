@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Dedup Review · Paperclip{% endblock %}
+
+{% block content %}
+<div class="panel" style="margin:10px">
+  <div style="display:flex;gap:10px;align-items:center;justify-content:space-between">
+    <h2 style="margin:0">Dedup review</h2>
+    <div>
+      <form method="post" action="{% url 'dedup_scan' %}" style="display:inline-block">
+        {% csrf_token %}<button class="btn" type="submit">Re-scan</button>
+      </form>
+      {% if all_mode %}
+        <a class="btn" href="{% url 'dedup_review' %}">Hide ignored</a>
+      {% else %}
+        <a class="btn" href="{% url 'dedup_review' %}?all=1">Show all</a>
+      {% endif %}
+      <a class="btn" href="{% url 'library' %}">Back to library</a>
+    </div>
+  </div>
+
+  {% if not groups %}
+    <div class="empty" style="margin-top:10px">No duplicate groups to review{% if not all_mode and ignored_count %} ({{ ignored_count }} group(s) ignored){% endif %}.</div>
+  {% else %}
+    <div class="mt-3" style="display:flex;flex-direction:column;gap:12px">
+      {% for g in groups %}
+        <div class="panel" style="background:var(--panel);border:1px solid var(--line)">
+          <div style="font-weight:700;margin-bottom:6px">Group {{ forloop.counter }}</div>
+          <form method="post" action="{% url 'dedup_merge' %}" style="margin-bottom:6px">
+            {% csrf_token %}
+            <table class="table" style="width:100%">
+              <thead>
+                <tr><th>Keep</th><th>Title</th><th>DOI</th><th>Year</th><th>Journal</th></tr>
+              </thead>
+              <tbody>
+                {% for r in g %}
+                  <tr>
+                    <td style="white-space:nowrap">
+                      <label><input type="radio" name="primary" value="{{ r.id }}" {% if forloop.first %}checked{% endif %}> primary</label>
+                      <label style="margin-left:8px"><input type="checkbox" name="others" value="{{ r.id }}" {% if not forloop.first %}checked{% endif %}> merge</label>
+                    </td>
+                    <td><a href="{% url 'capture_view' r.id %}" target="_blank">{{ r.title }}</a></td>
+                    <td>{{ r.doi }}</td>
+                    <td>{{ r.year }}</td>
+                    <td>{{ r.journal }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <div>
+              <button class="btn" type="submit" onclick="return confirm('Merge selected into the chosen primary item? This moves references/collections and deletes the duplicates.')">Merge</button>
+            </div>
+          </form>
+
+          <form method="post" action="{% url 'dedup_ignore' %}" onsubmit="return confirm('Ignore this group? You can show ignored groups by clicking “Show all”.')">
+            {% csrf_token %}
+            {% for r in g %}<input type="hidden" name="ids" value="{{ r.id }}">{% endfor %}
+            <button class="btn" type="submit">Ignore group</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

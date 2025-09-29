@@ -1,0 +1,104 @@
+{% load static %}
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <title>Graph · Paperclip</title>
+
+  <script>
+  (function () { try {
+      var KEY='pcTheme', saved=localStorage.getItem(KEY),
+          prefersLight=window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      document.documentElement.setAttribute('data-theme', saved || (prefersLight ? 'light' : 'dark'));
+      window.addEventListener('storage', e => { if (e.key===KEY && e.newValue) document.documentElement.setAttribute('data-theme', e.newValue); });
+  } catch(_){} })();
+  </script>
+
+  <link rel="stylesheet" href="{% static 'analysis/graph.css' %}?v=6">
+</head>
+<body>
+  <svg id="svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid meet">
+    <g id="scene">
+      <g id="hulls"></g>
+      <g id="edges"></g>
+      <g id="nodes"></g>
+      <g id="clabels"></g>
+    </g>
+  </svg>
+
+  <div class="hud" id="hud">
+    <div class="row"><input id="q" class="search" placeholder="Search title or term…"></div>
+    <div class="row muted">
+      Docs: <span id="nDocs"></span> · Edges: <span id="nEdges"></span> · Clusters: <span id="nClus"></span> · Mode: <span id="modeVal"></span> · Components: <span id="nComp"></span>
+    </div>
+
+    <div class="row" style="display:flex;flex-wrap:wrap;gap:6px">
+      <button id="btnRings" class="btn">Rings</button>
+      <button id="btnForce" class="btn">Force layout</button>
+      <button id="btnConnect" class="btn" title="Pick the densest edge set for current filters">Connect graph</button>
+      <button id="btnSave" class="btn">Save layout</button>
+      <button id="btnReset" class="btn">Reset view</button>
+      <button id="btnUnfix" class="btn">Unfix nodes</button>
+    </div>
+
+    <div class="row" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <label class="toggle"><input type="checkbox" id="chkHulls" checked> Show clusters</label>
+      <label class="toggle"><input type="checkbox" id="chkLabels" checked> Labels</label>
+      <label class="toggle"><input type="checkbox" id="chkRefs"> Include refs</label>
+
+      <label class="toggle">Hull style
+        <select id="hullStyle">
+          <option value="circle" selected>circle</option>
+          <option value="smooth">smooth</option>
+          <option value="convex">convex</option>
+          <option value="none">none</option>
+        </select>
+      </label>
+
+      <label class="toggle">Edges
+        <select id="edgeMode">
+          <option value="auto" selected>auto (best)</option>
+          <option value="citations">citations</option>
+          <option value="mutual">mutual (A⇄B)</option>
+          <option value="shared_refs">shared refs</option>
+          <option value="co_cited">co-cited</option>
+          <option value="semantic">semantic (kNN)</option>
+        </select>
+      </label>
+
+      <label class="toggle">Min weight
+        <input id="minW" type="range" min="1" max="10" step="1" value="1">
+        <span id="minWVal" class="muted">1</span>
+      </label>
+
+      <label class="toggle"><input type="checkbox" id="onlyDoi"> Only DOI</label>
+      <label class="toggle"><input type="checkbox" id="hideIso" checked> Hide isolates</label>
+
+      <label class="toggle">Size by
+        <select id="sizeBy">
+          <option value="auto" selected>auto</option>
+          <option value="pagerank">PageRank</option>
+          <option value="degree">Degree</option>
+          <option value="constant">Constant</option>
+        </select>
+      </label>
+      <label class="toggle" style="min-width:180px">Scale
+        <input id="sizeScale" type="range" min="0.5" max="2.5" step="0.1" value="1">
+        <span id="sizeScaleVal" class="muted" style="min-width:2.5ch;display:inline-block;text-align:right">1.0</span>
+      </label>
+    </div>
+
+    <h2>Topics</h2>
+    <div id="topics" class="topics"></div>
+    <div class="row">
+      <h2>Legend</h2>
+      <div class="muted">Drag nodes (live physics) · Wheel to zoom · Drag background to pan · Double-click to reset · Click node → open capture</div>
+    </div>
+  </div>
+
+  <script>window.GRAPH_DATA = {{ data_json|safe }};</script>
+  <script src="{% static 'analysis/graph.js' %}?v=6"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{# Renders a section dict with children recursively #}
+{% comment %}Expected context: s = {"title": str, "paragraphs": [], "children": []?}{% endcomment %}
+<details class="sec" open data-title="{{ s.title|escape }}">
+  <summary class="sec__summary">{{ s.title }}</summary>
+  <div class="sec__body">
+    {% for p in s.paragraphs %}
+      <p>{{ p }}</p>
+    {% endfor %}
+
+    {% if s.children %}
+      <div class="sec-list">
+        {% for child in s.children %}
+          {% include "captures/_section_tree.html" with s=child %}
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</details>

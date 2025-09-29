@@ -1,0 +1,103 @@
+{% load static %}
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+
+  {# 1) Set theme ASAP (before CSS) so variables are correct on first paint #}
+  <script>
+  (function () {
+    try {
+      var KEY='pcTheme';
+      var saved = localStorage.getItem(KEY);
+      var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      var t = saved || (prefersLight ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (_) {}
+  })();
+  </script>
+
+  <title>{% block title %}Paperclip{% endblock %}</title>
+
+  {# 2) Cache-bust CSS so the new variable-based styles are fetched #}
+  {% with set_version='v=5' %}
+    <link rel="stylesheet" href="{% static 'base.css' %}?{{ set_version }}">
+    <link rel="stylesheet" href="{% static 'captures/libraries.css' %}?{{ set_version }}">
+  {% endwith %}
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="container full-bleed">
+    <div class="nav">
+      <div class="brand">Paperclip</div>
+      <a class="link{% if request.path|slice:':8' == '/library' %} active{% endif %}" href="{% url 'library' %}">Library</a>
+      <a class="link{% if '/graph' in request.path %} active{% endif %}" href="{% url 'analysis_graph' %}">Graph</a>
+      <a class="link{% if '/runs' in request.path %} active{% endif %}" href="{% url 'analysis_runs' %}">Runs</a>
+
+      <!-- Theme switch (persists) -->
+      <div id="pc-theme" class="theme-switch" role="group" aria-label="Theme">
+        <button type="button" class="theme-btn" data-t="light" aria-pressed="false">☀︎ Light</button>
+        <button type="button" class="theme-btn" data-t="dark"  aria-pressed="true">🌙 Dark</button>
+      </div>
+
+      <form method="post" action="{% url 'analysis_run_now' %}" style="margin-left:auto;display:inline-block">
+        {% csrf_token %}<button class="btn btn--primary">Run analysis</button>
+      </form>
+
+      <form method="post" action="{% url 'debug_clear_cache' %}" style="display:inline-block;margin-left:8px"
+            onsubmit="return confirm('Clear cached Crossref responses?');">
+        {% csrf_token %}<button class="btn btn--subtle">Clear cache</button>
+      </form>
+      <form method="post" action="{% url 'debug_wipe_all' %}" style="display:inline-block;margin-left:8px"
+            onsubmit="return confirm('WIPE ALL captures, references, analysis outputs and artifacts? This cannot be undone.');">
+        {% csrf_token %}<button class="btn btn--danger">Wipe all</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="container full-bleed">
+    {% if messages %}
+      <div class="panel" style="margin:10px">
+        {% for message in messages %}<div>{{ message }}</div>{% endfor %}
+      </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </div>
+
+  {% block scripts %}{% endblock %}
+
+  {# Finalize theme + wire the pill buttons #}
+  <script>
+  (function () {
+    const root = document.documentElement;
+    const wrap = document.getElementById('pc-theme');
+    if (!wrap) return;
+    const KEY = 'pcTheme';
+    const btns = Array.from(wrap.querySelectorAll('.theme-btn'));
+
+    function setTheme(t){
+      root.setAttribute('data-theme', t);
+      try { localStorage.setItem(KEY, t); } catch (_) {}
+      btns.forEach(b => {
+        const active = b.dataset.t === t;
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-pressed', String(active));
+      });
+    }
+
+    // Sync pill state with what we set in <head>
+    setTheme(root.getAttribute('data-theme') || 'dark');
+
+    // Toggle on click
+    btns.forEach(b => b.addEventListener('click', () => setTheme(b.dataset.t)));
+  })();
+  </script>
+
+  {# 3) Cache-bust JS too, in case you changed theme-related code #}
+  {% with set_version='v=5' %}
+    <script src="{% static 'captures/library.js' %}?{{ set_version }}"></script>
+  {% endwith %}
+</body>
+</html>

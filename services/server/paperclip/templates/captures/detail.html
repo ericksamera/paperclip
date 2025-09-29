@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% load capture_extras %}
+{% block title %}Capture · Paperclip{% endblock %}
+{% block content %}
+<div class="panel" style="margin:10px">
+  <h2 style="margin-top:0">{{ cap.title|default:cap.url }}</h2>
+  <div class="muted">
+    {{ cap.meta.container_title }} · {{ cap.year|default:"—" }}
+    {% if cap.doi %} · <a href="{{ cap.doi|doi_url }}" target="_blank" rel="noopener">{{ cap.doi }}</a>{% endif %}
+  </div>
+
+  {% if abs %}
+    <div class="panel" style="margin-top:12px">
+      <h3 style="margin:0 0 6px 0">Abstract</h3>
+      <div>{{ abs }}</div>
+    </div>
+  {% endif %}
+
+  {% if cap.meta.sections %}
+    <div class="panel" style="margin-top:12px">
+      <h3 style="margin:0 0 6px 0">Sections</h3>
+
+      <!-- Sticky crumb bar: hidden until scrolled; includes ↑ Top -->
+      <div id="pc-crumbs" class="sticky-crumbs is-hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div id="pc-crumbs-path">Sections</div>
+          <a href="#" id="pc-back-top" class="chip" title="Back to top">↑ Top</a>
+        </div>
+      </div>
+
+      <div class="sec-list" id="pc-sections">
+        {% for s in cap.meta.sections %}
+          {% include "captures/_section_tree.html" with s=s %}
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <h3>Artifacts</h3>
+  <ul>
+    <li><a href="{% url 'artifact' cap.id 'doc.json' %}" target="_blank">doc.json</a> <span class="muted">— canonical, full</span></li>
+    <li><a href="{% url 'artifact' cap.id 'view.json' %}" target="_blank">view.json</a> <span class="muted">— reduced, UI-friendly</span></li>
+    <li><a href="{% url 'artifact' cap.id 'page.html' %}" target="_blank">page.html</a></li>
+    {% if content %}<li><a href="{% url 'artifact' cap.id 'content.html' %}" target="_blank">content.html</a></li>{% endif %}
+  </ul>
+
+  <div style="display:flex;align-items:center;gap:10px">
+    <h3 style="margin:0">References ({{ refs|length }})</h3>
+    <form method="post" action="{% url 'capture_enrich_refs' cap.id %}">
+      {% csrf_token %}
+      <button class="btn" type="submit">Enrich references (Crossref)</button>
+    </form>
+  </div>
+
+  <div class="ref-grid">
+    {% for r in refs %}
+      <div class="ref-card">
+        <div class="ref-num">{{ forloop.counter }}</div>
+        <div class="ref-body">
+          <div class="ref-text">
+            {% if r.apa %}{{ r.apa }}{% else %}{{ r.raw|default:r.title }}{% endif %}
+          </div>
+          <div class="ref-meta">
+            {% if r.container_title %}<span class="chip chip--tag">{{ r.container_title }}</span>{% endif %}
+            {% if r.issued_year %}<span class="chip chip--tag">{{ r.issued_year }}</span>{% endif %}
+            {% if r.doi %}
+              <a class="chip chip--doi" href="{{ r.doi|doi_url }}" target="_blank" rel="noopener">
+                DOI:&nbsp;<span class="mono">{{ r.doi }}</span>
+              </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="empty">None.</div>
+    {% endfor %}
+  </div>
+
+  {% if content %}
+    <details class="sec" style="margin-top:12px" id="pc-debug">
+      <summary class="sec__summary">Debug: HTML content snapshot</summary>
+      <div class="sec__body">
+        <div class="panel" style="background:#0f1216;border:1px solid #273244;overflow:auto">
+          {{ content|safe }}
+        </div>
+      </div>
+    </details>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  const crumbsEl = document.getElementById('pc-crumbs');
+  const pathEl   = document.getElementById('pc-crumbs-path');
+  const secRoot  = document.getElementById('pc-sections');
+  const backTop  = document.getElementById('pc-back-top');
+  if (!crumbsEl || !secRoot) return;
+
+  const NAV_OFFSET = 70;
+
+  // show/hide threshold: show after we cross the top of sections panel
+  let thresholdY = 0;
+  function computeThreshold(){
+    const r = secRoot.getBoundingClientRect();
+    thresholdY = window.scrollY + r.top - 80;
+  }
+  computeThreshold();
+
+  function updateVisibility(){
+    const show = window.scrollY > thresholdY;
+    crumbsEl.classList.toggle('is-hidden', !show);
+  }
+
+  function computeCurrentSummary() {
+    const summaries = Array.from(secRoot.querySelectorAll('.sec__summary'));
+    let best = null, bestDist = Infinity;
+    for (const s of summaries) {
+      const r = s.getBoundingClientRect();
+      const dist = Math.abs(r.top - NAV_OFFSET);
+      if (dist < bestDist) { bestDist = dist; best = s; }
+    }
+    return best || summaries[0] || null;
+  }
+
+  function crumbPathFrom(summaryEl) {
+    const parts = [];
+    let node = summaryEl;
+    while (node) {
+      if (node.classList && node.classList.contains('sec__summary')) {
+        parts.unshift(node.textContent.trim());
+        const parentSec = node.closest('.sec')?.parentElement?.closest('.sec');
+        node = parentSec ? parentSec.querySelector(':scope > .sec__summary') : null;
+      } else {
+        node = node.parentElement;
+      }
+    }
+    return parts;
+  }
+
+  function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+  function renderCrumbs() {
+    const cur = computeCurrentSummary();
+    const path = cur ? crumbPathFrom(cur) : [];
+    pathEl.innerHTML = path.map(p => `<span class="crumb">${escapeHtml(p)}</span>`).join('<span class="crumb-sep">›</span>');
+  }
+
+  // Expand only actual sections (not debug block)
+  secRoot.querySelectorAll('details.sec').forEach(d => d.open = true);
+
+  // Back-to-top
+  backTop?.addEventListener('click', (e) => {
+    e.preventDefault();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  document.addEventListener('scroll', () => { updateVisibility(); renderCrumbs(); }, { passive:true });
+  window.addEventListener('resize', () => { computeThreshold(); updateVisibility(); renderCrumbs(); }, { passive:true });
+
+  // initial
+  updateVisibility(); renderCrumbs();
+})();
+</script>
+{% endblock %}
