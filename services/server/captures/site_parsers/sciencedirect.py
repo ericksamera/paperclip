@@ -44,7 +44,9 @@ def parse_sciencedirect(url: str, dom_html: str) -> List[Dict[str, object]]:
         refs.append(item)
     return refs
 
+# Register both the vanilla host and common proxy URL patterns (e.g. www-sciencedirect-com.ezproxy.*)
 register(r"(?:^|\.)sciencedirect\.com$", parse_sciencedirect, where="host", name="ScienceDirect")
+register(r"sciencedirect[-\.]",          parse_sciencedirect, where="url",  name="ScienceDirect (proxy)")
 
 # ------------------ Meta / Sections (new) ------------------
 
@@ -165,12 +167,9 @@ def extract_sciencedirect_meta(_url: str, dom_html: str) -> Dict[str, object]:
     Extract Abstract + Keywords + Sections from ScienceDirect article pages.
 
     Abstract:
-      <div class="abstract author" id="ab0005">
-        <h2>Abstract</h2>
-        <div id="as0005"><div class="u-margin-s-bottom"> ... </div></div>
-      </div>
+      <div class="abstract author" id="ab0005"> … </div>
     Body sections:
-      <section id="s0005"><h2>…</h2><div id="p0025" class="u-margin-s-bottom"><span>…</span></div>…</section>
+      <section id="s0005"><h2>…</h2><div id="p0025" class="u-margin-s-bottom">…</div></section>
     """
     soup = BeautifulSoup(dom_html or "", "html.parser")
 
@@ -213,5 +212,6 @@ def extract_sciencedirect_meta(_url: str, dom_html: str) -> Dict[str, object]:
 
     return {"abstract": abstract, "keywords": kws, "sections": sections}
 
-# Register meta extractor
+# Register meta extractor for both direct and proxy URLs
 register_meta(r"(?:^|\.)sciencedirect\.com$", extract_sciencedirect_meta, where="host", name="ScienceDirect meta")
+register_meta(r"sciencedirect[-\.]",          extract_sciencedirect_meta, where="url",  name="ScienceDirect meta (proxy)")

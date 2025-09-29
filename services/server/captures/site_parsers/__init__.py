@@ -84,6 +84,8 @@ def _ensure_default_rules() -> None:
     try:
         from .sciencedirect import parse_sciencedirect
         register(r"(?:^|\.)sciencedirect\.com$", parse_sciencedirect, where="host", name="ScienceDirect")
+        # NEW: proxy-friendly URL rule (e.g. www-sciencedirect-com.ezproxy.*)
+        register(r"sciencedirect[-\.]", parse_sciencedirect, where="url", name="ScienceDirect (proxy)")
     except Exception:
         pass
     try:
@@ -103,9 +105,10 @@ def _ensure_default_meta_rules() -> None:
     try:
         from .sciencedirect import extract_sciencedirect_meta
         register_meta(r"(?:^|\.)sciencedirect\.com$", extract_sciencedirect_meta, where="host", name="ScienceDirect meta")
+        # NEW: proxy-friendly URL rule
+        register_meta(r"sciencedirect[-\.]", extract_sciencedirect_meta, where="url", name="ScienceDirect meta (proxy)")
     except Exception:
         pass
-    # Optional – if these modules add meta extractors later, they’ll be picked up.
     try:
         from .wiley import extract_wiley_meta  # type: ignore[attr-defined]
         register_meta(r"(?:^|\.)onlinelibrary\.wiley\.com$", extract_wiley_meta, where="host", name="Wiley meta")
