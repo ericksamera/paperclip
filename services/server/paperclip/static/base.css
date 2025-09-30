@@ -87,8 +87,22 @@ body {
   color: var(--muted); font-size: 15px; font-weight: 800; box-shadow: var(--shadow);
   opacity: 1; transform: translateY(0);
 }
-.sticky-crumbs .crumb { color: var(--fg); font-weight: 900 }
+#pc-crumbs-path{
+  display:block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sticky-crumbs .crumb { color: var(--fg); font-weight: 900; text-decoration: none; cursor: pointer; }
+.sticky-crumbs .crumb:hover { text-decoration: underline; }
 .sticky-crumbs .crumb-sep { opacity: .7; margin: 0 8px }
+
+.sec__summary.flash{
+  background: color-mix(in oklab, var(--accent) 20%, transparent);
+  border-radius: 6px;
+  transition: background .4s ease;
+}
+
 
 /* Reference cards, chips, etc… */
 .chip { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; line-height:1; background: var(--chip-bg); border:1px solid var(--chip-border); padding:4px 9px; border-radius:999px; color:var(--fg); text-decoration:none }
@@ -107,11 +121,12 @@ details.sec {
   background: color-mix(in oklab, var(--panel) 95%, var(--fg) 5%);
 }
 .sec__summary {
-  font-size: 16px;     /* smaller per request */
+  font-size: 16px;
   font-weight: 800;
   padding: 8px 10px;
   cursor: pointer;
   letter-spacing: .01em;
+  scroll-margin-top: 140px;
 }
 .sec__body { padding: 2px 10px 8px }
 .sec-list .sec-list {

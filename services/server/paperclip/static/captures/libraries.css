@@ -23,17 +23,41 @@
 .z-input  { background: var(--panel); border:1px solid var(--line); color:var(--fg); padding:6px 10px; border-radius:8px; min-width:28ch }
 .z-actions{ display:flex; gap:8px }
 
+.z-left, .z-center, .z-right { border-top: 0; }
+
 /* Left pane — slightly smaller fonts */
 .z-left {
   border:1px solid var(--line); border-right:0; border-bottom-left-radius:10px;
   overflow:auto; background: var(--panel); padding:8px; font-size:13px;
 }
+
+/* Group header (collapsible) */
 .z-group { margin-bottom:10px }
-.z-group-title { font-size:11.5px; color:var(--muted); letter-spacing:.02em; margin:6px 0 }
-.z-list { display:flex; flex-direction:column; gap:2px }
+.z-group-header { display:flex; align-items:center; justify-content:space-between; gap:4px }
+.z-group-title { font-size:11.5px; color:var(--muted); letter-spacing:.02em; margin:6px 0; cursor:pointer; user-select:none; display:flex; align-items:center; gap:6px }
+.z-caret { display:inline-block; transition: transform .15s ease }
+.z-group.collapsed .z-caret { transform: rotate(-90deg) }
+
+/* Lists */
+.z-list { display:flex; flex-direction:column; gap:0 }
+.z-group.collapsed .z-list { display:none }
+
+/* “Add” icon button next to group title */
+.z-icon-btn {
+  border:1px solid var(--line);
+  background: color-mix(in oklab, var(--panel-strong) 92%, var(--fg) 8%);
+  color: var(--fg);
+  padding:2px 8px; border-radius:999px; font-weight:700; cursor:pointer; line-height:1.2;
+}
+.z-icon-btn:hover { filter: brightness(1.05) }
+
+/* Full-bleed list items inside padded rail */
 .z-link {
   position:relative; display:flex; justify-content:space-between; align-items:center;
-  padding:6px 8px; border-radius:6px; text-decoration:none; color:var(--fg); overflow:hidden;
+  padding:6px 8px;
+  margin: 0 -8px;                               /* <— remove vertical gaps between items */
+  border-radius:8px;
+  text-decoration:none; color: var(--fg); overflow:hidden;
 }
 .z-link:hover { background: color-mix(in oklab, var(--panel) 80%, var(--fg) 6%) }
 .z-link.active { background: color-mix(in oklab, var(--panel-strong) 85%, var(--fg) 5%); outline:1px solid var(--line) }
@@ -54,6 +78,9 @@
   position:sticky; top:0; z-index:2; background: var(--panel-strong); color: var(--fg);
   padding:8px 10px; text-align:left; border-bottom:1px solid var(--line)
 }
+.pc-table thead th .th-arrow { margin-left:6px; opacity:.75; font-size:11px }
+.pc-table thead th:has(.th-arrow) { font-weight:600; }
+.pc-table thead th:has(.th-arrow) .th-arrow { opacity:.95; }
 .pc-table td { padding:8px 10px; vertical-align:top; border-bottom:1px solid var(--line) }
 .pc-col-title { width:auto }
 .pc-col-tight { white-space:nowrap }
@@ -62,7 +89,6 @@
 .pc-link { font-size:11px; color: var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
 .th-link, .th-link:visited { color: var(--fg); text-decoration:none }
 .th-link:hover { text-decoration:underline }
-.th-arrow { margin-left:6px; opacity:.75; font-size:11px }
 .pc-authors-inline { display:inline-block; max-width:420px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
 
 /* Selection */
@@ -103,11 +129,7 @@
   user-select: none;
 }
 .pc-context .pc-menu { list-style: none; margin: 6px 0; padding: 4px 0; }
-.pc-context .pc-menu li {
-  padding: 8px 12px;
-  cursor: default;
-  white-space: nowrap;
-}
+.pc-context .pc-menu li { padding: 8px 12px; cursor: default; white-space: nowrap; }
 .pc-context .pc-menu li:hover { background: rgba(255,255,255,0.06); }
 .pc-context .pc-menu li.sep { margin: 6px 0; padding: 0; border-top: 1px solid rgba(255,255,255,0.08); }
 .pc-context .pc-menu li.danger { color: #ff7b72; }
@@ -116,9 +138,7 @@
 /* Submenus */
 .pc-submenu {
   position: absolute;
-  min-width: 220px;
-  max-height: 300px;
-  overflow: auto;
+  min-width: 220px; max-height: 300px; overflow: auto;
   background: var(--pc-menu-bg, rgba(28, 32, 38, 0.98));
   color: var(--pc-menu-fg, #e6edf3);
   border: 1px solid var(--pc-menu-bd, #2e3640);
@@ -160,24 +180,51 @@
   --pc-menu-bd: #e5e7eb;
   color-scheme: light;
 }
-:root[data-theme="light"] .pc-drag-ghost {
-  background: rgba(255,255,255,0.95);
-  color: #111827;
-  border-color: #e5e7eb;
-}
+:root[data-theme="light"] .pc-drag-ghost { background: rgba(255,255,255,0.95); color: #111827; border-color: #e5e7eb; }
 :root[data-theme="light"] .dnd-over,
-:root[data-theme="light"] .dnd-over .z-label {
-  background: rgba(59, 130, 246, 0.20) !important;
-  color: #1f2937 !important;
+:root[data-theme="light"] .dnd-over .z-label { background: rgba(59, 130, 246, 0.20) !important; color: #1f2937 !important; }
+
+/* Danger button override */
+.btn--danger { background: var(--danger) !important; border-color: color-mix(in oklab, var(--danger) 65%, var(--line) 35%) !important; color: #fff !important; }
+.btn--danger:hover { filter: brightness(1.06); }
+:root[data-theme="light"] .btn--danger { background: color-mix(in oklab, var(--danger) 92%, var(--panel) 8%) !important; color: #fff !important; }
+
+/* --- Minimal modal --- */
+.pc-modal {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.45);
+  display: none;
+  align-items: center; justify-content: center;
+  z-index: 100000;
+}
+.pc-modal .dialog {
+  width: min(420px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.45);
+  /* Prevent platform/UA button theming inside the modal */
+  color-scheme: light dark;
+}
+.pc-modal .dialog h3 { margin: 0 0 8px 0 }
+.pc-modal .dialog .row { margin: 8px 0 }
+.pc-modal .dialog .actions {
+  display: flex; gap: 8px; justify-content: flex-end;
 }
 
-.btn--danger {
-  background: var(--danger) !important;
-  border-color: color-mix(in oklab, var(--danger) 65%, var(--line) 35%) !important;
+/* NEW: force button colors inside modal (Firefox/Windows fix) */
+.pc-modal .dialog .btn {
+  background: color-mix(in oklab, var(--panel-strong) 92%, var(--fg) 8%);
+  border-color: var(--line);
+  color: var(--fg);
+}
+:root[data-theme="light"] .pc-modal .dialog .btn {
+  background: color-mix(in oklab, var(--panel) 98%, var(--fg) 2%);
+}
+.pc-modal .dialog .btn--primary {
+  background: var(--accent) !important;
+  border-color: color-mix(in oklab, var(--accent) 65%, var(--line) 35%) !important;
   color: #fff !important;
 }
-.btn--danger:hover { filter: brightness(1.06); }
-:root[data-theme="light"] .btn--danger {
-  background: color-mix(in oklab, var(--danger) 92%, var(--panel) 8%) !important;
-  color: #fff !important;
-}
+.pc-modal .dialog .btn:disabled { opacity: .55; filter: grayscale(0); }

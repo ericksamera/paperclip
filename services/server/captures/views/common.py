@@ -103,14 +103,21 @@ def _row(c: Capture) -> Dict[str, Any]:
     }
 
 def _apply_filters(qs: Iterable[Capture], *, year: str, journal: str, site: str, col: str) -> List[Capture]:
+    """
+    Stable, case-insensitive filtering over year / journal / site / collection.
+    (Fix: normalize journal & site query params to lowercase before comparing.)
+    """
+    j_key = (journal or "").strip().lower()
+    s_key = (site or "").strip().lower()
+
     out: List[Capture] = []
     for c in qs:
         meta = c.meta or {}; csl = c.csl or {}
         year_ok = (not year) or (str(c.year or "") == year)
         j = _journal_full(meta, csl).lower()
-        journal_ok = (not journal) or (j == journal)
+        journal_ok = (not j_key) or (j == j_key)
         s = (_site_label(c.url or "")).lower()
-        site_ok = (not site) or (s == site)
+        site_ok = (not s_key) or (s == s_key)
         col_ok = True
         if col:
             col_ok = c.collections.filter(id=col).exists()

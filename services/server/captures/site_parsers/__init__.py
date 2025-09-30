@@ -84,14 +84,20 @@ def _ensure_default_rules() -> None:
     try:
         from .sciencedirect import parse_sciencedirect
         register(r"(?:^|\.)sciencedirect\.com$", parse_sciencedirect, where="host", name="ScienceDirect")
-        # NEW: proxy-friendly URL rule (e.g. www-sciencedirect-com.ezproxy.*)
-        register(r"sciencedirect[-\.]", parse_sciencedirect, where="url", name="ScienceDirect (proxy)")
+        register(r"sciencedirect[-\.]",          parse_sciencedirect, where="url", name="ScienceDirect (proxy)")
     except Exception:
         pass
     try:
         from .wiley import parse_wiley
         register(r"(?:^|\.)onlinelibrary\.wiley\.com$", parse_wiley, where="host", name="Wiley Online Library")
         register(r"onlinelibrary[-\.]wiley", parse_wiley, where="url", name="Wiley (proxy)")
+    except Exception:
+        pass
+    # NEW: Frontiers references
+    try:
+        from .frontiers import parse_frontiers  # type: ignore[attr-defined]
+        register(r"(?:^|\.)frontiersin\.org$", parse_frontiers, where="host", name="Frontiers references")
+        register(r"frontiersin[-\.]",          parse_frontiers, where="url",  name="Frontiers references (proxy)")
     except Exception:
         pass
 
@@ -105,7 +111,6 @@ def _ensure_default_meta_rules() -> None:
     try:
         from .sciencedirect import extract_sciencedirect_meta
         register_meta(r"(?:^|\.)sciencedirect\.com$", extract_sciencedirect_meta, where="host", name="ScienceDirect meta")
-        # NEW: proxy-friendly URL rule
         register_meta(r"sciencedirect[-\.]", extract_sciencedirect_meta, where="url", name="ScienceDirect meta (proxy)")
     except Exception:
         pass
@@ -121,6 +126,13 @@ def _ensure_default_meta_rules() -> None:
         register_meta(r"ncbi\.nlm\.nih\.gov/.*/pmc/|/pmc/", extract_pmc_meta, where="url", name="PMC meta (path)")
     except Exception:
         pass
+    # NEW: Frontiers meta
+    try:
+        from .frontiers import extract_frontiers_meta  # type: ignore[attr-defined]
+        register_meta(r"(?:^|\.)frontiersin\.org$", extract_frontiers_meta, where="host", name="Frontiers meta")
+        register_meta(r"frontiersin[-\.]",          extract_frontiers_meta, where="url",  name="Frontiers meta (proxy)")
+    except Exception:
+        pass
 
 def extract_references(url: str | None, dom_html: str) -> List[Dict[str, object]]:
     """
@@ -129,7 +141,6 @@ def extract_references(url: str | None, dom_html: str) -> List[Dict[str, object]
       • url rules  (e.g., r"ncbi\\.nlm\\.nih\\.gov/.*/pmc/")
     First matching parser that returns non-empty wins; otherwise generic fallback.
     """
-    # Auto-restore defaults if a previous test cleared the registry.
     _ensure_default_rules()
 
     host = (urlparse(url or "").hostname or "").lower()
@@ -161,7 +172,6 @@ def extract_sections_meta(url: str | None, dom_html: str) -> Dict[str, object]:
                 out = rule.parser(url or "", dom_html) or {}
             except Exception:
                 out = {}
-            # Normalize shape
             out.setdefault("abstract", None)
             out.setdefault("keywords", [])
             out.setdefault("sections", [])
@@ -200,6 +210,7 @@ def dedupe_references(refs: List[Dict[str, object]]) -> List[Dict[str, object]]:
 from . import sciencedirect  # noqa: F401,E402
 from . import pmc            # noqa: F401,E402
 from . import wiley          # noqa: F401,E402
+from . import frontiers      # noqa: F401,E402
 
 __all__ = [
     "register", "clear_registry", "get_registry",

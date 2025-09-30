@@ -23,3 +23,13 @@ def write_json_artifact(capture_id: str, name: str, obj: Any) -> None:
 def open_artifact(capture_id: str, name: str, mode: str = "rb"):
     p = artifact_path(capture_id, name)
     return open(p, mode)
+
+# NEW: small helper to DRY view.json reads across modules
+def read_json_artifact(capture_id: str, name: str, default: Any | None = None) -> Any:
+    p = artifact_path(capture_id, name)
+    if not p.exists():
+        return {} if default is None else default
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {} if default is None else default

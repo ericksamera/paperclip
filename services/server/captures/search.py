@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Iterable, List
 from django.db import connection as _default_connection
-from paperclip.artifacts import artifact_path
+from paperclip.artifacts import artifact_path, read_json_artifact
 
 _FTS = "capture_fts"
 
@@ -28,14 +28,11 @@ def ensure_fts(conn=None) -> None:
 
 def _preview_text(capture_id: str) -> str:
     try:
-        p = artifact_path(capture_id, "view.json")
-        if p.exists():
-            view = json.loads(p.read_text("utf-8"))
-            paras = (view.get("sections") or {}).get("abstract_or_body") or []
-            return " ".join(paras[:50])
+        view = read_json_artifact(capture_id, "view.json", default={})
+        paras = (view.get("sections") or {}).get("abstract_or_body") or []
+        return " ".join(paras[:50])
     except Exception:
-        pass
-    return ""
+        return ""
 
 def _build_row(c) -> tuple[str, str, str, str, str]:
     meta = c.meta or {}

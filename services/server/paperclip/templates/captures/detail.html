@@ -23,7 +23,7 @@
       <!-- Sticky crumb bar: hidden until scrolled; includes ↑ Top -->
       <div id="pc-crumbs" class="sticky-crumbs is-hidden">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <div id="pc-crumbs-path">Sections</div>
+          <div id="pc-crumbs-path" aria-label="Current section breadcrumb">Sections</div>
           <a href="#" id="pc-back-top" class="chip" title="Back to top">↑ Top</a>
         </div>
       </div>
@@ -96,15 +96,29 @@
   const pathEl   = document.getElementById('pc-crumbs-path');
   const secRoot  = document.getElementById('pc-sections');
   const backTop  = document.getElementById('pc-back-top');
-  if (!crumbsEl || !secRoot) return;
+  if (!crumbsEl || !secRoot || !pathEl) return;
 
-  const NAV_OFFSET = 70;
+  // --- dynamic header offset (top nav + crumbs height + small padding) ---
+  function headerOffset(){
+    const nav = document.querySelector('.nav');
+    const navH = nav ? nav.getBoundingClientRect().height : 0;
+    // scrollHeight still reflects full height even when the crumbs are visually collapsed
+    const crumbH = crumbsEl ? Math.max(crumbsEl.scrollHeight || 0, crumbsEl.getBoundingClientRect().height || 0) : 0;
+    return Math.round(navH + crumbH + 12);
+  }
 
-  // show/hide threshold: show after we cross the top of sections panel
   let thresholdY = 0;
+
+  // Give every summary a stable id we can link to
+  const summaries = Array.from(secRoot.querySelectorAll('.sec__summary'));
+  summaries.forEach((el, i) => { el.dataset.sid = String(i + 1); el.id ||= `pc-sec-${i+1}`; });
+
+  // Expand all 'details' so headings exist for scroll/visibility math
+  secRoot.querySelectorAll('details.sec').forEach(d => d.open = true);
+
   function computeThreshold(){
     const r = secRoot.getBoundingClientRect();
-    thresholdY = window.scrollY + r.top - 80;
+    thresholdY = window.scrollY + r.top - headerOffset();
   }
   computeThreshold();
 
@@ -114,40 +128,61 @@
   }
 
   function computeCurrentSummary() {
-    const summaries = Array.from(secRoot.querySelectorAll('.sec__summary'));
     let best = null, bestDist = Infinity;
+    const off = headerOffset();
     for (const s of summaries) {
       const r = s.getBoundingClientRect();
-      const dist = Math.abs(r.top - NAV_OFFSET);
+      const dist = Math.abs(r.top - off);
       if (dist < bestDist) { bestDist = dist; best = s; }
     }
-    return best || summaries[0] || null;
+    return best;
   }
 
-  function crumbPathFrom(summaryEl) {
-    const parts = [];
-    let node = summaryEl;
-    while (node) {
-      if (node.classList && node.classList.contains('sec__summary')) {
-        parts.unshift(node.textContent.trim());
-        const parentSec = node.closest('.sec')?.parentElement?.closest('.sec');
-        node = parentSec ? parentSec.querySelector(':scope > .sec__summary') : null;
+  function nodeChain(node){
+    const chain = [];
+    let cur = node;
+    while (cur) {
+      if (cur.classList && cur.classList.contains('sec__summary')) {
+        chain.unshift(cur);
+        const parentSec = cur.closest('.sec')?.parentElement?.closest('.sec');
+        cur = parentSec ? parentSec.querySelector(':scope > .sec__summary') : null;
       } else {
-        node = node.parentElement;
+        cur = cur.parentElement;
       }
     }
-    return parts;
+    return chain;
   }
 
-  function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+  function escapeHtml(s){
+    return (s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
   function renderCrumbs() {
     const cur = computeCurrentSummary();
-    const path = cur ? crumbPathFrom(cur) : [];
-    pathEl.innerHTML = path.map(p => `<span class="crumb">${escapeHtml(p)}</span>`).join('<span class="crumb-sep">›</span>');
+    const chain = cur ? nodeChain(cur) : [];
+    pathEl.innerHTML = chain.map(el =>
+      `<a class="crumb" href="#pc-sec-${el.dataset.sid}" data-target="${el.dataset.sid}" title="${escapeHtml(el.textContent.trim())}">${escapeHtml(el.textContent.trim())}</a>`
+    ).join('<span class="crumb-sep">›</span>');
   }
 
-  // Expand only actual sections (not debug block)
-  secRoot.querySelectorAll('details.sec').forEach(d => d.open = true);
+  // Click to jump to that section (and make sure ancestors are open)
+  pathEl.addEventListener('click', (e) => {
+    const a = e.target.closest('a.crumb'); if (!a) return;
+    e.preventDefault();
+    const id = a.getAttribute('data-target');
+    const target = secRoot.querySelector(`.sec__summary[data-sid="${id}"]`);
+    if (!target) return;
+
+    // ensure ancestors are open
+    let d = target.closest('details.sec');
+    while (d) { d.open = true; d = d.parentElement?.closest('details.sec'); }
+
+    const y = window.scrollY + target.getBoundingClientRect().top - (headerOffset() + 4);
+    window.scrollTo({ top: y, behavior: 'smooth' });
+
+    target.classList.add('flash');
+    setTimeout(() => target.classList.remove('flash'), 500);
+  });
 
   // Back-to-top
   backTop?.addEventListener('click', (e) => {

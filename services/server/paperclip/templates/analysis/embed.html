@@ -16,7 +16,7 @@
   } catch(_){} })();
   </script>
 
-  <link rel="stylesheet" href="{% static 'analysis/graph.css' %}?v=6">
+  <link rel="stylesheet" href="{% static 'analysis/graph.css' %}?v=8">
 </head>
 <body>
   <svg id="svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid meet">
@@ -50,8 +50,8 @@
 
       <label class="toggle">Hull style
         <select id="hullStyle">
-          <option value="circle" selected>circle</option>
-          <option value="smooth">smooth</option>
+          <option value="circle">circle</option>
+          <option value="smooth" selected>smooth</option>
           <option value="convex">convex</option>
           <option value="none">none</option>
         </select>
@@ -65,6 +65,9 @@
           <option value="shared_refs">shared refs</option>
           <option value="co_cited">co-cited</option>
           <option value="semantic">semantic (kNN)</option>
+          <option value="suggested">suggested (semantic≠cite)</option>
+          <option value="topic_membership">topic membership (paper→topic)</option>
+          <option value="topic_relations">topic relations (topic↔topic)</option>
         </select>
       </label>
 
@@ -75,6 +78,7 @@
 
       <label class="toggle"><input type="checkbox" id="onlyDoi"> Only DOI</label>
       <label class="toggle"><input type="checkbox" id="hideIso" checked> Hide isolates</label>
+      <label class="toggle"><input type="checkbox" id="chkGaps"> Highlight gaps</label>
 
       <label class="toggle">Size by
         <select id="sizeBy">
@@ -88,17 +92,32 @@
         <input id="sizeScale" type="range" min="0.5" max="2.5" step="0.1" value="1">
         <span id="sizeScaleVal" class="muted" style="min-width:2.5ch;display:inline-block;text-align:right">1.0</span>
       </label>
+
+      <!-- NEW: edge opacity -->
+      <label class="toggle" style="min-width:200px">Edge opacity
+        <input id="edgeOpacity" type="range" min="0.1" max="1" step="0.05" value="0.5">
+        <span id="edgeOpacityVal" class="muted">0.50</span>
+      </label>
     </div>
 
     <h2>Topics</h2>
     <div id="topics" class="topics"></div>
+
+    <!-- NEW: details for selected cluster -->
+    <div class="row" style="margin-top:8px">
+      <h2>Topic details</h2>
+      <div id="topicDetail" class="muted">Click a cluster above or a colored hull to see its top papers.</div>
+    </div>
+
     <div class="row">
       <h2>Legend</h2>
-      <div class="muted">Drag nodes (live physics) · Wheel to zoom · Drag background to pan · Double-click to reset · Click node → open capture</div>
+      <div class="muted">
+        Circles = papers · rounded squares = topic nodes · drag to move · wheel to zoom · double-click to reset
+      </div>
     </div>
   </div>
 
   <script>window.GRAPH_DATA = {{ data_json|safe }};</script>
-  <script src="{% static 'analysis/graph.js' %}?v=6"></script>
+  <script src="{% static 'analysis/graph.js' %}?v=8"></script>
 </body>
 </html>

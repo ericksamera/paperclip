@@ -6,17 +6,11 @@ from typing import Any, Dict, List
 from collections import defaultdict
 
 from captures.models import Capture
-from paperclip.artifacts import artifact_path
-from paperclip.utils import norm_doi  # centralized
+from paperclip.artifacts import artifact_path, read_json_artifact
+from paperclip.utils import norm_doi
 
 def _read_view_json(capture_id: str) -> Dict[str, Any]:
-    p = artifact_path(capture_id, "view.json")
-    if not p.exists():
-        return {}
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    return read_json_artifact(capture_id, "view.json", default={})
 
 @dataclass
 class Doc:

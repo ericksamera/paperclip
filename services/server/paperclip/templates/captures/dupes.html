@@ -29,7 +29,14 @@
             {% csrf_token %}
             <table class="table" style="width:100%">
               <thead>
-                <tr><th>Keep</th><th>Title</th><th>DOI</th><th>Year</th><th>Journal</th></tr>
+                <tr>
+                  <th>Keep</th>
+                  <th>Title &nbsp;<span class="muted">(preview)</span></th>
+                  <th>DOI</th>
+                  <th>Year</th>
+                  <th>Journal</th>
+                  <th>Added</th>
+                </tr>
               </thead>
               <tbody>
                 {% for r in g %}
@@ -38,10 +45,22 @@
                       <label><input type="radio" name="primary" value="{{ r.id }}" {% if forloop.first %}checked{% endif %}> primary</label>
                       <label style="margin-left:8px"><input type="checkbox" name="others" value="{{ r.id }}" {% if not forloop.first %}checked{% endif %}> merge</label>
                     </td>
-                    <td><a href="{% url 'capture_view' r.id %}" target="_blank">{{ r.title }}</a></td>
+                    <td>
+                      <a href="{% url 'capture_view' r.id %}" target="_blank">{{ r.title }}</a>
+                      {% if r.preview %}
+                        <div class="muted" style="font-size:12px;margin-top:4px;max-width:980px">{{ r.preview }}</div>
+                      {% endif %}
+                    </td>
                     <td>{{ r.doi }}</td>
                     <td>{{ r.year }}</td>
                     <td>{{ r.journal }}</td>
+                    <td style="white-space:nowrap; font-variant-numeric: tabular-nums;">
+                      {% if r.added %}
+                        <time datetime="{{ r.added_iso }}" title="{{ r.added_iso }}">{{ r.added }}</time>
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
                   </tr>
                 {% endfor %}
               </tbody>

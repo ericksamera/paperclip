@@ -42,8 +42,12 @@
       {% endif %}
       <a class="btn" href="{% url 'dedup_review' %}">Dedup review</a>
       <a class="btn" href="{% url 'capture_export' %}?{{ current_params.urlencode }}">Export CSV</a>
-      <button id="pc-cols-toggle" class="btn" type="button" title="Edit visible columns & widths">Columns</button>
+
+      <!-- NEW: real sidebar hide/show -->
+      <button id="z-toggle-left" class="btn" type="button" title="Toggle sidebar">Sidebar ⇆</button>
       <button id="z-toggle-right" class="btn" type="button" title="Toggle info panel">Info ⇆</button>
+
+      <button id="pc-cols-toggle" class="btn" type="button" title="Edit visible columns & widths">Columns</button>
     </div>
   </div>
 
@@ -88,9 +92,18 @@
   <!-- Left filters -->
   <aside class="z-left" id="z-left">
     <!-- Collections -->
-    <div class="z-group">
-      <div class="z-group-title">Collections</div>
+    <div class="z-group" data-key="grp-collections">
+      <div class="z-group-header">
+        <div class="z-group-title"><span class="z-caret">▾</span> Collections</div>
+        <button id="pc-col-add-btn" class="z-icon-btn" type="button" title="New collection">＋</button>
+      </div>
       <div class="z-list">
+        <!-- All items (clears the `col` filter) -->
+        <a class="z-link {% if not selected.col %}active{% endif %}"
+          href="?{% qs_update current_params col=None page=None %}">
+          <span class="z-label">All items</span>
+          <span class="z-count">{{ collections_all_count }}</span>
+        </a>
         {% for c in collections %}
           <a class="z-link {% if selected.col|default:'' == c.id|stringformat:'s' %}active{% endif %}"
             data-collection-id="{{ c.id }}"
@@ -102,28 +115,13 @@
           <div class="empty">No collections yet.</div>
         {% endfor %}
       </div>
-      <form action="{% url 'collection_create' %}" method="post" style="display:flex;gap:6px;margin-top:8px">
-        {% csrf_token %}
-        <input name="name" class="z-input" placeholder="New collection" style="min-width:0;flex:1">
-        <button class="btn btn--primary" type="submit">Add</button>
-      </form>
-      {% if selected.col %}
-      <form action="{% url 'collection_rename' selected.col %}" method="post" style="display:flex;gap:6px;margin-top:6px">
-        {% csrf_token %}
-        <input name="name" class="z-input" placeholder="Rename selected…" style="min-width:0;flex:1">
-        <button class="btn" type="submit">Rename</button>
-      </form>
-      <form action="{% url 'collection_delete' selected.col %}" method="post" style="margin-top:6px"
-            onsubmit="return confirm('Delete this collection (items remain in library)?');">
-        {% csrf_token %}
-        <button class="btn btn--danger" type="submit">Delete collection</button>
-      </form>
-      {% endif %}
     </div>
 
     <!-- Years -->
-    <div class="z-group">
-      <div class="z-group-title">Years</div>
+    <div class="z-group" data-key="grp-years">
+      <div class="z-group-header">
+        <div class="z-group-title"><span class="z-caret">▾</span> Years</div>
+      </div>
       <div class="z-list">
         {% for y in facets.years %}
           <a class="z-link z-link-year {% if selected.year == y.label %}active{% endif %}"
@@ -137,8 +135,10 @@
     </div>
 
     <!-- Journals -->
-    <div class="z-group">
-      <div class="z-group-title">Journals</div>
+    <div class="z-group" data-key="grp-journals">
+      <div class="z-group-header">
+        <div class="z-group-title"><span class="z-caret">▾</span> Journals</div>
+      </div>
       <div class="z-list">
         {% for j, n in facets.journals %}
           <a class="z-link {% if selected.journal == j %}active{% endif %}" href="?{% qs_update current_params journal=j page=None %}">
@@ -149,8 +149,10 @@
     </div>
 
     <!-- Sites -->
-    <div class="z-group">
-      <div class="z-group-title">Sites</div>
+    <div class="z-group" data-key="grp-sites">
+      <div class="z-group-header">
+        <div class="z-group-title"><span class="z-caret">▾</span> Sites</div>
+      </div>
       <div class="z-list">
         {% for s, n in facets.sites %}
           <a class="z-link {% if selected.site == s %}active{% endif %}" href="?{% qs_update current_params site=s page=None %}">
@@ -233,6 +235,19 @@
   </aside>
 </div>
 
-<link rel="stylesheet" href="{% static 'captures/libraries.css' %}?v=8">
-<script src="{% static 'captures/library.js' %}"></script>
+<!-- Simple modal used for New/Rename collection -->
+<div id="pc-modal" class="pc-modal" aria-hidden="true">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="pc-modal-title">
+    <h3 id="pc-modal-title">Title</h3>
+    <div class="row"><input id="pc-modal-input" class="z-input" placeholder="Name"></div>
+    <div class="actions">
+      <button id="pc-modal-cancel" class="btn" type="button">Cancel</button>
+      <button id="pc-modal-submit" class="btn btn--primary" type="button">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Library-only CSS/JS (cache-busted here; not in base.html) -->
+<link rel="stylesheet" href="{% static 'captures/libraries.css' %}?v=10">
+<script src="{% static 'captures/library.js' %}?v=10"></script>
 {% endblock %}

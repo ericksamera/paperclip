@@ -1,12 +1,14 @@
 // services/server/paperclip/static/captures/library.js
 // Library polish: sticky tooling + chips + infinite scroll + hotkeys
 // PLUS: right-click context menu + drag & drop to Collections.
+// NEW: collection context menu (rename/delete), modal create/rename,
+//      sidebar collapsible groups, and "Remove from this collection" when filtered by a collection.
 
 (function () {
-  const shell = document.getElementById('z-shell');
-  const tbody = document.getElementById('pc-body');
-  const zLeft = document.querySelector('.z-left');
-  const zCenter = document.querySelector('.z-center');
+  const shell  = document.getElementById('z-shell');
+  const tbody  = document.getElementById('pc-body');
+  const zLeft  = document.getElementById('z-left');
+  const zCenter= document.querySelector('.z-center');
   if (!shell || !tbody) return;
 
   // -------------------- helpers --------------------
@@ -24,6 +26,7 @@
   const colsReset  = document.getElementById('pc-cols-reset');
 
   const searchInput = document.querySelector('.z-search input[name=q]');
+  const colAddBtn   = document.getElementById('pc-col-add-btn');
 
   function getCookie(name) {
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
@@ -41,6 +44,10 @@
     const o = {};
     u.searchParams.forEach((v, k) => { if (v !== '') o[k] = v; });
     return o;
+  }
+  function currentCollectionId() {
+    const p = new URL(location.href).searchParams;
+    return (p.get('col') || '').trim();
   }
   function buildQs(next) {
     const u = new URL(location.href);
@@ -121,6 +128,7 @@
   // -------------------- info panel + splitters --------------------
   const info = document.getElementById('z-info');
   const toggleRightBtn = document.getElementById('z-toggle-right');
+  const toggleLeftBtn  = document.getElementById('z-toggle-left');
 
   function truncate(s, n) { return (s && s.length > n) ? (s.slice(0, n - 1) + '…') : s; }
   function safeHostname(u) { try { return new URL(u, location.href).hostname; } catch { return ''; } }
@@ -148,14 +156,29 @@
     `;
     openRight();
   }
+
+  // left/right panel sizing + toggles
   function openRight() { shell.style.setProperty('--right-w', localStorage.getItem('pc-right-w') || '360px'); }
-  function closeRight() { shell.style.setProperty('--right-w', '0px'); }
+  function closeRight() { localStorage.setItem('pc-right-w', getComputedStyle(shell).getPropertyValue('--right-w').trim() || '360px'); shell.style.setProperty('--right-w', '0px'); }
+
+  // NEW: proper left toggle with persistence
+  function openLeft(){ shell.style.setProperty('--left-w', localStorage.getItem('pc-left-w') || '260px'); localStorage.setItem('pc-left-hidden', '0'); }
+  function closeLeft(){ localStorage.setItem('pc-left-w', getComputedStyle(shell).getPropertyValue('--left-w').trim() || '260px'); shell.style.setProperty('--left-w', '0px'); localStorage.setItem('pc-left-hidden', '1'); }
+
   toggleRightBtn?.addEventListener('click', () => {
     const w = getComputedStyle(shell).getPropertyValue('--right-w').trim();
     if (w === '0px' || w === '0') openRight(); else closeRight();
   });
+
+  toggleLeftBtn?.addEventListener('click', () => {
+    const w = getComputedStyle(shell).getPropertyValue('--left-w').trim();
+    if (w === '0px' || w === '0') openLeft(); else closeLeft();
+  });
+
+  // splitters
   makeSplitter('z-splitter-left', '--left-w', 160, 480, 'pc-left-w');
-  makeSplitter('z-splitter-right', '--right-w', 0, 560, 'pc-right-w');
+  makeSplitter('z-splitter-right', '--right-w', 0,   560, 'pc-right-w');
+
   function makeSplitter(id, varName, minPx, maxPx, storeKey) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -183,6 +206,14 @@
     const saved = localStorage.getItem(storeKey);
     if (saved) shell.style.setProperty(varName, saved);
   }
+
+  // apply persisted left-hidden on load (so the button actually hides the sidebar)
+  (function initSidebars(){
+    if (localStorage.getItem('pc-left-hidden') === '1') {
+      shell.style.setProperty('--left-w', '0px');
+    }
+  })();
+
 
   // -------------------- Column preferences --------------------
   const COLS = [
@@ -395,7 +426,7 @@
     if (!typing && e.key === '/') { e.preventDefault(); searchInput?.focus(); return; }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); tbody.querySelectorAll('tr.pc-row').forEach(tr => toggleRow(tr, true)); return; }
     if (!typing && (e.key === 'Delete' || e.key === 'Backspace') && selected.size) { e.preventDefault(); bulkBtn?.click(); return; }
-    if (!typing && e.key === 'Escape') { e.preventDefault(); clearSelection(); hideMenu(); return; }
+    if (!typing && e.key === 'Escape') { e.preventDefault(); clearSelection(); hideMenu(); hideColMenu(); return; }
     if (!typing && (e.key.toLowerCase() === 'c')) { e.preventDefault(); colsBtn?.click(); return; }
     if (!typing && (e.key.toLowerCase() === 'i')) { e.preventDefault(); document.getElementById('z-toggle-right')?.click(); return; }
     if (!typing && (e.key === 'j' || e.key === 'J')) { e.preventDefault(); moveSelection(+1); return; }
@@ -408,7 +439,6 @@
   // -------------------- Collections discovery --------------------
   function scanCollections() {
     if (!zLeft) return [];
-    // Prefer explicit data-collection-id (we added it in list.html), then fall back to href parsing.
     const links = [...zLeft.querySelectorAll('[data-collection-id], a[href*="col="], a[href^="/collections/"]')];
     const list = [];
     links.forEach((a) => {
@@ -417,7 +447,7 @@
         try {
           const href = a.getAttribute('href') || '';
           if (href.includes('col=')) {
-            const u = new URL(href, location.href);  // make relative-to-current-page robust
+            const u = new URL(href, location.href);
             id = u.searchParams.get('col');
           } else {
             const m = href.match(/\/collections\/([^/?#]+)/);
@@ -458,26 +488,13 @@
   assignAdd?.addEventListener('click', () => assign('add'));
   assignRemove?.addEventListener('click', () => assign('remove'));
 
-  // -------------------- Context menu --------------------
+  // -------------------- Row context menu --------------------
   let menuEl = null, submenuEl = null, submenuRemoveEl = null;
   function ensureMenu() {
     if (menuEl) return;
     menuEl = document.createElement('div');
     menuEl.className = 'pc-context';
-    menuEl.innerHTML = `
-      <ul class="pc-menu">
-        <li data-act="open">Open</li>
-        <li data-act="open-ext">Open DOI/URL</li>
-        <li data-act="copy-doi">Copy DOI</li>
-        <li class="sep"></li>
-        <li class="has-sub" data-sub="add">Add to collection ▸</li>
-        <li class="has-sub" data-sub="remove">Remove from collection ▸</li>
-        <li class="sep"></li>
-        <li class="danger" data-act="delete">Delete…</li>
-      </ul>
-    `;
     document.body.appendChild(menuEl);
-
     submenuEl = document.createElement('div');          // add
     submenuEl.className = 'pc-submenu';
     submenuRemoveEl = document.createElement('div');    // remove
@@ -493,6 +510,20 @@
     });
     menuEl.addEventListener('mouseleave', hideSubmenus);
     menuEl.addEventListener('click', onMenuClick);
+  }
+  function rowMenuHtml(curCol) {
+    return `
+      <ul class="pc-menu">
+        <li data-act="open">Open</li>
+        <li data-act="open-ext">Open DOI/URL</li>
+        <li data-act="copy-doi">Copy DOI</li>
+        <li class="sep"></li>
+        <li class="has-sub" data-sub="add">Add to collection ▸</li>
+        ${curCol ? `<li data-act="remove-here">Remove from this collection</li>` : `<li class="has-sub" data-sub="remove">Remove from collection ▸</li>`}
+        <li class="sep"></li>
+        <li class="danger" data-act="delete">Delete…</li>
+      </ul>
+    `;
   }
   function populateSubmenu(el, op) {
     const cols = scanCollections();
@@ -511,26 +542,32 @@
     if (act === 'open') openCurrent('detail');
     else if (act === 'open-ext') openCurrent('doi_or_url');
     else if (act === 'copy-doi') copyDoi();
+    else if (act === 'remove-here') {
+      const curCol = currentCollectionId();
+      if (!curCol) return;
+      const ids = [...selected];
+      assignIdsToCollection(ids, curCol, 'remove').catch(()=>{});
+    }
     else if (act === 'delete') bulkBtn?.click();
     hideMenu();
   }
   function showMenu(x, y) {
     ensureMenu();
+    const curCol = currentCollectionId();
+    menuEl.innerHTML = rowMenuHtml(!!curCol);
     menuEl.style.display = 'block';
     menuEl.style.left = x + 'px';
     menuEl.style.top = y + 'px';
     populateSubmenu(submenuEl, 'add');
-    populateSubmenu(submenuRemoveEl, 'remove');
+    if (curCol) { submenuRemoveEl.style.display = 'none'; }
+    else { populateSubmenu(submenuRemoveEl, 'remove'); }
     keepOnScreen(menuEl);
   }
   function hideMenu() {
     if (menuEl) menuEl.style.display = 'none';
     hideSubmenus();
   }
-  function hideSubmenus(){
-    submenuEl.style.display = 'none';
-    submenuRemoveEl.style.display = 'none';
-  }
+  function hideSubmenus(){ if (submenuEl) submenuEl.style.display = 'none'; if (submenuRemoveEl) submenuRemoveEl.style.display = 'none'; }
   function showSubmenu(which, x, y){
     const el = (which === 'remove') ? submenuRemoveEl : submenuEl;
     el.style.display = 'block';
@@ -594,7 +631,7 @@
     e.dataTransfer.effectAllowed = 'copyMove';
     const payload = JSON.stringify({type:'pc-ids', ids});
     e.dataTransfer.setData('text/plain', payload);
-    e.dataTransfer.setData('application/json', payload);            // extra type for some browsers
+    e.dataTransfer.setData('application/json', payload);
     const g = makeGhost(ids.length);
     e.dataTransfer.setDragImage(g, 10, 10);
     document.body.classList.add('pc-dragging');
@@ -629,6 +666,193 @@
     cols.forEach(({el, id}) => addDndHandlers(el, id));
   }
   wireCollectionsDnd();
+
+  // -------------------- Collapsible groups (+ remember state) --------------------
+  (function initGroups(){
+    document.querySelectorAll('.z-group').forEach((g, idx) => {
+      const key = g.getAttribute('data-key') || ('grp-' + idx);
+      const title = g.querySelector('.z-group-title');
+      if (!title) return;
+      const saved = localStorage.getItem('pc-collapse:' + key);
+      if (saved === '1') g.classList.add('collapsed');
+      title.addEventListener('click', () => {
+        const on = g.classList.toggle('collapsed');
+        try { localStorage.setItem('pc-collapse:' + key, on ? '1' : '0'); } catch(_){}
+      });
+    });
+  })();
+
+  // -------------------- Simple modal (new / rename collection) --------------------
+  const modalEl = document.getElementById('pc-modal');
+  const modalTitle = document.getElementById('pc-modal-title');
+  const modalInput = document.getElementById('pc-modal-input');
+  const modalCancel= document.getElementById('pc-modal-cancel');
+  const modalSubmit= document.getElementById('pc-modal-submit');
+
+  let modalHandler = null;
+  function openModal({title, placeholder, initial, submitText, onSubmit}){
+    modalTitle.textContent = title || 'Input';
+    modalInput.placeholder = placeholder || '';
+    modalInput.value = initial || '';
+    modalSubmit.textContent = submitText || 'OK';
+    modalHandler = onSubmit || null;
+
+    // UX: disable primary until there’s a value; Enter submits
+    function syncDisabled() {
+      modalSubmit.disabled = !(modalInput.value.trim().length > 0);
+    }
+    modalInput.removeEventListener('input', syncDisabled); // guard against duplicates
+    modalInput.addEventListener('input', syncDisabled);
+    modalInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !modalSubmit.disabled) modalSubmit.click();
+    });
+    syncDisabled();
+
+    modalEl.style.display = 'flex';
+    modalEl.setAttribute('aria-hidden', 'false');
+    setTimeout(() => modalInput.focus(), 0);
+  }
+
+  function closeModal(){
+    modalEl.style.display = 'none';
+    modalEl.setAttribute('aria-hidden', 'true');
+    modalHandler = null;
+  }
+  modalCancel?.addEventListener('click', closeModal);
+  modalEl?.addEventListener('click', (e) => { if (e.target === modalEl) closeModal(); });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modalEl?.style.display === 'flex') closeModal(); });
+  modalSubmit?.addEventListener('click', async () => {
+    if (!modalHandler) { closeModal(); return; }
+    const v = modalInput.value.trim();
+    const ok = await modalHandler(v);
+    if (ok !== false) closeModal();
+  });
+
+  async function createCollection(name, parentId=null){
+    if (!name) return false;
+    const fd = new FormData();
+    fd.append('csrfmiddlewaretoken', csrfToken());
+    fd.append('name', name);
+    if (parentId) fd.append('parent', parentId);
+    const resp = await fetch('/collections/create/', {
+      method:'POST', body: fd, credentials:'same-origin',
+      headers: {'X-CSRFToken': csrfToken()}
+    });
+    if (resp.redirected) { window.location.href = resp.url; return true; }
+    if (resp.ok) { window.location.reload(); return true; }
+    alert('Create failed (' + resp.status + ').'); return false;
+  }
+  async function renameCollection(id, name){
+    if (!id || !name) return false;
+    const fd = new FormData();
+    fd.append('csrfmiddlewaretoken', csrfToken());
+    fd.append('name', name);
+    const resp = await fetch(`/collections/${id}/rename/`, {
+      method:'POST', body: fd, credentials:'same-origin',
+      headers: {'X-CSRFToken': csrfToken()}
+    });
+    if (resp.redirected) { window.location.href = resp.url; return true; }
+    if (resp.ok) { window.location.reload(); return true; }
+    alert('Rename failed (' + resp.status + ').'); return false;
+  }
+  async function deleteCollection(id){
+    if (!id) return false;
+    const fd = new FormData();
+    fd.append('csrfmiddlewaretoken', csrfToken());
+    const resp = await fetch(`/collections/${id}/delete/`, {
+      method:'POST', body: fd, credentials:'same-origin',
+      headers: {'X-CSRFToken': csrfToken()}
+    });
+    if (resp.redirected) { window.location.href = resp.url; return true; }
+    if (resp.ok) { window.location.reload(); return true; }
+    alert('Delete failed (' + resp.status + ').'); return false;
+  }
+
+  // “+” button → new collection modal
+  colAddBtn?.addEventListener('click', () => {
+    openModal({
+      title: 'New collection',
+      placeholder: 'Name',
+      submitText: 'Create',
+      onSubmit: (val) => createCollection(val)
+    });
+  });
+
+  // -------------------- Right-click on Collections (rename/delete) --------------------
+  // Much more defensive: works even if you click the count or label inside the link,
+  // and won't break if we add nested elements later.
+
+  let colMenuEl = null, colMenuTarget = null;
+
+  function ensureColMenu(){
+    if (colMenuEl) return;
+    colMenuEl = document.createElement('div');
+    colMenuEl.className = 'pc-context';
+    colMenuEl.innerHTML = `
+      <ul class="pc-menu">
+        <li data-act="open">Open</li>
+        <li data-act="rename">Rename…</li>
+        <li class="danger" data-act="delete">Delete…</li>
+      </ul>
+    `;
+    document.body.appendChild(colMenuEl);
+    colMenuEl.addEventListener('click', onColMenuClick);
+
+    // Close on any outside click/scroll/resize
+    window.addEventListener('click', (e) => { if (!colMenuEl.contains(e.target)) hideColMenu(); });
+    window.addEventListener('scroll', hideColMenu, { passive: true });
+    window.addEventListener('resize', hideColMenu);
+  }
+
+  function onColMenuClick(e){
+    const a = colMenuTarget;
+    if (!a) return hideColMenu();
+    const id = a.getAttribute('data-collection-id');
+    const label = (a.querySelector('.z-label')?.textContent || '').trim();
+    const act = e.target.closest('[data-act]')?.getAttribute('data-act');
+    if (!act) return;
+
+    if (act === 'open') {
+      window.location.href = a.href;
+    } else if (act === 'rename') {
+      openModal({
+        title: 'Rename collection',
+        initial: label,
+        submitText: 'Save',
+        onSubmit: (val) => renameCollection(id, val)
+      });
+    } else if (act === 'delete') {
+      if (confirm(`Delete collection “${label}”? Items remain in All items.`)) {
+        deleteCollection(id);
+      }
+    }
+    hideColMenu();
+  }
+
+  function showColMenu(x, y, target){
+    ensureColMenu();
+    colMenuTarget = target;
+    colMenuEl.style.display = 'block';
+    colMenuEl.style.left = x + 'px';
+    colMenuEl.style.top  = y + 'px';
+    keepOnScreen(colMenuEl);
+  }
+
+  function hideColMenu(){
+    if (colMenuEl) colMenuEl.style.display = 'none';
+    colMenuTarget = null;
+  }
+
+  // Bind on the entire left rail; find the nearest collection link.
+  zLeft?.addEventListener('contextmenu', (e) => {
+    const link = e.target.closest('.z-link[data-collection-id]');
+    if (!link) return;
+    e.preventDefault();
+    // Prevent any accidental navigation that some browsers trigger on right-click
+    e.stopPropagation();
+    showColMenu(e.pageX, e.pageY, link);
+  });
+
 
   // -------------------- Apply saved column prefs on first load --------------------
   applyCols(readCols());

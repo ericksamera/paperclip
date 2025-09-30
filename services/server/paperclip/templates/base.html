@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <meta name="color-scheme" content="light dark"/>
 
-  {# 1) Set theme ASAP (before CSS) so variables are correct on first paint #}
+  <!-- 1) Set theme ASAP (before CSS) so variables are correct on first paint -->
   <script>
   (function () {
     try {
@@ -21,10 +21,9 @@
 
   <title>{% block title %}Paperclip{% endblock %}</title>
 
-  {# 2) Cache-bust CSS so the new variable-based styles are fetched #}
-  {% with set_version='v=5' %}
+  <!-- Only the shared base styles live here -->
+  {% with set_version='v=7' %}
     <link rel="stylesheet" href="{% static 'base.css' %}?{{ set_version }}">
-    <link rel="stylesheet" href="{% static 'captures/libraries.css' %}?{{ set_version }}">
   {% endwith %}
   {% block head %}{% endblock %}
 </head>
@@ -68,7 +67,7 @@
 
   {% block scripts %}{% endblock %}
 
-  {# Finalize theme + wire the pill buttons #}
+  <!-- Finalize theme + wire the pill buttons -->
   <script>
   (function () {
     const root = document.documentElement;
@@ -94,10 +93,5 @@
     btns.forEach(b => b.addEventListener('click', () => setTheme(b.dataset.t)));
   })();
   </script>
-
-  {# 3) Cache-bust JS too, in case you changed theme-related code #}
-  {% with set_version='v=5' %}
-    <script src="{% static 'captures/library.js' %}?{{ set_version }}"></script>
-  {% endwith %}
 </body>
 </html>
