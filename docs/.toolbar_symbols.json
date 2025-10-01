@@ -1,0 +1,15 @@
+{
+  "globals": [],
+  "funcs": [
+    "boot",
+    "close",
+    "currentCollectionId",
+    "injectExportButton",
+    "leftWidth",
+    "makeExportMenu",
+    "openAt",
+    "qs",
+    "qsa",
+    "rightWidth"
+  ]
+}

@@ -347,7 +347,9 @@ export function initSelection() {
   if (_wired) return;
   _wired = true;
 
-  normalizeAll();
+  
+  try { window.__pcESMSelectionReady = true; } catch(_) {}
+normalizeAll();
   syncFromDOM();
   renderAll();
 
@@ -460,3 +462,27 @@ export function initSelection() {
   }
 })();
 /// ===== end hotkeys =====
+
+// ===== Event alias hub: emit `pc:rows-changed` whenever legacy events fire =====
+(() => {
+  if (window.__pcRowsChangedAliased) return;
+  window.__pcRowsChangedAliased = true;
+
+  function reemit(detail) {
+    try {
+      document.dispatchEvent(new CustomEvent('pc:rows-changed', { detail }));
+    } catch (_) {}
+  }
+
+  function makeHandler() {
+    return (e) => reemit(e && e.detail);
+  }
+
+  function reemitRowsChanged(e) {
+    document.dispatchEvent(new CustomEvent('pc:rows-changed', { detail: e.detail }));
+  }
+
+  document.addEventListener('pc:rows-updated',  reemitRowsChanged, { capture: true });
+  document.addEventListener('pc:rows-replaced', reemitRowsChanged, { capture: true });
+})();
+/// ===== end alias hub =====
