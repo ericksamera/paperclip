@@ -4,6 +4,7 @@ from django.urls import include, path
 from django.views.generic import RedirectView
 from rest_framework.routers import DefaultRouter
 
+from django.urls import path, re_path
 from captures import views as cap_views
 from analysis import views as analysis_views
 from paperclip.api import CaptureViewSet, healthz, enrich_doi

@@ -1,22 +1,13 @@
-import { $, $$, on, escapeHtml, buildQs, pushUrl, toast } from "./dom.js";
+// captures/library/search_paging.js
+// Search mode chips, debounced search-as-you-type, table swapping, infinite scroll.
+// Emits BOTH `pc:rows-replaced` and `pc:rows-updated` to keep consumers in sync.
+
+import { $, $$, on, escapeHtml, buildQs } from "./dom.js";
 import { state } from "./state.js";
 
 function setSearchLoading(onFlag) {
   const z = $(".z-search");
   if (z) z.classList.toggle("is-loading", !!onFlag);
-}
-
-async function fetchAndReplaceTable(url, signal) {
-  const resp = await fetch(url, { headers: { "X-Requested-With": "fetch" }, signal });
-  if (!resp.ok) return false;
-  const html = await resp.text();
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const newBody = doc.querySelector("#pc-body");
-  if (!newBody) return false;
-  const tbody = $("#pc-body");
-  tbody.innerHTML = newBody.innerHTML;
-  document.dispatchEvent(new CustomEvent("pc:rows-updated"));
-  return true;
 }
 
 function setModeUI(targetMode) {
@@ -25,6 +16,93 @@ function setModeUI(targetMode) {
     btn.classList.toggle("active", on);
   });
 }
+
+export async function fetchAndReplaceTable(url, signal) {
+  const resp = await fetch(url, { headers: { "X-Requested-With": "fetch" }, signal });
+  if (!resp.ok) return false;
+  const html = await resp.text();
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const newBody = doc.querySelector("#pc-body");
+  if (!newBody) return false;
+
+  const tbody = $("#pc-body");
+  tbody.innerHTML = newBody.innerHTML;
+
+  // Notify both names (legacy + new)
+  document.dispatchEvent(new CustomEvent("pc:rows-replaced"));
+  document.dispatchEvent(new CustomEvent("pc:rows-updated"));
+  return true;
+}
+
+export function initSearchAndPaging() {
+  const searchInput = document.querySelector(".z-search input[name=q]");
+  const searchModeInput = document.querySelector(".z-search input[name=search]");
+  const modeChips = $$(".z-mode-chip");
+  const zCenter = document.querySelector(".z-center");
+
+  // Chips -> set mode + fetch
+  modeChips.forEach(btn => {
+    on(btn, "click", async (e) => {
+      e.preventDefault();
+      const mode = btn.dataset.mode || "";
+      if (searchModeInput) searchModeInput.value = mode;
+      setModeUI(mode);
+      setSearchLoading(true);
+      try {
+        const url = buildQs({ search: (mode || null), q: (searchInput?.value || "").trim() || null, page: null });
+        const ok = await fetchAndReplaceTable(url);
+        if (ok) pushUrl(url);
+      } finally {
+        setSearchLoading(false);
+        if (searchInput) {
+          searchInput.focus();
+          const L = searchInput.value.length;
+          searchInput.setSelectionRange(L, L);
+        }
+      }
+    });
+  });
+
+  // Initialize chip UI to current URL
+  setModeUI(new URL(location.href).searchParams.get("search") || "");
+
+  // Debounced search-as-you-type
+  let searchTimer = null;
+  let searchAbort = null;
+  on(searchInput, "input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        if (searchAbort) searchAbort.abort();
+        const ctl = new AbortController(); searchAbort = ctl;
+        const url = buildQs({ q: (searchInput?.value || "") || null, page: null });
+        const ok = await fetchAndReplaceTable(url, ctl.signal);
+        if (ok) pushUrl(url);
+      } catch {
+        /* ignore */
+      } finally {
+        setSearchLoading(false);
+        if (searchInput) {
+          searchInput.focus();
+          const L = searchInput.value.length;
+          searchInput.setSelectionRange(L, L);
+        }
+      }
+    }, 250);
+  });
+
+  // Infinite scroll
+  if (zCenter) {
+    on(zCenter, "scroll", () => maybeLoadMore(), { passive: true });
+    prefetchMeta();
+  }
+
+  // Build filter chips under toolbar
+  initChips();
+}
+
+/* ------------------- Row builder + pagination helpers ------------------- */
 
 function rowHtml(r) {
   const title = escapeHtml(r.title || r.url || "(Untitled)");
@@ -77,6 +155,29 @@ function updateScrollStatus() {
   el.textContent = `Loaded ${loaded} of ${state.total}`;
 }
 
+export async function ensureInitialRows() {
+  const tbody = document.getElementById("pc-body");
+  if (!tbody) return;
+  if (tbody.querySelector("tr.pc-row")) return; // already server-rendered
+  try {
+    state.loading = true;
+    const j = await fetchPage(1);
+    const rows = j.rows || [];
+    if (rows.length) {
+      tbody.innerHTML = rows.map(rowHtml).join("");
+      state.nextPage = j?.page?.next_page ?? null;
+      state.total = j?.page?.total ?? null;
+      document.dispatchEvent(new CustomEvent("pc:rows-replaced"));
+      document.dispatchEvent(new CustomEvent("pc:rows-updated"));
+      updateScrollStatus();
+    }
+  } catch (e) {
+    console.warn(e);
+  } finally {
+    state.loading = false;
+  }
+}
+
 async function prefetchMeta() {
   try {
     const j = await fetchPage(1);
@@ -111,6 +212,8 @@ async function maybeLoadMore() {
   }
 }
 
+/* ------------------- Chips (filters summary) ------------------- */
+
 function initChips() {
   const toolbar = document.querySelector(".z-toolbar");
   if (!toolbar) return;
@@ -141,87 +244,4 @@ function initChips() {
   if (params.site) host.appendChild(chip(`Site: ${params.site}`,    () => location.search = buildQs({ site: null })));
   if (params.col) host.appendChild(chip(`Collection: ${colLabelFromDOM || params.col}`, () => location.search = buildQs({ col: null })));
   if (!host.childElementCount) host.remove();
-}
-
-export async function ensureInitialRows() {
-  const tbody = document.getElementById("pc-body");
-  if (!tbody) return;
-  if (tbody.querySelector("tr.pc-row")) return; // already server-rendered
-  try {
-    state.loading = true;
-    const j = await fetchPage(1);
-    const rows = j.rows || [];
-    if (rows.length) {
-      tbody.innerHTML = rows.map(rowHtml).join("");
-      state.nextPage = j?.page?.next_page ?? null;
-      state.total = j?.page?.total ?? null;
-      document.dispatchEvent(new CustomEvent("pc:rows-updated"));
-      updateScrollStatus();
-    }
-  } catch (e) {
-    console.warn(e);
-  } finally {
-    state.loading = false;
-  }
-}
-
-export function initSearchAndPaging() {
-  const searchInput = document.querySelector(".z-search input[name=q]");
-  const searchModeInput = document.querySelector(".z-search input[name=search]");
-  const modeChips = $$(".z-mode-chip");
-  const zCenter = document.querySelector(".z-center");
-
-  // Chips -> set mode + fetch
-  modeChips.forEach(btn => {
-    on(btn, "click", (e) => {
-      e.preventDefault();
-      const mode = btn.dataset.mode || "";
-      searchModeInput.value = mode;
-      setModeUI(mode);
-      setSearchLoading(true);
-      const url = buildQs({ search: (mode || null), q: (searchInput?.value || "").trim() || null, page: null });
-      fetchAndReplaceTable(url).catch(() => {}).finally(() => {
-        setSearchLoading(false);
-        searchInput?.focus();
-        const L = searchInput?.value.length || 0;
-        searchInput?.setSelectionRange?.(L, L);
-        pushUrl(url);
-      });
-    });
-  });
-  // Initialize chip UI to current URL
-  setModeUI(new URL(location.href).searchParams.get("search") || "");
-
-  // Debounced search-as-you-type
-  let searchTimer = null;
-  let searchAbort = null;
-  on(searchInput, "input", () => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(async () => {
-      setSearchLoading(true);
-      try {
-        if (searchAbort) searchAbort.abort();
-        const ctl = new AbortController(); searchAbort = ctl;
-        const url = buildQs({ q: searchInput.value || null, page: null });
-        const ok = await fetchAndReplaceTable(url, ctl.signal);
-        if (ok) pushUrl(url);
-      } catch (_) {
-        /* ignore */
-      } finally {
-        setSearchLoading(false);
-        searchInput.focus();
-        const L = searchInput.value.length;
-        searchInput.setSelectionRange(L, L);
-      }
-    }, 250);
-  });
-
-  // Infinite scroll
-  if (zCenter) {
-    on(zCenter, "scroll", () => maybeLoadMore(), { passive: true });
-    prefetchMeta();
-  }
-
-  // Build filter chips under toolbar
-  initChips();
 }

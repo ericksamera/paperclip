@@ -38,7 +38,8 @@
       // compute hrefs each time in case col changes
       const col = currentCollectionId();
       menu.dataset.csvHref   = "/captures/export/";
-      menu.dataset.viewsHref = "/collections/" + encodeURIComponent(col) + "/download-views/";
+      // ✅ FIX: use .zip route to match urls.py
+      menu.dataset.viewsHref = "/collections/" + encodeURIComponent(col) + "/download-views.zip";
 
       menu.style.display = "block";
       menu.style.left = x + "px";

@@ -56,12 +56,11 @@ export function keepOnScreen(el, margin = 8) {
 
 /* ------------------------- Toast (fallback) ---------------------- */
 export function toast(message, { duration = 3000, actionText = "", onAction = null } = {}) {
-  // Prefer your global Toast if present
+  // Prefer global Toast if present
   if (typeof window.Toast?.show === "function") {
     window.Toast.show(message, actionText ? { actionText, duration, onAction } : { duration });
     return { close() {} };
   }
-
   // Tiny fallback
   let host = document.getElementById("pc-toast-host");
   if (!host) {
@@ -73,16 +72,16 @@ export function toast(message, { duration = 3000, actionText = "", onAction = nu
   const card = document.createElement("div");
   card.style.cssText = "max-width:520px;background:rgba(28,32,38,.98);color:#e6edf3;border:1px solid #2e3640;border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.35)";
   card.textContent = message;
-  if (actionText && onAction) {
+  if (actionText) {
     const btn = document.createElement("button");
     btn.textContent = actionText;
-    btn.style.cssText = "margin-left:auto;border:1px solid #445161;background:transparent;color:#e6edf3;padding:4px 8px;border-radius:8px;cursor:pointer";
-    btn.onclick = () => { try { onAction(); } finally { close(); } };
+    btn.style.cssText = "border:0;background:transparent;color:#8ab4ff;cursor:pointer";
+    btn.onclick = () => { try { onAction?.(); } finally { close(); } };
     card.appendChild(btn);
   }
   host.appendChild(card);
   const t = setTimeout(close, duration);
-  function close() { clearTimeout(t); card.remove(); }
+  function close(){ clearTimeout(t); card.remove(); }
   return { close };
 }
 
@@ -92,10 +91,11 @@ export function currentCollectionId() {
   return (p.get("col") || "").trim();
 }
 
-// Find collections in the left rail (id + label + anchor element)
+/** Find collections in the left rail (id + label + anchor element) */
 export function scanCollections() {
   const zLeft = document.getElementById("z-left");
   if (!zLeft) return [];
+  // ✅ fixed: spread + correct variable name
   const links = [...zLeft.querySelectorAll("[data-collection-id], a[href*='col='], a[href^='/collections/']")];
   const list = [];
   links.forEach(a => {
@@ -110,7 +110,7 @@ export function scanCollections() {
           const m = href.match(/\/collections\/([^/?#]+)/);
           if (m) id = m[1];
         }
-      } catch (_) {}
+      } catch {}
     }
     const label = (a.querySelector(".z-label")?.textContent || a.textContent || "").trim();
     if (id && label && !/^(All items|New collection)$/i.test(label)) {

@@ -1,161 +1,381 @@
-import { $, $$, on, escapeHtml } from "./dom.js";
-import { state } from "./state.js";
+// captures/library/selection.js
+// Canonical, idempotent row-selection + keyboard UX for the Library table.
+// Works with markup like:
+//
+// <table class="pc-table" id="pc-table" role="grid" aria-label="Library">
+//   <tbody id="pc-body"> <tr class="pc-row" data-id="...">...</tr> ... </tbody>
+// </table>
+//
+// Behavior:
+// - Click a row → select it (exclusive)
+// - Cmd/Ctrl+click → toggle one
+// - Shift+click → range select within the same <tbody>
+// - Right-click on an unselected row → selects just that row (so your “Delete” acts on it)
+// - ⌘/Ctrl+A → select all visible rows in current <tbody>
+// - Esc → clear
+// - Delete/Backspace → clicks #pc-bulk-delete if present, else dispatches "pc:delete-selected"
+// - Rehydrates after DOM swaps: listens to BOTH "pc:rows-updated" and "pc:rows-replaced"
+//
+// Safe to import multiple times; it wires only once.
 
-const tbody = document.getElementById("pc-body");
-const bulkBtn = document.getElementById("pc-bulk-delete");
-const info = document.getElementById("z-info");
+import { $, $$, on } from "./dom.js";
 
-function updateBulk() {
-  if (!bulkBtn) return;
-  bulkBtn.disabled = state.selected.size === 0;
-  bulkBtn.textContent = state.selected.size ? `Delete (${state.selected.size})` : "Delete selected";
+let _wired = false;
+
+// Find all possible bodies (helps if the table appears in multiple templates)
+function bodies() {
+  return [
+    ...document.querySelectorAll(
+      "#pc-body, .pc-table tbody, tbody[data-role='pc-body']"
+    ),
+  ];
 }
 
-function setRowSelected(tr, onFlag) {
-  if (!tr?.dataset?.id) return;
-  const next = onFlag ?? (tr.getAttribute("aria-selected") !== "true");
-  tr.setAttribute("aria-selected", next ? "true" : "false");
-  if (next) state.selected.add(tr.dataset.id);
-  else state.selected.delete(tr.dataset.id);
-  updateBulk();
-  if (next) renderDetailsFromRow(tr);
+// --- Row id helpers ---------------------------------------------------------
+
+function idFromHref(href) {
+  if (!href) return "";
+  // tolerate /captures/<uuid>/ or /captures/<uuid>/view/
+  const m = href.match(/\/captures\/([0-9a-fA-F-]{8,})\/?(?:view)?(?:[?#].*)?$/);
+  return m ? m[1] : "";
+}
+
+function rowId(tr) {
+  if (!tr) return "";
+  if (tr.dataset.id && tr.dataset.id.trim()) return tr.dataset.id.trim();
+
+  // common fallbacks
+  const fallbacks = ["data-id", "data-pk", "data-uuid", "data-capture-id"];
+  for (const name of fallbacks) {
+    const v = tr.getAttribute(name);
+    if (v && v.trim()) {
+      tr.dataset.id = v.trim();
+      return tr.dataset.id;
+    }
+  }
+  const a =
+    tr.querySelector("a.pc-title[href]") ||
+    tr.querySelector('a[href^="/captures/"]') ||
+    tr.querySelector('a[href*="/captures/"]');
+  const hrefId = idFromHref(a && a.getAttribute("href"));
+  if (hrefId) {
+    tr.dataset.id = hrefId;
+    return hrefId;
+  }
+  const idFromDomId = (tr.id || "").replace(/^row-/, "");
+  if (idFromDomId && idFromDomId !== tr.id) {
+    tr.dataset.id = idFromDomId;
+    return idFromDomId;
+  }
+  return "";
+}
+
+function normalizeBody(tbody) {
+  if (!tbody) return;
+  tbody.querySelectorAll("tr").forEach((tr) => {
+    tr.classList.add("pc-row");
+    tr.setAttribute("role", "row");
+    if (!tr.hasAttribute("aria-selected")) {
+      tr.setAttribute("aria-selected", "false");
+    }
+    rowId(tr); // ensure we can address the row later
+  });
+}
+function normalizeAll() {
+  bodies().forEach(normalizeBody);
+}
+
+// --- State + render ---------------------------------------------------------
+
+const selected = new Set();
+let lastId = null;
+
+function renderRow(tr, on) {
+  tr.classList.toggle("is-selected", on);
+  tr.classList.toggle("selected", on); // legacy class
+  tr.setAttribute("aria-selected", on ? "true" : "false");
+}
+function renderAll() {
+  bodies().forEach((tbody) => {
+    tbody.querySelectorAll("tr").forEach((tr) => {
+      const id = rowId(tr);
+      if (id) renderRow(tr, selected.has(id));
+    });
+  });
+  mirrorForLegacy();
+  dispatchChanged();
+}
+function dispatchChanged() {
+  document.dispatchEvent(
+    new CustomEvent("pc:selection-change", { detail: getSelectedIds() })
+  );
+}
+function findRowById(id) {
+  for (const tbody of bodies()) {
+    const tr = [...tbody.querySelectorAll("tr")].find((r) => rowId(r) === id);
+    if (tr) return tr;
+  }
+  return null;
+}
+
+// Keep window.PCState.selected mirrored for older code
+function mirrorForLegacy() {
+  const bag = (window.PCState ||= { selected: new Set(), pendingDelete: null });
+  bag.selected = new Set(selected);
+}
+
+// Read DOM [aria-selected] to rebuild Set (lets other modules flip attributes)
+function syncFromDOM() {
+  const next = new Set();
+  bodies().forEach((tbody) => {
+    tbody
+      .querySelectorAll('tr[aria-selected="true"]')
+      .forEach((tr) => next.add(rowId(tr)));
+  });
+  const changed =
+    next.size !== selected.size || [...next].some((id) => !selected.has(id));
+  if (changed) {
+    selected.clear();
+    next.forEach((id) => selected.add(id));
+    lastId = [...selected].pop() || null;
+    mirrorForLegacy();
+    dispatchChanged();
+  }
+}
+
+// --- Public-ish helpers -----------------------------------------------------
+
+function selectOnly(id) {
+  selected.clear();
+  if (id) selected.add(id);
+  lastId = id || null;
+  renderAll();
+}
+function toggleOne(id) {
+  if (!id) return;
+  if (selected.has(id)) selected.delete(id);
+  else selected.add(id);
+  lastId = id;
+  renderAll();
+}
+function selectRangeBetween(tbody, aId, bId) {
+  if (!tbody || !aId || !bId) return;
+  const rows = [...tbody.querySelectorAll("tr")];
+  const idx = {};
+  rows.forEach((tr, i) => (idx[rowId(tr)] = i));
+  const ai = idx[aId],
+    bi = idx[bId];
+  if (ai == null || bi == null) return;
+  const [lo, hi] = ai < bi ? [ai, bi] : [bi, ai];
+  for (let i = lo; i <= hi; i++) {
+    const id = rowId(rows[i]);
+    if (id) selected.add(id);
+  }
+  renderAll();
 }
 
 export function clearSelection() {
-  $$("tr.pc-row[aria-selected='true']", tbody).forEach(tr => setRowSelected(tr, false));
+  selected.clear();
+  lastId = null;
+  renderAll();
 }
-
-function lastSelectedRow() {
-  const ids = Array.from(state.selected);
-  if (!ids.length) return null;
-  return tbody.querySelector(`tr.pc-row[data-id="${CSS.escape(ids[ids.length - 1])}"]`);
-}
-
-function truncate(s, n) { return (s && s.length > n) ? (s.slice(0, n - 1) + "…") : s; }
-function safeHostname(u) { try { return new URL(u, location.href).hostname; } catch { return ""; } }
-
-function renderDetailsFromRow(tr) {
-  if (!info) return;
-  const title  = tr.dataset.title || "(Untitled)";
-  const url    = tr.dataset.url || "";
-  const site   = safeHostname(url);
-  const auth   = tr.dataset.authors || "";
-  const jour   = tr.dataset.journal || "";
-  const year   = tr.dataset.year || "";
-  const doi    = tr.dataset.doi || "";
-  const doiUrl = tr.dataset.doiUrl || "";
-  const abs    = tr.dataset.abstract || "";
-  const kws    = (tr.dataset.keywords || "").split(",").map(s => s.trim()).filter(Boolean);
-
-  info.innerHTML = `
-    <h3>${escapeHtml(title)}</h3>
-    <div class="z-meta">${jour ? escapeHtml(jour) + " · " : ""}${year ? year + " · " : ""}${site ? escapeHtml(site) : ""}</div>
-    ${auth ? `<div class="z-meta">${escapeHtml(auth)}</div>` : ""}
-    ${doi ? `<div class="z-meta"><a href="${escapeHtml(doiUrl || ("https://doi.org/" + doi))}" target="_blank" rel="noopener">${escapeHtml(doi)}</a></div>` : ""}
-    ${abs ? `<div class="z-meta"><strong>Abstract.</strong> ${escapeHtml(truncate(abs, 700))}</div>` : ""}
-    ${kws.length ? `<div class="z-kws">${kws.map(k => `<span class="z-kw">${escapeHtml(k)}</span>`).join("")}</div>` : ""}
-  `;
-  // ensure right pane is visible if user collapsed it earlier
-  const shell = document.getElementById("z-shell");
-  if (shell) shell.style.setProperty("--right-w", localStorage.getItem("pc-right-w") || "360px");
+export function getSelectedIds() {
+  return [...selected];
 }
 
 export function openCurrent(kind) {
-  const tr = lastSelectedRow() || tbody.querySelector("tr.pc-row");
+  const tr =
+    (lastId && findRowById(lastId)) ||
+    bodies()[0]?.querySelector("tr.pc-row");
   if (!tr) return;
-  if (kind === "detail") window.location.href = `/captures/${tr.dataset.id}/`;
-  else if (kind === "doi_or_url") {
+  if (kind === "detail") {
+    window.location.href = `/captures/${tr.dataset.id}/`;
+  } else if (kind === "doi_or_url") {
     const href = tr.dataset.doiUrl || tr.dataset.url;
     if (href) window.open(href, "_blank", "noopener");
   }
 }
 export function copyDoi() {
-  const tr = lastSelectedRow(); if (!tr) return;
-  const doi = tr.dataset.doi; if (!doi) return;
-  navigator.clipboard?.writeText(doi).catch(() => {});
+  const tr = lastId && findRowById(lastId);
+  const doi = tr?.dataset?.doi;
+  if (doi && navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(doi);
+  }
 }
 
-function ensureRowsDraggable() {
-  $$("#pc-body tr.pc-row").forEach(r => r.setAttribute("draggable", "true"));
+// --- Events ----------------------------------------------------------------
+
+function isEditableTarget(t) {
+  const tag = (t && t.tagName) ? t.tagName.toLowerCase() : "";
+  return (
+    t?.isContentEditable ||
+    tag === "input" ||
+    tag === "textarea" ||
+    tag === "select"
+  );
+}
+function rowFromEventTarget(t) {
+  if (!t?.closest) return null;
+  const tr = t.closest("tr");
+  return tr && bodies().some((b) => b.contains(tr)) ? tr : null;
 }
 
-const rows = () => $$("tr.pc-row", tbody);
-const rowIndex = (tr) => rows().indexOf(tr);
+function onClick(e) {
+  if (e.button !== 0) return; // left click only
+  if (isEditableTarget(e.target)) return;
+  if (e.target.closest("a,button,summary,label,input,textarea,select")) return;
+  const sel = window.getSelection?.().toString() || "";
+  if (sel.trim()) return;
 
-// anchor for shift-range selection
-let anchorIndex = null;
+  const tr = rowFromEventTarget(e.target);
+  if (!tr) return;
+  const id = rowId(tr);
+  if (!id) return;
+
+  if (e.shiftKey && lastId) {
+    const lastRow = findRowById(lastId);
+    if (lastRow && lastRow.closest("tbody") === tr.closest("tbody")) {
+      selected.add(lastId);
+      selected.add(id);
+      selectRangeBetween(tr.closest("tbody"), lastId, id);
+      lastId = id;
+      return;
+    }
+  }
+  if (e.metaKey || e.ctrlKey) {
+    toggleOne(id);
+  } else {
+    selectOnly(id);
+  }
+}
+
+// NEW: right-click selects target row (so your Delete acts on that row)
+// We intentionally DO NOT preventDefault — if you use a custom menu elsewhere,
+// it will still open.
+function onContextMenu(e) {
+  if (isEditableTarget(e.target)) return;
+  const tr = rowFromEventTarget(e.target);
+  if (!tr) return;
+  const id = rowId(tr);
+  if (!id) return;
+  if (!selected.has(id)) {
+    // select just that row so the context action applies to it
+    selectOnly(id);
+  }
+}
+
+function onKeydown(e) {
+  if (isEditableTarget(e.target)) return;
+
+  // Cmd/Ctrl+A → select all in current tbody
+  if ((e.key === "a" || e.key === "A") && (e.metaKey || e.ctrlKey)) {
+    const b = bodies()[0];
+    if (!b) return;
+    e.preventDefault();
+    selected.clear();
+    b.querySelectorAll("tr").forEach((tr) => {
+      const id = rowId(tr);
+      if (id) selected.add(id);
+    });
+    renderAll();
+    return;
+  }
+
+  // Esc → clear
+  if (e.key === "Escape") {
+    e.preventDefault();
+    clearSelection();
+    return;
+  }
+
+  // Delete / Backspace → click the bulk-delete control if present,
+  // otherwise broadcast a delete intent with selected ids.
+  if ((e.key === "Delete" || e.key === "Backspace") && selected.size) {
+    e.preventDefault();
+    const btn = document.getElementById("pc-bulk-delete");
+    if (btn) {
+      btn.click();
+    } else {
+      document.dispatchEvent(
+        new CustomEvent("pc:delete-selected", { detail: getSelectedIds() })
+      );
+    }
+  }
+}
+
+// MutationObserver: renormalize and keep Set in sync with aria flips
+let mo;
+function wireMutationObserver() {
+  if (mo) mo.disconnect();
+  mo = new MutationObserver((mutations) => {
+    let touched = false,
+      attrs = false;
+    for (const m of mutations) {
+      if (m.type === "childList") {
+        const added = [...m.addedNodes].filter((n) => n.nodeType === 1);
+        for (const n of added) {
+          if (
+            n.matches?.("#pc-body, .pc-table tbody, tbody[data-role='pc-body']") ||
+            n.querySelector?.("#pc-body, .pc-table tbody, tbody[data-role='pc-body']")
+          ) {
+            touched = true;
+          }
+        }
+      } else if (m.type === "attributes" && m.attributeName === "aria-selected") {
+        attrs = true;
+      }
+    }
+    if (touched) {
+      normalizeAll();
+      renderAll();
+    }
+    if (attrs) {
+      syncFromDOM();
+    }
+  });
+  mo.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["aria-selected"],
+  });
+}
+
+// --- Init ------------------------------------------------------------------
 
 export function initSelection() {
-  if (!tbody) return;
+  if (_wired) return;
+  _wired = true;
 
-  // Single / toggle / range selection on CLICK
-  on(tbody, "click", (e) => {
-    const tr = e.target.closest("tr.pc-row");
-    if (!tr || e.target.closest("a")) return;
+  normalizeAll();
+  syncFromDOM();
+  renderAll();
 
-    const isShift   = !!e.shiftKey;
-    const isCtrlCmd = !!(e.ctrlKey || e.metaKey);
+  on(document, "click", onClick);
+  on(document, "contextmenu", onContextMenu);
+  on(document, "keydown", onKeydown);
 
-    if (isShift && anchorIndex !== null) {
-      // Shift-click = select contiguous range from the anchor row
-      const all = rows();
-      const i = rowIndex(tr);
-      const [a, b] = i < anchorIndex ? [i, anchorIndex] : [anchorIndex, i];
-      clearSelection();
-      all.slice(a, b + 1).forEach(r => setRowSelected(r, true));
-      // keep anchor where it was (common list behavior)
-    } else if (isCtrlCmd) {
-      // Ctrl/Cmd-click = toggle just this row (keep others)
-      setRowSelected(tr);
-      anchorIndex = rowIndex(tr);
-    } else {
-      // Plain click = replace selection with just this row
-      clearSelection();
-      setRowSelected(tr, true);
-      anchorIndex = rowIndex(tr);
-    }
+  // Rehydrate on both event names (different modules may emit either)
+  document.addEventListener("pc:rows-updated", () => {
+    normalizeAll();
+    syncFromDOM();
+    renderAll();
+  });
+  document.addEventListener("pc:rows-replaced", () => {
+    normalizeAll();
+    syncFromDOM();
+    renderAll();
   });
 
-  // Update anchor on mousedown so Shift-click knows where to start,
-  // but only set it when not using modifiers (matches list UIs).
-  on(tbody, "mousedown", (e) => {
-    const tr = e.target.closest("tr.pc-row"); if (!tr) return;
-    if (!e.shiftKey && !(e.ctrlKey || e.metaKey)) {
-      anchorIndex = rowIndex(tr);
-    }
-  });
+  wireMutationObserver();
 
-  // Drag start → package selected ids (or the single row) for DnD to the Collections rail
-  on(tbody, "dragstart", (e) => {
-    const tr = e.target.closest("tr.pc-row"); if (!tr) return;
-    // If the dragged row isn’t already selected, single-select it
-    if (!state.selected.size || !state.selected.has(tr.dataset.id)) {
-      clearSelection();
-      setRowSelected(tr, true);
-      anchorIndex = rowIndex(tr);
-    }
-    const ids = Array.from(state.selected);
-    const payload = JSON.stringify({ type: "pc-ids", ids });
-    try {
-      e.dataTransfer?.setData("application/json", payload);
-      e.dataTransfer?.setData("text/plain", payload);
-      e.dataTransfer.effectAllowed = "copyMove";
-      // Drag ghost
-      const ghost = document.createElement("div");
-      ghost.className = "pc-drag-ghost";
-      ghost.textContent = `${ids.length} item${ids.length > 1 ? "s" : ""}`;
-      ghost.style.cssText = "position:absolute;top:-9999px;left:-9999px;padding:6px 8px;background:rgba(0,0,0,.85);color:#fff;border-radius:6px;font:12px system-ui, sans-serif;";
-      document.body.appendChild(ghost);
-      e.dataTransfer.setDragImage(ghost, -10, -10);
-      setTimeout(() => ghost.remove(), 0);
-    } catch (_) {}
-    // Suppress text selection while dragging
-    document.body.style.userSelect = "none";
-  });
-  on(tbody, "dragend", () => { document.body.style.userSelect = ""; });
-
-  // When rows are re-rendered (search / paging), drop selection and (re)enable draggable
-  on(document, "pc:rows-updated", () => { clearSelection(); ensureRowsDraggable(); });
-  ensureRowsDraggable();
-  updateBulk();
+  // Debug bridge
+  window.pcSelection = {
+    get ids() {
+      return getSelectedIds();
+    },
+    clear: clearSelection,
+    selectOnlyId: selectOnly,
+    syncFromDOM,
+  };
 }
