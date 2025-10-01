@@ -482,7 +482,9 @@ normalizeAll();
     document.dispatchEvent(new CustomEvent('pc:rows-changed', { detail: e.detail }));
   }
 
-  document.addEventListener('pc:rows-updated',  reemitRowsChanged, { capture: true });
-  document.addEventListener('pc:rows-replaced', reemitRowsChanged, { capture: true });
+  document.addEventListener('pc:rows-updated',  reemitRowsChanged
+document.addEventListener('pc:rows-updated',  'pc:rows-changed', reemitRowsChanged, { capture: true });
+  document.addEventListener('pc:rows-replaced', reemitRowsChanged
+document.addEventListener('pc:rows-replaced', 'pc:rows-changed', reemitRowsChanged, { capture: true });
 })();
 /// ===== end alias hub =====
