@@ -55,7 +55,58 @@ export function keepOnScreen(el, margin = 8) {
 }
 
 /* ------------------------- Toast (fallback) ---------------------- */
-export function toast(message, { duration = 3000, actionText = "", onAction = null } = {}) {
+export function toast(message, 
+{
+  // Pass-through to global Toast.show if available; fallback if not.
+  try {
+    if (window.Toast && typeof window.Toast.show === "function") {
+      window.Toast.show(message, { duration, actionText, onAction });
+      return;
+    }
+  } catch (_) {}
+
+  // Lightweight, dependency-free fallback toast (non-blocking).
+  try {
+    const bar = document.createElement('div');
+    bar.setAttribute('role', 'status');
+    bar.textContent = String(message ?? '');
+    bar.style.position = 'fixed';
+    bar.style.left = '50%';
+    bar.style.transform = 'translateX(-50%)';
+    bar.style.bottom = '20px';
+    bar.style.padding = '8px 12px';
+    bar.style.background = 'rgba(0,0,0,0.85)';
+    bar.style.color = '#fff';
+    bar.style.borderRadius = '8px';
+    bar.style.font = '14px/1.2 system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
+    bar.style.maxWidth = '80%';
+    bar.style.zIndex = '2147483647';
+    bar.style.boxShadow = '0 2px 8px rgba(0,0,0,.3)';
+
+    // Optional action button
+    if (actionText && typeof onAction === 'function') {
+      const btn = document.createElement('button');
+      btn.textContent = String(actionText);
+      btn.style.marginLeft = '8px';
+      btn.style.background = 'transparent';
+      btn.style.border = '1px solid #fff';
+      btn.style.color = '#fff';
+      btn.style.padding = '2px 6px';
+      btn.style.borderRadius = '6px';
+      btn.style.cursor = 'pointer';
+      btn.addEventListener('click', () => { try { onAction(); } catch {} remove(); clearTimeout(tid); });
+      bar.appendChild(btn);
+    }
+
+    document.body.appendChild(bar);
+    const remove = () => { try { bar.remove(); } catch {} };
+    const ms = Math.max(1000, Number(duration ?? 3000));
+    const tid = setTimeout(remove, ms);
+  } catch (e) {
+    try { console.info('[paperclip] toast:', message); } catch {}
+  }
+}
+ = {}) {
   // Prefer global Toast if present
   if (typeof window.Toast?.show === "function") {
     window.Toast.show(message, actionText ? { actionText, duration, onAction } : { duration });
