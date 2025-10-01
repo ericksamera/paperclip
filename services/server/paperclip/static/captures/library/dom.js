@@ -55,86 +55,72 @@ export function keepOnScreen(el, margin = 8) {
 }
 
 /* ------------------------- Toast (fallback) ---------------------- */
-export function toast(message, 
-{
-  // Pass-through to global Toast.show if available; fallback if not.
+export function toast(message, opts = {}) {
+  const { duration = 3000, actionText, onAction } = opts;
+  const text = String(message ?? "");
+
+  // Prefer a global Toast if available
   try {
-    if (window.Toast && typeof window.Toast.show === "function") {
-      window.Toast.show(message, { duration, actionText, onAction });
-      return;
+    if (typeof window !== "undefined" &&
+        window.Toast &&
+        typeof window.Toast.show === "function") {
+      window.Toast.show(text, actionText ? { duration, actionText, onAction } : { duration });
+      return { close() {} };
     }
   } catch (_) {}
 
-  // Lightweight, dependency-free fallback toast (non-blocking).
-  try {
-    const bar = document.createElement('div');
-    bar.setAttribute('role', 'status');
-    bar.textContent = String(message ?? '');
-    bar.style.position = 'fixed';
-    bar.style.left = '50%';
-    bar.style.transform = 'translateX(-50%)';
-    bar.style.bottom = '20px';
-    bar.style.padding = '8px 12px';
-    bar.style.background = 'rgba(0,0,0,0.85)';
-    bar.style.color = '#fff';
-    bar.style.borderRadius = '8px';
-    bar.style.font = '14px/1.2 system-ui,-apple-system,Segoe UI,Roboto,sans-serif';
-    bar.style.maxWidth = '80%';
-    bar.style.zIndex = '2147483647';
-    bar.style.boxShadow = '0 2px 8px rgba(0,0,0,.3)';
-
-    // Optional action button
-    if (actionText && typeof onAction === 'function') {
-      const btn = document.createElement('button');
-      btn.textContent = String(actionText);
-      btn.style.marginLeft = '8px';
-      btn.style.background = 'transparent';
-      btn.style.border = '1px solid #fff';
-      btn.style.color = '#fff';
-      btn.style.padding = '2px 6px';
-      btn.style.borderRadius = '6px';
-      btn.style.cursor = 'pointer';
-      btn.addEventListener('click', () => { try { onAction(); } catch {} remove(); clearTimeout(tid); });
-      bar.appendChild(btn);
-    }
-
-    document.body.appendChild(bar);
-    const remove = () => { try { bar.remove(); } catch {} };
-    const ms = Math.max(1000, Number(duration ?? 3000));
-    const tid = setTimeout(remove, ms);
-  } catch (e) {
-    try { console.info('[paperclip] toast:', message); } catch {}
-  }
-}
- = {}) {
-  // Prefer global Toast if present
-  if (typeof window.Toast?.show === "function") {
-    window.Toast.show(message, actionText ? { actionText, duration, onAction } : { duration });
+  // Fallback: minimal DOM toast
+  if (typeof document === "undefined" || !document.body) {
+    try { console.info("[paperclip] toast:", text); } catch {}
     return { close() {} };
   }
-  // Tiny fallback
+
   let host = document.getElementById("pc-toast-host");
   if (!host) {
     host = document.createElement("div");
     host.id = "pc-toast-host";
-    host.style.cssText = "position:fixed;left:12px;bottom:12px;z-index:99999;display:flex;flex-direction:column;gap:8px";
+    host.style.cssText = [
+      "position:fixed", "left:12px", "bottom:12px", "z-index:2147483647", "display:flex", "flex-direction:column", "gap:8px", "pointer-events:none"
+    ].join(";");
     document.body.appendChild(host);
   }
+
   const card = document.createElement("div");
-  card.style.cssText = "max-width:520px;background:rgba(28,32,38,.98);color:#e6edf3;border:1px solid #2e3640;border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.35)";
-  card.textContent = message;
+  card.setAttribute("role", "status");
+  card.style.cssText = [
+    "max-width:520px", "background:rgba(28,32,38,.98)", "color:#e6edf3", "border:1px solid #2e3640", "border-radius:10px", "padding:10px 12px", "display:flex", "align-items:center", "gap:10px", "box-shadow:0 8px 24px rgba(0,0,0,.35)", "pointer-events:auto"
+  ].join(";");
+  card.textContent = text;
+
   if (actionText) {
     const btn = document.createElement("button");
-    btn.textContent = actionText;
-    btn.style.cssText = "border:0;background:transparent;color:#8ab4ff;cursor:pointer";
-    btn.onclick = () => { try { onAction?.(); } finally { close(); } };
+    btn.textContent = String(actionText);
+    btn.style.cssText = [
+      "border:0",
+      "background:transparent",
+      "color:#8ab4ff",
+      "cursor:pointer"
+    ].join(";");
+    btn.onclick = () => {
+      try { onAction?.(); } catch {}
+      close();
+    };
     card.appendChild(btn);
   }
+
   host.appendChild(card);
-  const t = setTimeout(close, duration);
-  function close(){ clearTimeout(t); card.remove(); }
+
+  const ms = Math.max(1000, Number(duration) || 3000);
+  const timer = setTimeout(close, ms);
+
+  function close() {
+    clearTimeout(timer);
+    try { card.remove(); } catch {}
+  }
+
   return { close };
 }
+
 
 /* ------------------------- Library helpers ----------------------- */
 export function currentCollectionId() {
