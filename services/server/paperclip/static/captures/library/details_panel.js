@@ -62,21 +62,30 @@ export function initDetailsPanel() {
   // Initial render (in case the server preselected something)
   updateInfoPanel();
 
-  // When selection changes (from selection.js), refresh the panel
+  // When selection changes, refresh the panel
   document.addEventListener("pc:selection-change", updateInfoPanel);
 
-  // When rows are swapped/appended by search/paging, refresh (will usually show the empty state)
-  document.addEventListener("pc:rows-updated", updateInfoPanel
-document.addEventListener("pc:rows-updated", 'pc:rows-changed', updateInfoPanel);
-  document.addEventListener("pc:rows-replaced", updateInfoPanel
-document.addEventListener("pc:rows-replaced", 'pc:rows-changed', updateInfoPanel);
+  // Re-emit canonical event from legacy row events
+  function reemitRowsChanged(e) {
+    document.dispatchEvent(new CustomEvent("pc:rows-changed", { detail: e.detail }));
+  }
+  document.addEventListener("pc:rows-updated", reemitRowsChanged, { capture: true });
+  document.addEventListener("pc:rows-replaced", reemitRowsChanged, { capture: true });
+
+  // Refresh the panel on the canonical event
+  document.addEventListener("pc:rows-changed", updateInfoPanel);
 
   // Belt & suspenders: if some legacy code toggles selection on click but doesn’t fire the event,
   // we still update on clicks inside the table.
-  on(document, "click", (e) => {
-    if (e.target.closest && e.target.closest("#pc-body tr.pc-row")) {
-      // Let selection handlers run first.
-      setTimeout(updateInfoPanel, 0);
-    }
-  }, { capture: true });
+  on(
+    document,
+    "click",
+    (e) => {
+      if (e.target.closest && e.target.closest("#pc-body tr.pc-row")) {
+        // Let selection handlers run first.
+        setTimeout(updateInfoPanel, 0);
+      }
+    },
+    { capture: true }
+  );
 }

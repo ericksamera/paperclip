@@ -478,10 +478,11 @@ normalizeAll();
     return (e) => reemit(e && e.detail);
   }
 
-  // Listen to both legacy events and re-emit the canonical one.
-  document.addEventListener('pc:rows-updated', makeHandler
-document.addEventListener('pc:rows-updated', 'pc:rows-changed', makeHandler(), true);
-  document.addEventListener('pc:rows-replaced', makeHandler
-document.addEventListener('pc:rows-replaced', 'pc:rows-changed', makeHandler(), true);
+  function reemitRowsChanged(e) {
+    document.dispatchEvent(new CustomEvent('pc:rows-changed', { detail: e.detail }));
+  }
+
+  document.addEventListener('pc:rows-updated',  reemitRowsChanged, { capture: true });
+  document.addEventListener('pc:rows-replaced', reemitRowsChanged, { capture: true });
 })();
 /// ===== end alias hub =====
