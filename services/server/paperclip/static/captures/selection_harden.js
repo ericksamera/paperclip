@@ -1,11 +1,11 @@
 /**
- * selection_harden.js — Fallback-only selection binder.
- * Loads on pages that still include it. If the ESM selection has wired (window.__pcESMSelectionReady),
- * this file is inert. Otherwise it provides click + j/k/arrow selection by simulating row clicks.
+ * selection_harden.js — robust legacy binder (click + j/k + arrows)
+ * - Idempotent (guards against double-binding)
+ * - Plays nice with ESM selection by simulating clicks (lets existing logic run)
  */
 (() => {
-  if (window.__PC_SELECTION_HARDEN_FALLBACK__) return;
-  window.__PC_SELECTION_HARDEN_FALLBACK__ = true;
+  if (window.__pcLegacySelBound) return;
+  window.__pcLegacySelBound = true;
 
   function isEditable(el) {
     if (!el) return false;
@@ -15,9 +15,9 @@
   }
 
   function tbody() {
-    return document.getElementById('pc-body') ||
+    return document.querySelector('#z-table tbody') ||
+           document.getElementById('pc-body') ||
            document.querySelector('.pc-table tbody') ||
-           document.querySelector('#z-table tbody') ||
            document.querySelector('tbody');
   }
 
@@ -26,25 +26,15 @@
     return tb ? Array.from(tb.querySelectorAll('tr.pc-row, tr[data-row="pc-row"], tr')) : [];
   }
 
-  function currentIdx(list) {
+  function current() {
     const el = document.querySelector('tr.pc-row.is-selected, tr.pc-row.selected, tr.pc-row[aria-selected="true"], tr[data-selected="true"]');
-    return el ? list.indexOf(el) : -1;
+    return el;
   }
 
-  function ensureRowShape() {
-    const tb = tbody();
-    if (!tb) return;
-    tb.querySelectorAll('tr').forEach(tr => {
-      tr.classList.add('pc-row');
-      if (!tr.hasAttribute('aria-selected')) tr.setAttribute('aria-selected', 'false');
-    });
-  }
-
-  function clickSelect(tr) {
+  function simulateClick(tr) {
     if (!tr) return;
-    // Let existing selection logic (if any) handle it first.
     tr.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-    // If nothing handled it, toggle ARIA/legacy class as a last resort.
+    // If selection classes/aria weren't set by any listener, set a minimal selection for UX
     if (!tr.classList.contains('is-selected') &&
         !tr.classList.contains('selected') &&
         tr.getAttribute('aria-selected') !== 'true') {
@@ -56,19 +46,18 @@
   function move(delta) {
     const list = rows();
     if (!list.length) return;
-    let idx = currentIdx(list);
+    const cur = current();
+    let idx = cur ? list.indexOf(cur) : -1;
     let next = idx >= 0 ? idx + delta : (delta > 0 ? 0 : list.length - 1);
-    if (next < 0) next = 0;
-    if (next >= list.length) next = list.length - 1;
+    next = Math.max(0, Math.min(list.length - 1, next));
     const tr = list[next];
     try { tr.scrollIntoView({ block: 'nearest' }); } catch {}
-    clickSelect(tr);
+    simulateClick(tr);
     tr.setAttribute('tabindex','-1');
     try { tr.focus({ preventScroll: true }); } catch {}
   }
 
   function onKeydown(e) {
-    if (window.__pcESMSelectionReady) return;        // ESM owns keys
     if (e.defaultPrevented) return;
     if (isEditable(e.target) || e.altKey || e.ctrlKey || e.metaKey) return;
     if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); move(+1); }
@@ -76,24 +65,19 @@
   }
 
   function onClick(e) {
-    if (window.__pcESMSelectionReady) return;        // ESM owns clicks
     const tb = tbody();
     if (!tb) return;
     const tr = e.target && e.target.closest && e.target.closest('tr');
     if (!tr || !tb.contains(tr)) return;
     if (isEditable(e.target)) return;
-    clickSelect(tr);
+    // Avoid fighting with native link clicks inside the row; let default happen then re-select
+    simulateClick(tr);
   }
 
   function bind() {
-    if (window.__pcESMSelectionReady) {
-      try { console.info('[paperclip] selection_harden fallback: ESM active, inert.'); } catch {}
-      return;
-    }
-    ensureRowShape();
     document.addEventListener('keydown', onKeydown, true);
     document.addEventListener('click', onClick, true);
-    try { console.info('[paperclip] selection_harden fallback bound.'); } catch {}
+    try { console.info('[paperclip] selection_harden bound (legacy binder active).'); } catch {}
   }
 
   if (document.readyState === 'loading') {
@@ -101,11 +85,4 @@
   } else {
     bind();
   }
-
-  // tiny global for any legacy code
-  window.PCSelection = window.PCSelection || Object.freeze({
-    next: () => move(+1),
-    prev: () => move(-1),
-    selectRow: (el) => el && clickSelect(el),
-  });
 })();
