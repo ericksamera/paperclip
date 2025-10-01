@@ -1,3 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+git switch -c fix/selection-fallback || true
+
+# 1) Ensure ESM selection sets a global "ready" flag, so fallbacks no-op when ESM is active.
+# Insert "window.__pcESMSelectionReady = true;" right after `_wired = true;` in initSelection().
+python3 - <<'PY'
+import re, pathlib, sys
+p = pathlib.Path("services/server/paperclip/static/captures/library/selection.js")
+s = p.read_text(encoding="utf-8")
+pat = re.compile(r"(\b_wired\s*=\s*true;\s*)", re.M)
+if not re.search(r"__pcESMSelectionReady", s):
+    s2 = pat.sub(r"\1\n  try { window.__pcESMSelectionReady = true; } catch(_) {}\n", s, count=1)
+    p.write_text(s2, encoding="utf-8")
+    print("patched:", p)
+else:
+    print("already marked ready:", p)
+PY
+
+# 2) Replace selection_harden.js with a SAFE FALLBACK (binds only if ESM didn't wire).
+cat > services/server/paperclip/static/captures/selection_harden.js <<'JS'
 /**
  * selection_harden.js — Fallback-only selection binder.
  * Loads on pages that still include it. If the ESM selection has wired (window.__pcESMSelectionReady),
@@ -109,3 +131,30 @@
     selectRow: (el) => el && clickSelect(el),
   });
 })();
+JS
+
+# 3) Un-comment any template includes we auto-commented (restore them)
+python3 - <<'PY'
+import re, pathlib
+root = pathlib.Path("services/server")
+templates = list(root.rglob("templates/**/*.html")) + list(root.rglob("templates/*.html"))
+changed = []
+for p in templates:
+    s = p.read_text(encoding="utf-8", errors="ignore")
+    s2 = re.sub(r'<!--\s*retired:\s*(<script[^>]+selection_harden\.js[^>]*>\s*</script>)\s*-->', r'\1', s, flags=re.IGNORECASE)
+    if s2 != s:
+        p.write_text(s2, encoding="utf-8")
+        changed.append(str(p))
+print("restored in:", *changed, sep="\n - " if changed else "\n(none)")
+PY
+
+# 4) Syntax check JS
+if command -v node >/dev/null 2>&1; then
+  find services/server/paperclip/static -type f -name "*.js" -print0 | xargs -0 -n1 node --check
+fi
+
+# 5) Commit
+git add -A
+git commit -m "Selection: mark ESM ready flag and make selection_harden a fallback; restore template includes" || true
+
+echo "✅ Fallback in place. Hard-reload /library (disable cache) and test click + j/k."
