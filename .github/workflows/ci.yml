@@ -10,12 +10,8 @@ name: UI JS syntax check
 runs-on: ubuntu-latest
 steps:
 - uses: actions/checkout@v4
-- name: Node check
+- name: Node syntax check
 run: |
-if ! command -v node >/dev/null; then
-echo "Node is required on runner"; exit 1
-fi
-# Syntax check all static JS (no build needed)
 find services/server/paperclip/static -type f -name "*.js" -print0 | xargs -0 -n1 node --check
 
 server-tests:
@@ -30,7 +26,7 @@ steps:
 - uses: actions/setup-python@v5
 with:
 python-version: '3.11'
-cache: 'pip'
+cache: pip
 cache-dependency-path: services/server/requirements.txt
 - name: Install deps
 run: pip install -r requirements.txt
