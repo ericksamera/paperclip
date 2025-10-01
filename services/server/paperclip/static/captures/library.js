@@ -15,7 +15,6 @@
   // -------------------- helpers --------------------
   const selected = new Set();
   const bulkForm = document.getElementById('pc-bulk-form');
-  const bulkBtn  = document.getElementById('pc-bulk-delete');
 
   const assignSelect = document.getElementById('pc-assign-select');
   const assignAdd    = document.getElementById('pc-assign-add');
@@ -30,6 +29,14 @@
   const searchModeInput = document.querySelector('.z-search input[name=search]');
   const modeChips = document.querySelectorAll('.z-mode-chip');
   const colAddBtn   = document.getElementById('pc-col-add-btn');
+
+  // --- Helpers delegated to captures/library/dom.js ---
+  function csrfToken()            { return window.PCDOM?.csrfToken?.() || ""; }
+  function escapeHtml(s)          { return window.PCDOM?.escapeHtml?.(s) || String(s ?? ""); }
+  function buildQs(next)          { return window.PCDOM?.buildQs?.(next) || location.search; }
+  function keepOnScreen(el)       { return window.PCDOM?.keepOnScreen?.(el); }
+  function currentCollectionId()  { return window.PCDOM?.currentCollectionId?.() || ""; }
+  function scanCollections()      { return window.PCDOM?.scanCollections?.() || []; }
 
   // ---- Debounced search-as-you-type ----
   let searchTimer = null;
@@ -127,28 +134,6 @@
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
     return m ? decodeURIComponent(m[2]) : '';
   }
-  function csrfToken() {
-    return getCookie('csrftoken') ||
-           (document.querySelector('input[name=csrfmiddlewaretoken]')?.value || '');
-  }
-  function escapeHtml(s) {
-    return (s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  }
-  function currentCollectionId() {
-    const p = new URL(location.href).searchParams;
-    return (p.get('col') || '').trim();
-  }
-  function buildQs(next) {
-    const u = new URL(location.href);
-    const p = u.searchParams;
-    Object.keys(next).forEach(k => {
-      const v = next[k];
-      if (v === null || v === undefined) p.delete(k);
-      else p.set(k, String(v));
-    });
-    if (!('page' in next)) p.delete('page');
-    return '?' + p.toString();
-  }
 
   // -------------------- selection --------------------
   function updateBulk() {
@@ -194,78 +179,47 @@
     }
   });
 
-  // ---- Inline bulk delete with 5s Undo (optimistic) ----
-  let pendingDelete = null;
+  // ---- Bulk delete is owned by captures/library/bulk_delete.js ----
+  // Keep keyboard shortcut behavior: trigger the real module's handler.
+  const bulkBtn = document.getElementById('pc-bulk-delete');
+  function _triggerBulkDelete() { bulkBtn?.click(); }
+
+  // If your original keydown handler referenced performBulkDelete(), keep it,
+  // but make it call the stub:
+  window.addEventListener('keydown', (e) => {
+    const tag = (e.target && (e.target.tagName || '')).toLowerCase();
+    const typing = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
+    if (!typing && (e.key === 'Delete' || e.key === 'Backspace')) {
+      e.preventDefault();
+      _triggerBulkDelete();
+    }
+  }, { capture: true });
 
   // Ensure we don’t lose a pending delete on navigation
   window.addEventListener('beforeunload', () => {
     if (pendingDelete && !pendingDelete.sent) {
-      try { pendingDelete.flushNow && pendingDelete.flushNow(); } catch(_) {}
+      try { pendingDelete.flushNow && pendingDelete.flushNow(); } catch (_) {}
     }
   });
 
-  bulkBtn?.addEventListener('click', async (e) => {
-    e.preventDefault();
-    if (!selected.size) return;
-
-    // If there is a previous pending delete, flush it now
-    if (pendingDelete && !pendingDelete.sent) {
-      try { await pendingDelete.flushNow(); } catch(_) {}
-      pendingDelete = null;
-    }
-
-    const ids = Array.from(selected);
-    const rows = ids.map(id => tbody.querySelector(`tr.pc-row[data-id="${CSS.escape(id)}"]`)).filter(Boolean);
-    if (!ids.length || !rows.length) return;
-
-    // Optimistic: visually remove, clear selection
-    rows.forEach(tr => { tr.classList.add('pc-row--pending'); tr.setAttribute('aria-selected', 'false'); });
-    selected.clear(); updateBulk();
-
-    // Toast with Undo, and a delayed flush to server
-    let timer = null; let sent = false; let closed = false;
-
-    const flushNow = async () => {
-      if (sent) return; sent = true;
-      try {
-        const fd = new FormData();
-        fd.append('csrfmiddlewaretoken', csrfToken());
-        ids.forEach(id => fd.append('ids', id));
-        const resp = await fetch(bulkForm.action, {
-          method: 'POST', body: fd, credentials: 'same-origin',
-          headers: {'X-CSRFToken': csrfToken()}
-        });
-        if (resp.redirected) { window.location.href = resp.url; return; }
-        if (!resp.ok) throw new Error(`Delete failed (${resp.status})`);
-        // Remove rows from DOM permanently
-        rows.forEach(tr => tr.remove());
-        Toast?.show(`Deleted ${ids.length} item(s).`, { duration: 2500 });
-      } catch (err) {
-        // Roll back on error
-        rows.forEach(tr => tr.classList.remove('pc-row--pending'));
-        Toast?.show(`Delete failed. ${String(err)}`, { duration: 4000 });
-      }
+  // Keep the button working if it exists, but hide UI (you don’t want it)
+  if (bulkBtn) {
+    try { bulkBtn.style.display = 'none'; } catch (_) {}
+    try { bulkForm && (bulkForm.style.display = 'none'); } catch (_) {}
+    bulkBtn.addEventListener('click', (e) => { e.preventDefault(); performBulkDelete(); });
+  } else {
+    // Fallback: if the button isn’t in the DOM, still support Delete/Backspace
+    const isTypingTarget = (t) => {
+      const tag = (t && (t.tagName || '')).toLowerCase();
+      return tag === 'input' || tag === 'textarea' || (t && t.isContentEditable);
     };
-
-    const t = Toast?.show(`Deleted ${ids.length} item(s) — Undo`, {
-      actionText: 'Undo',
-      duration: 5000,
-      onAction: () => {
-        closed = true;
-        clearTimeout(timer);
-        // Roll back the UI
-        rows.forEach(tr => tr.classList.remove('pc-row--pending'));
-        // Re-select the items so the user can try again
-        rows.forEach(tr => toggleRow(tr, true));
+    window.addEventListener('keydown', (e) => {
+      if (!isTypingTarget(e.target) && (e.key === 'Delete' || e.key === 'Backspace') && selected.size) {
+        e.preventDefault();
+        performBulkDelete();
       }
     });
-
-    // After 5s without undo, actually delete on the server
-    timer = setTimeout(() => { if (!closed) flushNow(); }, 5000);
-    pendingDelete = { flushNow, sent };
-  });
-
-
+  }
   // -------------------- info panel + splitters --------------------
   const info = document.getElementById('z-info');
   const toggleRightBtn = document.getElementById('z-toggle-right');
@@ -694,9 +648,10 @@
       const ids = [...selected];
       assignIdsToCollection(ids, curCol, 'remove').catch(()=>{});
     }
-    else if (act === 'delete') bulkBtn?.click();
+    else if (act === 'delete') { performBulkDelete(); }
     hideMenu();
   }
+
   function showMenu(x, y) {
     ensureMenu();
     const curCol = currentCollectionId();
@@ -720,13 +675,6 @@
     el.style.left = x + 'px';
     el.style.top = y + 'px';
     keepOnScreen(el);
-  }
-  function keepOnScreen(el){
-    const r = el.getBoundingClientRect();
-    let nx = r.left, ny = r.top, changed = false;
-    if (r.right > window.innerWidth) { nx = Math.max(8, window.innerWidth - r.width - 8); changed = true; }
-    if (r.bottom > window.innerHeight) { ny = Math.max(8, window.innerHeight - r.height - 8); changed = true; }
-    if (changed) { el.style.left = nx + 'px'; el.style.top = ny + 'px'; }
   }
 
   tbody.addEventListener('contextmenu', (e) => {

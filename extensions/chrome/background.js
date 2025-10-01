@@ -1,21 +1,83 @@
-// Shows a "Saved to Paperclip" desktop notification and a ✓ badge on success.
-// Falls back to injecting a tiny collector if the content script doesn't reply.
+// background.js (MV3 service worker)
+// Shows "…" on the badge while saving, then "✓" on success or "!" on error.
+// Also keeps your existing notification behavior + fallback collector.
 
 const API_ENDPOINT = "http://127.0.0.1:8000/api/captures/";
 const APP_ORIGIN = new URL(API_ENDPOINT).origin;
 
 let _lastOpenUrl = null;
 
-// --- small helpers ---
-function badge(text, color, ms = 1500) {
-  chrome.action.setBadgeText({ text });
-  if (color) chrome.action.setBadgeBackgroundColor({ color });
-  if (ms > 0) setTimeout(() => chrome.action.setBadgeText({ text: "" }), ms);
+/* -------------------------- Badge spinner state -------------------------- */
+const COLORS = { loading: "#5B8DEF", success: "#2E7D32", error: "#C62828" };
+const MIN_SPIN_MS = 400;     // avoid blink if request is very fast
+const SUCCESS_SHOW_MS = 1200;
+const ERROR_SHOW_MS = 1500;
+const LOADING_GUARD_MS = 15000;
+
+const badgeState = new Map(); // tabId -> { count, loadingSince, clearTimer, guardTimer }
+
+function ensureState(tabId) {
+  if (!badgeState.has(tabId)) {
+    badgeState.set(tabId, { count: 0, loadingSince: 0, clearTimer: null, guardTimer: null });
+  }
+  return badgeState.get(tabId);
+}
+function clearTimers(s) {
+  if (s.clearTimer) { clearTimeout(s.clearTimer); s.clearTimer = null; }
+  if (s.guardTimer) { clearTimeout(s.guardTimer); s.guardTimer = null; }
+}
+async function setBadge(tabId, { text = "", color = null, title = null }) {
+  try {
+    await chrome.action.setBadgeText({ tabId, text });
+    if (color) await chrome.action.setBadgeBackgroundColor({ tabId, color });
+    if (title != null) await chrome.action.setTitle({ tabId, title });
+  } catch { /* tab might be gone */ }
+}
+async function showLoading(tabId) {
+  const s = ensureState(tabId);
+  s.count += 1;
+  if (s.count === 1) {
+    clearTimers(s);
+    s.loadingSince = Date.now();
+    await setBadge(tabId, { text: "…", color: COLORS.loading, title: "Saving…" });
+    // guard against stuck spinner
+    s.guardTimer = setTimeout(() => {
+      if (s.count > 0) { s.count = 0; clearBadge(tabId); }
+    }, LOADING_GUARD_MS);
+  }
+}
+async function showSuccess(tabId) {
+  const s = ensureState(tabId);
+  s.count = Math.max(0, s.count - 1);
+  if (s.count > 0) return; // other in-flight ops still running
+
+  const elapsed = Date.now() - (s.loadingSince || 0);
+  const wait = Math.max(0, MIN_SPIN_MS - elapsed);
+
+  clearTimers(s);
+  s.clearTimer = setTimeout(async () => {
+    await setBadge(tabId, { text: "✓", color: COLORS.success, title: "Saved" });
+    s.clearTimer = setTimeout(() => clearBadge(tabId), SUCCESS_SHOW_MS);
+  }, wait);
+}
+async function showError(tabId) {
+  const s = ensureState(tabId);
+  s.count = Math.max(0, s.count - 1);
+  clearTimers(s);
+  await setBadge(tabId, { text: "!", color: COLORS.error, title: "Save failed" });
+  s.clearTimer = setTimeout(() => clearBadge(tabId), ERROR_SHOW_MS);
+}
+async function clearBadge(tabId) {
+  const s = ensureState(tabId);
+  clearTimers(s);
+  s.count = 0;
+  s.loadingSince = 0;
+  await setBadge(tabId, { text: "", title: "" });
 }
 
+/* ------------------------------ Notifications --------------------------- */
 function notifySaved({ title, url, openUrl }) {
-  _lastOpenUrl = openUrl || null;
-  badge("✓", "#28a745", 1500);
+  _lastOpenUrl = openUrl || null; // badge ✓ is handled in showSuccess
 
   const message = title || (url ? new URL(url).hostname : "Saved");
   chrome.notifications.create(
@@ -30,9 +92,8 @@ function notifySaved({ title, url, openUrl }) {
     (id) => setTimeout(() => chrome.notifications.clear(id), 4000)
   );
 }
-
 function notifyError(errMessage, pageTitle) {
-  badge("!", "#d9534f", 2000);
+  // badge ! is handled in showError
   chrome.notifications.create(
     {
       type: "basic",
@@ -44,7 +105,6 @@ function notifyError(errMessage, pageTitle) {
     (id) => setTimeout(() => chrome.notifications.clear(id), 5000)
   );
 }
-
 chrome.notifications.onClicked.addListener(() => {
   if (_lastOpenUrl) chrome.tabs.create({ url: _lastOpenUrl });
 });
@@ -52,22 +112,25 @@ chrome.notifications.onButtonClicked.addListener((_id, btnIdx) => {
   if (btnIdx === 0 && _lastOpenUrl) chrome.tabs.create({ url: _lastOpenUrl });
 });
 
-// --- main capture flow ---
+/* --------------------------------- Main ---------------------------------- */
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab?.id) return;
+  const tabId = tab.id;
+
+  await showLoading(tabId);
 
   // Ask content script for page data
   let data = null;
   try {
-    data = await chrome.tabs.sendMessage(tab.id, { type: "PAPERCLIP_COLLECT" });
+    data = await chrome.tabs.sendMessage(tabId, { type: "PAPERCLIP_COLLECT" });
   } catch (_) {
     data = null;
   }
 
-  // Fallback: tiny collector
+  // Fallback: tiny collector if content script not available
   if (!data || !data.ok) {
     const [res] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId },
       func: () => ({
         url: location.href,
         dom_html: document.documentElement.outerHTML,
@@ -113,8 +176,15 @@ chrome.action.onClicked.addListener(async (tab) => {
       tab.title ||
       "";
 
+    await showSuccess(tabId);
     notifySaved({ title, url: payload.source_url, openUrl });
   } catch (e) {
+    await showError(tabId);
     notifyError(String(e && e.message ? e.message : e), tab.title || "");
   }
+});
+
+/* ------------------------------ Install hook ----------------------------- */
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.action.setBadgeText({ text: "" });
 });

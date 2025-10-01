@@ -2,15 +2,11 @@
 // Three things:
 // 1) Restore 3-pane sizing from saved widths.
 // 2) Replace “Download views” + “Export CSV” with one “Export ▾” dropdown.
-// 3) Remove Delete/collections controls from the toolbar.
-//
-// No template changes needed.
+// 3) DO NOT remove Delete/collections controls anymore (keep bulk delete working).
 
 (function () {
   function qs(sel, root = document) { return root.querySelector(sel); }
   function qsa(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
-  function hide(el) { if (el) el.style.display = "none"; }
-  function remove(el) { if (el && el.parentNode) el.parentNode.removeChild(el); }
 
   function leftWidth()  { return parseInt(localStorage.getItem("pc-left-w")  || "260", 10) || 260; }
   function rightWidth() { return parseInt(localStorage.getItem("pc-right-w") || "360", 10) || 360; }
@@ -80,7 +76,10 @@
     // Hide the old "Download views" and "Export CSV" buttons if present
     qsa("a,button", actions).forEach((el) => {
       const txt = (el.textContent || "").trim().toLowerCase();
-      if (txt === "download views" || txt === "export csv") remove(el);
+      if (txt === "download views" || txt === "export csv") {
+        // remove the old individual actions; we'll add a combined dropdown
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+      }
     });
 
     // Create the single Export ▾ button
@@ -114,22 +113,6 @@
     }
   }
 
-  function stripDangerousStuff(toolbar) {
-    // Remove Delete selected (button + form) and collection assign strip
-    const bulkBtn  = qs("#pc-bulk-delete", toolbar) || qs("#pc-bulk-delete");
-    const bulkForm = qs("#pc-bulk-form", toolbar)   || qs("#pc-bulk-form");
-    const sel      = qs("#pc-assign-select", toolbar) || qs("#pc-assign-select");
-    const addBtn   = qs("#pc-assign-add", toolbar)    || qs("#pc-assign-add");
-    const rmBtn    = qs("#pc-assign-remove", toolbar) || qs("#pc-assign-remove");
-
-    // Remove from DOM so context menu “Delete…” becomes a no-op.
-    remove(bulkBtn);
-    remove(bulkForm);
-    remove(addBtn);
-    remove(rmBtn);
-    remove(sel);
-  }
-
   function boot() {
     const shell = document.getElementById("z-shell");
     if (!shell) return;
@@ -139,10 +122,9 @@
     shell.style.setProperty("--right-w", rightWidth() + "px");
     localStorage.setItem("pc-left-hidden", "0");
 
-    // 2) Toolbar cleanup / export menu
+    // 2) Toolbar: keep Delete/Assign controls intact; just add Export menu
     const toolbar = qs(".z-toolbar");
     if (toolbar) {
-      stripDangerousStuff(toolbar);
       injectExportButton(toolbar);
     }
   }

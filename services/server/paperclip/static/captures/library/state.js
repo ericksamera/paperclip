@@ -1,8 +1,10 @@
-// Central page state (kept tiny on purpose)
+// captures/library/state.js
+// Minimal shared bag for cross-file UI state (kept tiny on purpose).
+
 export const state = {
-  selected: new Set(),      // selected row ids
-  pendingDelete: null,      // { ids, flushNow, sent }
-  total: null,              // total rows for infinite scroll
-  nextPage: null,           // next page number (integer) or null
-  loading: false            // infinite scroll in-flight
+  selected: new Set(),   // optional if a page wants it
+  pendingDelete: null,   // { ids, flushNow, sent, canceled, cancel } or null
 };
+
+// Also expose to classic scripts if needed
+if (!window.PCState) window.PCState = state;
