@@ -66,8 +66,10 @@ export function initDetailsPanel() {
   document.addEventListener("pc:selection-change", updateInfoPanel);
 
   // When rows are swapped/appended by search/paging, refresh (will usually show the empty state)
-  document.addEventListener("pc:rows-updated", updateInfoPanel);
-  document.addEventListener("pc:rows-replaced", updateInfoPanel);
+  document.addEventListener("pc:rows-updated", updateInfoPanel
+document.addEventListener("pc:rows-updated", 'pc:rows-changed', updateInfoPanel);
+  document.addEventListener("pc:rows-replaced", updateInfoPanel
+document.addEventListener("pc:rows-replaced", 'pc:rows-changed', updateInfoPanel);
 
   // Belt & suspenders: if some legacy code toggles selection on click but doesn’t fire the event,
   // we still update on clicks inside the table.

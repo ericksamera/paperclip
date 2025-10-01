@@ -477,7 +477,9 @@ export function initSelection() {
   }
 
   // Listen to both legacy events and re-emit the canonical one.
-  document.addEventListener('pc:rows-updated', makeHandler(), true);
-  document.addEventListener('pc:rows-replaced', makeHandler(), true);
+  document.addEventListener('pc:rows-updated', makeHandler
+document.addEventListener('pc:rows-updated', 'pc:rows-changed', makeHandler(), true);
+  document.addEventListener('pc:rows-replaced', makeHandler
+document.addEventListener('pc:rows-replaced', 'pc:rows-changed', makeHandler(), true);
 })();
 /// ===== end alias hub =====
