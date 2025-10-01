@@ -460,3 +460,24 @@ export function initSelection() {
   }
 })();
 /// ===== end hotkeys =====
+
+// ===== Event alias hub: emit `pc:rows-changed` whenever legacy events fire =====
+(() => {
+  if (window.__pcRowsChangedAliased) return;
+  window.__pcRowsChangedAliased = true;
+
+  function reemit(detail) {
+    try {
+      document.dispatchEvent(new CustomEvent('pc:rows-changed', { detail }));
+    } catch (_) {}
+  }
+
+  function makeHandler() {
+    return (e) => reemit(e && e.detail);
+  }
+
+  // Listen to both legacy events and re-emit the canonical one.
+  document.addEventListener('pc:rows-updated', makeHandler(), true);
+  document.addEventListener('pc:rows-replaced', makeHandler(), true);
+})();
+/// ===== end alias hub =====
