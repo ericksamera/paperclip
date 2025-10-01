@@ -109,3 +109,5 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": "INFO"},
 }
+
+STATIC_BUILD_ID = os.environ.get("STATIC_BUILD_ID", "dev")

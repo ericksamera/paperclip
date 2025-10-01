@@ -25,7 +25,7 @@
   {% with set_version='v=7' %}
     <link rel="stylesheet" href="{% static 'base.css' %}?{{ set_version }}">
   {% endwith %}
-  {% block head %}{% endblock %}
+  <link rel="stylesheet" href="{% static 'ui/toast.css' %}?v=1">
 </head>
 <body>
   <div class="container full-bleed">
@@ -67,29 +67,29 @@
 
   {% block scripts %}{% endblock %}
 
-  <!-- Finalize theme + wire the pill buttons -->
+  <script src="{% static 'ui/toast.js' %}?v=1"></script>
   <script>
+  // When theme changes, also nudge any same-origin iframes immediately
   (function () {
-    const root = document.documentElement;
-    const wrap = document.getElementById('pc-theme');
+    const root = document.documentElement, wrap = document.getElementById('pc-theme');
     if (!wrap) return;
     const KEY = 'pcTheme';
     const btns = Array.from(wrap.querySelectorAll('.theme-btn'));
-
     function setTheme(t){
       root.setAttribute('data-theme', t);
       try { localStorage.setItem(KEY, t); } catch (_) {}
       btns.forEach(b => {
-        const active = b.dataset.t === t;
-        b.classList.toggle('active', active);
-        b.setAttribute('aria-pressed', String(active));
+        const on = b.dataset.t === t;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', String(on));
+      });
+      // NEW: tell iframes immediately (storage event will also arrive)
+      document.querySelectorAll('iframe').forEach(ifr => {
+        try { ifr.contentWindow?.postMessage({ type: 'paperclip:set-theme', theme: t }, '*'); } catch(_) {}
       });
     }
-
-    // Sync pill state with what we set in <head>
+    // initialize pill state from current attribute
     setTheme(root.getAttribute('data-theme') || 'dark');
-
-    // Toggle on click
     btns.forEach(b => b.addEventListener('click', () => setTheme(b.dataset.t)));
   })();
   </script>

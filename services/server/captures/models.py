@@ -7,6 +7,7 @@ class Capture(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     url = models.CharField(max_length=1000, blank=True)
+    site = models.CharField(max_length=255, blank=True)
     title = models.CharField(max_length=500, blank=True)
     doi = models.CharField(max_length=255, blank=True)
     year = models.CharField(max_length=12, blank=True)

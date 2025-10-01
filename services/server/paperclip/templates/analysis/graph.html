@@ -24,7 +24,10 @@
         const frame = document.getElementById('graphFrame');
         const prog  = document.getElementById('runProg');
 
-        function setSrc(id){ frame.src = "{% url 'analysis_graph_embed' %}?run=" + id; }
+        function currentTheme(){ return document.documentElement.getAttribute('data-theme') || 'dark'; }
+        function setSrc(id){
+          frame.src = "{% url 'analysis_graph_embed' %}?run=" + id + "&theme=" + encodeURIComponent(currentTheme());
+        }
 
         // Only poll the SELECTED run, stop when finished,
         // pause when tab hidden, and slow down to 2s cadence.

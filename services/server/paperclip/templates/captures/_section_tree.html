@@ -1,5 +1,5 @@
-{# Renders a section dict with children recursively #}
-{% comment %}Expected context: s = {"title": str, "paragraphs": [], "children": []?}{% endcomment %}
+{# services/server/paperclip/templates/captures/_section_tree.html #}
+{# Expected s = {"title": str, "paragraphs": [str], "children": [same]?} #}
 <details class="sec" open data-title="{{ s.title|escape }}">
   <summary class="sec__summary">{{ s.title }}</summary>
   <div class="sec__body">

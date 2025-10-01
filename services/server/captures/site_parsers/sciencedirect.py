@@ -1,217 +1,258 @@
 # services/server/captures/site_parsers/sciencedirect.py
 from __future__ import annotations
-from typing import Dict, List
+
 import re
+from typing import Dict, List, Optional, Iterable
 from bs4 import BeautifulSoup, Tag
 
 from . import register, register_meta
-from .base import DOI_RE, YEAR_RE, collapse_spaces, norm, tokenize_authors_csv, authors_initials_first_to_surname_initials
+from .base import (
+    DOI_RE, YEAR_RE, collapse_spaces, norm,
+    heading_text, dedupe_keep_order, collect_sd_paragraphs,
+    collect_paragraphs_subtree,
+    extract_from_li, augment_from_raw,
+)
 
-# ------------------ References (existing) ------------------
-
-def parse_sciencedirect(url: str, dom_html: str) -> List[Dict[str, object]]:
-    soup = BeautifulSoup(dom_html or "", "html.parser")
-    refs: List[Dict[str, object]] = []
-    for ref in soup.select("span.reference, div.reference"):
-        item: Dict[str, object] = {"raw": collapse_spaces(ref.get_text(" ", strip=True))}
-        a_node = ref.select_one(".authors")
-        if a_node:
-            auths_raw = tokenize_authors_csv(collapse_spaces(a_node.get_text(" ", strip=True)))
-            item["authors"] = authors_initials_first_to_surname_initials(auths_raw)
-        t_node = ref.select_one(".title")
-        if t_node:
-            item["title"] = collapse_spaces(t_node.get_text(" ", strip=True))
-        h_node = ref.select_one(".host")
-        if h_node:
-            host = collapse_spaces(h_node.get_text(" ", strip=True))
-            m = re.search(r"^(?P<journal>.+?),\s*(?P<vol>\d+)\s*\((?P<year>\d{4})\)", host)
-            if m:
-                item["container_title"] = collapse_spaces(m.group("journal"))
-                item["volume"] = m.group("vol")
-                item["issued_year"] = m.group("year")
-            mp = re.search(r"pp\.\s*([\d\-–]+)", host) or re.search(r":\s*([\d\-–]+)", host)
-            if mp: item["pages"] = mp.group(1)
-        doi = ""
-        for a in ref.select(".ReferenceLinks a[href]"):
-            m = DOI_RE.search(a.get("href", ""))
-            if m: doi = m.group(0); break
-        item["doi"] = doi
-        if not item.get("issued_year"):
-            my = YEAR_RE.search(item["raw"])  # type: ignore[index]
-            if my: item["issued_year"] = my.group(0)
-        for k in ("doi","title","container_title","volume","issued_year","pages"):
-            item[k] = norm(item.get(k))  # type: ignore[index]
-        refs.append(item)
-    return refs
-
-# Register both the vanilla host and common proxy URL patterns (e.g. www-sciencedirect-com.ezproxy.*)
-register(r"(?:^|\.)sciencedirect\.com$", parse_sciencedirect, where="host", name="ScienceDirect")
-register(r"sciencedirect[-\.]",          parse_sciencedirect, where="url",  name="ScienceDirect (proxy)")
-
-# ------------------ Meta / Sections (new) ------------------
-
-def _heading_text(h: Tag | None) -> str:
-    if not h:
-        return ""
-    txt = re.sub(r"\s+", " ", h.get_text(" ", strip=True)).strip()
-    # Strip outline numbers like "1.", "2.4", "1)"
-    return re.sub(r"^\s*\d+(?:\.\d+)*\s*[\.\)]?\s*", "", txt)
-
-def _dedupe_keep_order(items: List[str]) -> List[str]:
-    seen, out = set(), []
-    for k in items:
-        lk = k.lower().strip()
-        if lk and lk not in seen:
-            seen.add(lk)
-            out.append(k.strip())
-    return out
-
-_PARA_DIV_ID = re.compile(r"^p\d{3,}$", re.I)
-
-def _looks_like_para_div(el: Tag) -> bool:
-    """ScienceDirect uses <div class="u-margin-s-bottom" id="p0025">…</div> for paragraphs."""
-    if not isinstance(el, Tag) or el.name != "div":
-        return False
-    did = (el.get("id") or "").lower()
-    cls = " ".join((el.get("class") or [])).lower()
-    return bool(_PARA_DIV_ID.match(did) or "u-margin" in cls or "para" in cls or "paragraph" in cls)
-
-def _collect_sd_paragraphs(sec: Tag) -> List[str]:
-    """Collect visible text blocks directly under a <section> (SD paragraphs are divs)."""
-    out: List[str] = []
-
-    # 1) Normal <p> children (few SD pages have them)
-    for p in sec.find_all("p", recursive=False):
-        t = p.get_text(" ", strip=True)
-        t = re.sub(r"\s+", " ", t).strip()
-        if t:
-            out.append(t)
-
-    # 2) SD paragraph DIVs: id="p0025" / class~="u-margin-s-bottom"
-    for d in sec.find_all("div", recursive=False):
-        if not _looks_like_para_div(d): 
-            continue
-        # SD sometimes nests lists or spans inside these divs; keep list items too
-        lis = [li.get_text(" ", strip=True) for li in d.find_all("li", recursive=True)]
-        lis = [re.sub(r"\s+", " ", x).strip() for x in lis if x and len(x.strip()) > 1]
-        if lis:
-            out.extend(lis)
-            continue
-
-        t = d.get_text(" ", strip=True)
-        t = re.sub(r"\s+", " ", t).strip()
-        if t:
-            out.append(t)
-
-    # 3) Direct UL/OL children at section root
-    for ul in sec.find_all(["ul", "ol"], recursive=False):
-        for li in ul.find_all("li", recursive=True):
-            t = li.get_text(" ", strip=True)
-            t = re.sub(r"\s+", " ", t).strip()
-            if t:
-                out.append(t)
-
-    return out
+# ======================================================================================
+# Helpers
+# ======================================================================================
 
 _NONCONTENT_RX = re.compile(
     r"\b(references?|acknowledg|conflict of interest|ethics|funding|data availability|author contributions?)\b",
     re.I,
 )
 
-def _parse_sd_section(sec: Tag) -> Dict[str, object]:
-    """Recursively parse an SD <section> into {title, paragraphs, children?}."""
-    h = sec.find(["h2", "h3", "h4"], recursive=False) or sec.find(["h2", "h3", "h4"])
-    title = _heading_text(h) if h else ""
-    # Skip obvious non-content buckets (we still keep "Abstract"/"Keywords" if present)
-    if title and _NONCONTENT_RX.search(title):
-        return {}
+def _has_direct_heading(sec: Tag, levels: Iterable[str]) -> Optional[Tag]:
+    """Return the direct child heading tag (h2/h3/h4) if present."""
+    for lvl in levels:
+        h = sec.find(lvl, recursive=False)
+        if h:
+            return h
+    return None
 
-    paragraphs = _collect_sd_paragraphs(sec)
+def _good_title(h: Optional[Tag]) -> str:
+    if not h:
+        return ""
+    t = heading_text(h)
+    # Tiny guard: SD sometimes repeats empty headings for anchors
+    return collapse_spaces(t)
+
+def _parse_sd_section(sec: Tag, seen_ids: set[str]) -> Optional[Dict[str, object]]:
+    """
+    Recursively parse a ScienceDirect <section> element into a normalized dict.
+
+    Only takes paragraph-like blocks that are direct children of this <section>,
+    and recurses into direct child <section> elements for structure.
+    """
+    sid = (sec.get("id") or "").strip()
+    if sid:
+        if sid in seen_ids:
+            return None
+        seen_ids.add(sid)
+
+    # Prefer a direct child heading; if missing, fall back to the first heading inside
+    h = _has_direct_heading(sec, ("h2", "h3", "h4")) or sec.find(["h2", "h3", "h4"])
+    title = _good_title(h)
+    # Skip obvious non-content buckets
+    if title and _NONCONTENT_RX.search(title):
+        return None
+
+    paragraphs = collect_sd_paragraphs(sec)
 
     children: List[Dict[str, object]] = []
     for child_sec in sec.find_all("section", recursive=False):
-        node = _parse_sd_section(child_sec)
+        node = _parse_sd_section(child_sec, seen_ids)
         if node and (node.get("title") or node.get("paragraphs") or node.get("children")):
             children.append(node)
+
+    # De-duplicate children by (title, first-paragraph) while preserving order
+    def key_fn(n: Dict[str, object]) -> str:
+        title = (n.get("title") or "") if isinstance(n.get("title"), str) else ""
+        first = ""
+        if isinstance(n.get("paragraphs"), list) and n["paragraphs"]:
+            first = str(n["paragraphs"][0])  # type: ignore[index]
+        return f"{title}::{first}"
+
+    deduped: List[Dict[str, object]] = []
+    seen_keys: set[str] = set()
+    for n in children:
+        k = key_fn(n)
+        if k in seen_keys:
+            continue
+        seen_keys.add(k)
+        deduped.append(n)
+    children = deduped
 
     node: Dict[str, object] = {"title": title, "paragraphs": paragraphs}
     if children:
         node["children"] = children
     return node
 
+def _find_top_sections(soup: BeautifulSoup) -> List[Tag]:
+    """
+    ScienceDirect wraps the article body in <section id="secXXXX"> blocks.
+    We want the highest level that actually exists on the page (usually <h2>),
+    and only those <section> nodes where that heading is a direct child.
+    """
+    all_secs = [s for s in soup.find_all("section") if isinstance(s, Tag)]
+    # Determine the minimal heading level present as a direct child anywhere
+    has_h2 = any(_has_direct_heading(s, ("h2",)) for s in all_secs)
+    has_h3 = any(_has_direct_heading(s, ("h3",)) for s in all_secs)
+    levels: tuple[str, ...]
+    if has_h2:
+        levels = ("h2",)
+    elif has_h3:
+        levels = ("h3",)
+    else:
+        levels = ("h4",)
+
+    tops: List[Tag] = []
+    for s in all_secs:
+        h = _has_direct_heading(s, levels)
+        if not h:
+            continue
+        # Ignore sections that are clearly non-content
+        if _NONCONTENT_RX.search(_good_title(h) or ""):
+            continue
+        tops.append(s)
+
+    # If we accidentally grabbed nested sections (e.g., a <section><h2>…</h2><section><h2>…</h2>…),
+    # keep only those that are not inside another top candidate.
+    top_set = set(tops)
+    really_top: List[Tag] = []
+    for s in tops:
+        par = s.find_parent("section")
+        keep = True
+        while par:
+            if par in top_set and _has_direct_heading(par, levels):
+                keep = False
+                break
+            par = par.find_parent("section")
+        if keep:
+            really_top.append(s)
+    return really_top
+
 def _extract_sd_sections(soup: BeautifulSoup) -> List[Dict[str, object]]:
     """
-    ScienceDirect marks content with <section id="s0005">, <section id="s0010"> ...
-    We take top-level 's####' sections (no parent 's####') and recurse.
+    Build a clean section tree for SD pages without duplicating children.
     """
-    sections: List[Dict[str, object]] = []
-    all_secs = soup.select("section[id^='s']")
-    # Keep only top-level s#### (no parent s####)
-    top_secs = [s for s in all_secs if not s.find_parent("section", id=re.compile(r"^s\d{3,}$", re.I))]
-    for sec in top_secs:
-        node = _parse_sd_section(sec)
-        if node and (node.get("title") or node.get("paragraphs") or node.get("children")):
-            sections.append(node)
+    out: List[Dict[str, object]] = []
+    seen_ids: set[str] = set()
+    for s in _find_top_sections(soup):
+        node = _parse_sd_section(s, seen_ids)
+        if not node:
+            continue
+        # Keep nodes that have either title or some text/children
+        if node.get("title") or node.get("paragraphs") or node.get("children"):
+            out.append(node)
+    return out
 
-    # De-dup by title (case-insensitive), keep order
-    seen, uniq = set(), []
-    for n in sections:
-        t = (n.get("title") or "").strip().lower()
-        if t and t not in seen:
-            seen.add(t)
-            uniq.append(n)
-    return uniq
+# ======================================================================================
+# Meta: abstract, keywords, sections
+# ======================================================================================
 
-def extract_sciencedirect_meta(_url: str, dom_html: str) -> Dict[str, object]:
-    """
-    Extract Abstract + Keywords + Sections from ScienceDirect article pages.
-
-    Abstract:
-      <div class="abstract author" id="ab0005"> … </div>
-    Body sections:
-      <section id="s0005"><h2>…</h2><div id="p0025" class="u-margin-s-bottom">…</div></section>
-    """
-    soup = BeautifulSoup(dom_html or "", "html.parser")
-
-    # --- Abstract ---
-    abstract = None
-    for host in soup.select("div.abstract, section.abstract, div[class*='Abstract']"):
-        title = _heading_text(host.find(["h2", "h3", "h4"]))
-        if not re.search(r"\babstract\b", title, re.I):
-            # Accept containers like id="ab0005"
-            cid = (host.get("id") or "").lower()
-            if not re.match(r"^ab\d+", cid):
-                continue
-        # Content often lives under an inner div whose id starts with 'as'
-        inner = host.find(id=re.compile(r"^as\d+", re.I)) or host
-        paras = [p.get_text(" ", strip=True) for p in inner.find_all("p")]
-        if not paras:
-            # Many SD abstracts use div.u-margin-s-bottom blocks
-            paras = [d.get_text(" ", strip=True) for d in inner.find_all("div", class_=re.compile(r"u-margin", re.I))]
-        paras = [re.sub(r"\s+", " ", t).strip() for t in paras if t.strip()]
+def _extract_abstract(soup: BeautifulSoup) -> str:
+    # A) Explicit abstract containers (div/section with class 'abstract' or id like 'abs0001')
+    for host in soup.select("div.abstract, section.abstract, div[id^='abs' i], section[id^='abs' i]"):
+        paras = [t for t in collect_paragraphs_subtree(host) if t.strip()]
         if paras:
-            abstract = " ".join(paras)
-            break
+            return " ".join(paras)
 
-    # --- Keywords ---
+    # B) Heading 'Abstract' → take paragraphs from its nearest container (section/div) subtree
+    for h in soup.find_all(["h2", "h3", "h4"]):
+        if not h.get_text(strip=True):
+            continue
+        if re.search(r"^\s*abstract\s*$", h.get_text(" ", strip=True), re.I):
+            container = h.find_parent(["section", "div"]) or h.parent
+            if container:
+                paras = [t for t in collect_paragraphs_subtree(container) if t.strip()]
+                if paras:
+                    return " ".join(paras)
+
+    # C) Meta tags
+    for name in ("dc.description", "dcterms.abstract", "citation_abstract"):
+        m = soup.find("meta", attrs={"name": name})
+        if m and m.get("content"):
+            t = collapse_spaces(m["content"])
+            if t:
+                return t
+    return ""
+
+def _extract_keywords(soup: BeautifulSoup) -> List[str]:
     kws: List[str] = []
-    for kw_wrap in soup.select("div[class*='keyword'], section[class*='keyword']"):
-        items = []
-        items += [a.get_text(" ", strip=True) for a in kw_wrap.select("a.keyword, a[class*='keyword']")]
-        items += [span.get_text(" ", strip=True) for span in kw_wrap.select("span.keyword, span[class*='keyword']")]
-        items += [li.get_text(" ", strip=True) for li in kw_wrap.select("li")]
-        items = [re.sub(r"^\s*Keywords?\s*:\s*", "", t, flags=re.I) for t in items]
-        items = [re.sub(r"\s+", " ", t).strip() for t in items if t and len(t.strip()) > 1]
+    # meta tags first
+    for name in ("citation_keywords", "keywords", "dc.subject", "dcterms.subject"):
+        for m in soup.find_all("meta", attrs={"name": name}):
+            content = collapse_spaces(m.get("content") or "")
+            if not content:
+                continue
+            parts = re.split(r"[;,]\s*", content)
+            parts = [p for p in parts if p]
+            kws.extend(parts)
+    if kws:
+        return dedupe_keep_order(kws)
+    # On-page keywords blocks (loose heuristics)
+    for lab in soup.find_all(["h2", "h3", "h4"]):
+        t = collapse_spaces(lab.get_text(" ", strip=True))
+        if not re.search(r"\bkeywords\b", t, re.I):
+            continue
+        box = lab.find_parent("section") or lab.parent
+        if not box:
+            continue
+        items: List[str] = []
+        for li in box.find_all("li"):
+            txt = collapse_spaces(li.get_text(" ", strip=True))
+            if txt and len(txt) > 1:
+                items.append(txt)
         if items:
             kws.extend(items)
-            break  # take first good block
-    kws = _dedupe_keep_order(kws)
+            break
+    return dedupe_keep_order(kws)
 
-    # --- Sections ---
+def extract_sciencedirect_meta(_url: str, dom_html: str) -> Dict[str, object]:
+    soup = BeautifulSoup(dom_html or "", "html.parser")
+    abstract = _extract_abstract(soup)
+    keywords = _extract_keywords(soup)
     sections = _extract_sd_sections(soup)
+    return {"abstract": abstract, "keywords": keywords, "sections": sections}
 
-    return {"abstract": abstract, "keywords": kws, "sections": sections}
+# ======================================================================================
+# References
+# ======================================================================================
 
-# Register meta extractor for both direct and proxy URLs
+def parse_sciencedirect(_url: str, dom_html: str) -> List[Dict[str, object]]:
+    """
+    Extract references from ScienceDirect pages. We keep this intentionally
+    permissive because SD markup varies a lot across journals.
+    """
+    soup = BeautifulSoup(dom_html or "", "html.parser")
+    out: List[Dict[str, object]] = []
+
+    selectors = [
+        # Common SD markup (ordered list of references)
+        "ol.references li", "ul.references li",
+        # Fallbacks that show up on some journals/collections
+        "section.references li", "section#references li",
+        "li[id^='ref'], li[id^='B'], li[id^='R']",
+    ]
+    for sel in selectors:
+        for li in soup.select(sel):
+            if not li.get_text(strip=True):
+                continue
+            base = extract_from_li(li)
+            out.append(augment_from_raw(base))
+        if out:
+            break
+    return out
+
+# ======================================================================================
+# Registration
+# ======================================================================================
+
+# Meta registration (direct host + common proxy patterns)
 register_meta(r"(?:^|\.)sciencedirect\.com$", extract_sciencedirect_meta, where="host", name="ScienceDirect meta")
 register_meta(r"sciencedirect[-\.]",          extract_sciencedirect_meta, where="url",  name="ScienceDirect meta (proxy)")
+
+# References registration
+register(r"(?:^|\.)sciencedirect\.com$", parse_sciencedirect, where="host", name="ScienceDirect references")
+register(r"sciencedirect[-\.]",          parse_sciencedirect, where="url",  name="ScienceDirect references (proxy)")

@@ -1,13 +1,12 @@
+# services/server/paperclip/jobs.py
 from __future__ import annotations
 import os
 
 def _use_celery() -> bool:
-    # only if celery is installed, broker is configured, and flag is enabled
     return os.environ.get("PAPERCLIP_USE_CELERY", "0") in ("1", "true", "yes") \
         and bool(os.environ.get("CELERY_BROKER_URL"))
 
 def submit_analysis(run_id: int) -> bool:
-    """Queue with Celery if available; otherwise run sync. Returns True if queued."""
     if _use_celery():
         try:
             from analysis.tasks import run_analysis_task
@@ -17,4 +16,18 @@ def submit_analysis(run_id: int) -> bool:
             pass
     from analysis.tasks import run_analysis_sync
     run_analysis_sync(run_id)
+    return False
+
+def submit_enrichment(capture_id: str) -> bool:
+    """
+    Queue enrichment of a capture+its references (Crossref).
+    Returns True if queued; False if Celery isn't available.
+    """
+    if _use_celery():
+        try:
+            from captures.tasks import enrich_refs_task
+            enrich_refs_task.delay(str(capture_id))
+            return True
+        except Exception:
+            pass
     return False

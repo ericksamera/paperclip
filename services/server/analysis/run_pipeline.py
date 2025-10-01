@@ -101,17 +101,18 @@ def _embed_texts(texts: List[str]) -> Tuple[np.ndarray, str]:
         return Z, "tfidf-svd"
     except Exception:
         # Final fallback: bag-of-words count of tokens
-        toks = [tokenize(t) for t in texts]
-        vocab = {}
-        rows = []
+        from .text import tokenize as _tok
+        toks = [_tok(t) for t in texts]
+        vocab: Dict[str, int] = {}
+        rows: List[Dict[int, float]] = []
         for ts in toks:
-            row = {}
+            row: Dict[int, float] = {}
             for w in ts:
-                idx = vocab.setdefault(w, len(vocab))
-                row[idx] = row.get(idx, 0.0) + 1.0
+                j = vocab.setdefault(w, len(vocab))
+                row[j] = row.get(j, 0.0) + 1.0
             rows.append(row)
-        n, d = len(texts), len(vocab)
-        M = np.zeros((n, max(1, d)), dtype="float32")
+        n, d = len(texts), max(1, len(vocab))
+        M = np.zeros((n, d), dtype="float32")
         for i, row in enumerate(rows):
             for j, val in row.items():
                 M[i, j] = val
@@ -164,12 +165,11 @@ def run(out_dir: Path, k: int | None = None) -> Dict[str, Any]:
         return {"stats": {"docs": 0, "edges": 0}, "k": 0, "mode": "empty"}
 
     # --- 2) Directed capture→capture edges (by DOI)
-    doc_edges = build_citation_edges(docs)
+    doc_edges = build_citation_edges(docs)          # capture → capture only
 
     # --- 3) Topics on capture texts
     texts = [d.text for d in docs]
     labels, topics, doc_terms_map, mode = select_topics(texts, k=k)
-    # LLM labels with persistent cache at data/analysis/topic_label_cache.json
     topics = label_topics_if_configured(topics, texts, labels, cache_dir=out_dir.parent)
 
     # --- 4) External reference nodes + edges (uncaptured citations)
@@ -268,10 +268,13 @@ def run(out_dir: Path, k: int | None = None) -> Dict[str, Any]:
         id_order.append(rid)
 
     # --- 8) Classic edge sets
-    edges_citations = doc_edges + ext_edges
-    edges_mutual = _mutual_edges(doc_edges)
-    edges_shared = _biblio_coupling(docs)
-    edges_cocited = _co_citation(doc_edges)
+    edges_doc_citations = doc_edges                 # capture→capture
+    edges_references    = ext_edges                 # capture→external
+    edges_citations     = edges_doc_citations + edges_references  # combined (compat)
+
+    edges_mutual  = _mutual_edges(edges_doc_citations)
+    edges_shared  = _biblio_coupling(docs)
+    edges_cocited = _co_citation(edges_doc_citations)
 
     # --- 9) Semantic edges + suggested
     emb, emb_model = _embed_texts(texts)
@@ -280,7 +283,7 @@ def run(out_dir: Path, k: int | None = None) -> Dict[str, Any]:
     sim_thresh = float(os.environ.get("PAPERCLIP_SIM_THRESH", "0.32"))
     edges_semantic = _knn_edges(emb, [d.id for d in docs], k=knn_k, thresh=sim_thresh)
 
-    c_pairs = {(min(e["source"], e["target"]), max(e["source"], e["target"])) for e in doc_edges}
+    c_pairs = {(min(e["source"], e["target"]), max(e["source"], e["target"])) for e in edges_doc_citations}
     suggested = []
     for e in edges_semantic:
         a, b = (e["source"], e["target"])
@@ -338,7 +341,9 @@ def run(out_dir: Path, k: int | None = None) -> Dict[str, Any]:
         "nodes": nodes,
         "edges": edges_citations,
         "edgesets": {
-            "citations": edges_citations,
+            "doc_citations": edges_doc_citations,   # NEW
+            "references": edges_references,         # NEW
+            "citations": edges_citations,           # combined (compat)
             "mutual": edges_mutual,
             "shared_refs": edges_shared,
             "co_cited": edges_cocited,

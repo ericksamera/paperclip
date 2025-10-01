@@ -24,8 +24,10 @@ def open_artifact(capture_id: str, name: str, mode: str = "rb"):
     p = artifact_path(capture_id, name)
     return open(p, mode)
 
-# NEW: small helper to DRY view.json reads across modules
-def read_json_artifact(capture_id: str, name: str, default: Any | None = None) -> Any:
+def read_json_artifact(capture_id: str, name: str, default: Any = None) -> Any:
+    """
+    Small, defensive JSON reader. Returns `default` (or {}) on any error.
+    """
     p = artifact_path(capture_id, name)
     if not p.exists():
         return {} if default is None else default

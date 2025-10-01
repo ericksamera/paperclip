@@ -7,6 +7,7 @@ import requests, json
 from pathlib import Path
 
 from paperclip.utils import norm_doi  # central DOI normalization
+from paperclip.conf import ENRICH_TIMEOUT, USER_AGENT
 
 # NOTE: compute cache dir at access time (reads settings dynamically, easy to override in tests)
 _CACHE_DIR: Path = getattr(settings, "DATA_DIR", Path(".")) / "cache" / "crossref"
@@ -50,14 +51,18 @@ def _fetch_csl_for_doi(doi: str) -> Optional[Dict[str, Any]]:
     doi = norm_doi(doi)
     if not doi:
         return None
-    # 1) cache first
+
     cached = _cache_get(doi)
     if cached:
         return cached
-    # 2) network (short timeout; swallow any error)
+
     try:
         url = f"https://api.crossref.org/v1/works/{doi}/transform/application/vnd.citationstyles.csl+json"
-        r = requests.get(url, timeout=5)
+        r = requests.get(
+            url,
+            timeout=ENRICH_TIMEOUT,
+            headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.citationstyles.csl+json"},
+        )
         if r.ok:
             csl = r.json()
             _cache_put(doi, csl)

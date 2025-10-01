@@ -1,19 +1,27 @@
+# services/server/captures/views/common.py
 from __future__ import annotations
 from typing import Any, Dict, Iterable, List
 from urllib.parse import urlparse
 
 from django.db.models import Count
+from django.core.cache import cache
 
 from captures.models import Capture, Collection
 from paperclip.journals import get_short_journal_name
+from paperclip.artifacts import read_json_artifact
 
 
 def _site_label(url: str) -> str:
+    """
+    Prefer host persisted on the Capture.site field when present (set at ingest),
+    otherwise derive from URL.
+    """
     try:
         host = urlparse(url).hostname or ""
         return host.replace("www.", "") if host else ""
     except Exception:
         return ""
+
 
 def _family_from_name(s: str) -> str:
     s = (s or "").strip()
@@ -24,6 +32,7 @@ def _family_from_name(s: str) -> str:
         return fam or s
     parts = [p for p in s.replace("·", " ").split() if p]
     return parts[-1] if parts else s
+
 
 def _author_list(meta: dict, csl: dict) -> List[str]:
     names: List[str] = []
@@ -48,12 +57,14 @@ def _author_list(meta: dict, csl: dict) -> List[str]:
             out.append(n)
     return out
 
+
 def _authors_intext(meta: dict, csl: dict) -> str:
     raw = _author_list(meta or {}, csl or {})
     if not raw:
         return ""
     fam = _family_from_name(raw[0])
     return fam if len(raw) == 1 else f"{fam} et al."
+
 
 def _journal_full(meta: dict, csl: dict) -> str:
     meta = meta or {}; csl = csl or {}
@@ -66,41 +77,72 @@ def _journal_full(meta: dict, csl: dict) -> str:
         or ""
     )
 
+
 def _doi_url(doi: str | None) -> str | None:
     if not doi:
         return None
     return doi if doi.startswith("http://") or doi.startswith("https://") else f"https://doi.org/{doi}"
 
+
+# ---------- NEW: pull abstract from reduced view (with preview fallback) ----------
+def _abstract_from_view(c: Capture, preview_max_paras: int = 3) -> str:
+    """
+    Prefer the 'abstract' we persist in data/artifacts/<id>/view.json.
+    Fall back to joining the first few paragraphs of 'abstract_or_body'.
+    """
+    try:
+        view = read_json_artifact(str(c.id), "view.json", default={})
+        sections = (view.get("sections") or {})
+        abs_txt = (sections.get("abstract") or "") if isinstance(sections, dict) else ""
+        if abs_txt:
+            return str(abs_txt).strip()
+        paras = sections.get("abstract_or_body") or []
+        if isinstance(paras, list) and paras:
+            return " ".join([str(p) for p in paras[:preview_max_paras] if p]).strip()
+    except Exception:
+        pass
+    return ""
+
+
 def _row(c: Capture) -> Dict[str, Any]:
     meta = c.meta or {}
     csl = c.csl or {}
+
     title = (c.title or meta.get("title") or csl.get("title") or c.url or "").strip() or "(Untitled)"
     authors_intext = _authors_intext(meta, csl)
     j_full = _journal_full(meta, csl)
     j_short = get_short_journal_name(j_full, csl)
     doi = (c.doi or meta.get("doi") or csl.get("DOI") or "").strip()
     keywords = meta.get("keywords") or []
-    abstract = (meta.get("abstract") or (csl.get("abstract") if isinstance(csl, dict) else "")) or ""
+
+    # Prefer view.json abstract; fall back to meta/csl
+    abstract = _abstract_from_view(c) or (meta.get("abstract") or (csl.get("abstract") if isinstance(csl, dict) else "") or "")
+
     try:
         refs_count = c.references.count()
     except Exception:
         refs_count = 0
+
+    # Prefer normalized host field if present; else derive
+    site_lbl = (c.site or "").replace("www.", "") if (getattr(c, "site", "") or "") else _site_label(c.url or "")
+
     return {
         "id": str(c.id),
         "title": title,
         "url": c.url or "",
-        "site_label": _site_label(c.url or ""),
+        "site_label": site_lbl,
         "authors_intext": authors_intext,
         "journal": j_full,
         "journal_short": j_short or j_full,
         "year": c.year or meta.get("year") or meta.get("publication_year") or "",
         "doi": doi,
-        "doi_url": _doi_url(doi),
+        "doi_url": (doi if doi.startswith("http") else (f"https://doi.org/{doi}" if doi else "")) or "",
         "keywords": keywords,
         "abstract": abstract,
         "added": c.created_at.strftime("%Y-%m-%d"),
         "refs": refs_count,
     }
+
 
 def _apply_filters(qs: Iterable[Capture], *, year: str, journal: str, site: str, col: str) -> List[Capture]:
     """
@@ -125,26 +167,47 @@ def _apply_filters(qs: Iterable[Capture], *, year: str, journal: str, site: str,
             out.append(c)
     return out
 
+
 def _build_facets(all_caps: Iterable[Capture]) -> Dict[str, Any]:
+    """
+    Build years/journals/sites facets with a short TTL cache.
+    Auto-invalidated by captures.app on save/delete.
+    """
+    KEY = "facets:all"
+    cached = cache.get(KEY)
+    if cached:
+        return cached
+
     years: Dict[str, int] = {}
     journals: Dict[str, int] = {}
     sites: Dict[str, int] = {}
-    for c in all_caps:
+
+    # Iterate with only fields we actually need (cheap on SQLite)
+    for c in all_caps.only("year", "url", "meta", "csl", "site"):
         if c.year:
             key = str(c.year)
             years[key] = years.get(key, 0) + 1
+
         j = _journal_full(c.meta or {}, c.csl or {})
         if j:
             journals[j] = journals.get(j, 0) + 1
-        s = _site_label(c.url or "")
-        if s:
-            sites[s] = sites.get(s, 0) + 1
-    yr_sorted = sorted(years.items(), key=lambda kv: int(kv[0]), reverse=True)
+
+        # Prefer normalized host field
+        site = (c.site or "").replace("www.", "") if (c.site or "") else _site_label(c.url or "")
+        if site:
+            sites[site] = sites.get(site, 0) + 1
+
+    yr_sorted = sorted(years.items(), key=lambda kv: int(kv[0]), reverse=True)  # type: ignore[index]
     max_count = (max(years.values()) if years else 1)
     years_hist = [{"label": y, "count": n, "pct": int(round(n * 100 / max_count))} for y, n in yr_sorted]
+
     def sort_desc(d: Dict[str, int]) -> List[tuple[str, int]]:
         return sorted(d.items(), key=lambda kv: (-kv[1], kv[0]))
-    return {"years": years_hist, "journals": sort_desc(journals), "sites": sort_desc(sites)}
+
+    out = {"years": years_hist, "journals": sort_desc(journals), "sites": sort_desc(sites)}
+    cache.set(KEY, out, timeout=90)  # 90s is plenty; change anytime
+    return out
+
 
 def _collections_with_counts() -> List[Dict[str, Any]]:
     cols = Collection.objects.annotate(count=Count("captures")).order_by("name")

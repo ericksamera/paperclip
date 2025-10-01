@@ -1,0 +1,88 @@
+{% load qs %}
+
+<!-- Left filters -->
+<aside class="z-left" id="z-left">
+
+  <!-- Collections -->
+  <div class="z-group" data-key="grp-collections">
+    <div class="z-group-header">
+      <div class="z-group-title"><span class="z-caret">▾</span> Collections</div>
+      <button id="pc-col-add-btn" class="z-icon-btn" type="button" title="New collection">＋</button>
+    </div>
+    <div class="z-list">
+      <!-- All items (clears the `col` filter) -->
+      <a class="z-link {% if not selected.col %}active{% endif %}"
+         href="?{% qs_update current_params col=None page=None %}">
+        <span class="z-label">All items</span>
+        <span class="z-count">{{ collections_all_count }}</span>
+      </a>
+
+      {% for c in collections %}
+        <a class="z-link {% if selected.col|default:'' == c.id|stringformat:'s' %}active{% endif %}"
+           href="?{% qs_update current_params col=c.id page=None %}"
+           data-collection-id="{{ c.id }}">
+          <span class="z-label">{{ c.name }}</span>
+          <span class="z-count">{{ c.count }}</span>
+        </a>
+      {% empty %}
+        <div class="empty">—</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Years -->
+  <div class="z-group" data-key="grp-years">
+    <div class="z-group-header">
+      <div class="z-group-title"><span class="z-caret">▾</span> Years</div>
+    </div>
+    <div class="z-list">
+      {% for y in facets.years %}
+        <a class="z-link z-link-year {% if selected.year == y.label %}active{% endif %}"
+           href="?{% qs_update current_params year=y.label page=None %}">
+          <span class="z-yearbar" style="width: {{ y.pct }}%"></span>
+          <span class="z-label">{{ y.label }}</span>
+          <span class="z-count">{{ y.count }}</span>
+        </a>
+      {% empty %}
+        <div class="empty">—</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Journals -->
+  <div class="z-group" data-key="grp-journals">
+    <div class="z-group-header">
+      <div class="z-group-title"><span class="z-caret">▾</span> Journals</div>
+    </div>
+    <div class="z-list">
+      {% for j, n in facets.journals %}
+        <a class="z-link {% if selected.journal == j %}active{% endif %}"
+           href="?{% qs_update current_params journal=j page=None %}">
+          <span class="z-label">{{ j }}</span>
+          <span class="z-count">{{ n }}</span>
+        </a>
+      {% empty %}
+        <div class="empty">—</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Sites -->
+  <div class="z-group" data-key="grp-sites">
+    <div class="z-group-header">
+      <div class="z-group-title"><span class="z-caret">▾</span> Sites</div>
+    </div>
+    <div class="z-list">
+      {% for s, n in facets.sites %}
+        <a class="z-link {% if selected.site == s %}active{% endif %}"
+           href="?{% qs_update current_params site=s page=None %}">
+          <span class="z-label">{{ s }}</span>
+          <span class="z-count">{{ n }}</span>
+        </a>
+      {% empty %}
+        <div class="empty">—</div>
+      {% endfor %}
+    </div>
+  </div>
+
+</aside>

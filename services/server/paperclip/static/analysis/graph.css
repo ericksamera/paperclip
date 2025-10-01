@@ -12,6 +12,11 @@ html,body { height:100% }
 body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, sans-serif; overflow:hidden }
 #svg { position:fixed; inset:0; width:100vw; height:100vh; background:color-mix(in oklab, var(--bg) 90%, black 10%); }
 
+/* NEW: Disable selection during drag/pan */
+.pc-noselect, .pc-noselect * { -webkit-user-select: none !important; user-select: none !important; }
+/* Also make SVG text unselectable (we already ignore pointer events) */
+svg text { -webkit-user-select: none; user-select: none; }
+
 /* HUD */
 .hud { position:fixed; left:14px; top:14px; width:380px; max-height:calc(100vh - 28px); overflow:auto;
        background:color-mix(in oklab, var(--panel) 92%, black 8%); border:1px solid var(--line);

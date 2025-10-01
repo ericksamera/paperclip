@@ -100,6 +100,28 @@ def _ensure_default_rules() -> None:
         register(r"frontiersin[-\.]",          parse_frontiers, where="url",  name="Frontiers references (proxy)")
     except Exception:
         pass
+    # NEW: PLOS references
+    try:
+        from .plos import parse_plos  # type: ignore[attr-defined]
+        register(r"(?:^|\.)plos\.org$", parse_plos, where="host", name="PLOS references")
+        register(r"(?:journals[-\.]plos|plosone|plosbiology|ploscompbiol|plosgenetics|plospathogens)",
+                 parse_plos, where="url", name="PLOS references (path)")
+    except Exception:
+        pass
+    # NEW: OUP references
+    try:
+        from .oup import parse_oup  # type: ignore[attr-defined]
+        register(r"(?:^|\.)academic\.oup\.com$", parse_oup, where="host", name="OUP references")
+        register(r"oup\.com/",                    parse_oup, where="url",  name="OUP references (path)")
+    except Exception:
+        pass
+    # NEW: Nature references
+    try:
+        from .nature import parse_nature  # type: ignore[attr-defined]
+        register(r"(?:^|\.)nature\.com$", parse_nature, where="host", name="Nature references")
+        register(r"nature\.com/",          parse_nature, where="url",  name="Nature references (path)")
+    except Exception:
+        pass
 
 def _ensure_default_meta_rules() -> None:
     """
@@ -131,6 +153,28 @@ def _ensure_default_meta_rules() -> None:
         from .frontiers import extract_frontiers_meta  # type: ignore[attr-defined]
         register_meta(r"(?:^|\.)frontiersin\.org$", extract_frontiers_meta, where="host", name="Frontiers meta")
         register_meta(r"frontiersin[-\.]",          extract_frontiers_meta, where="url",  name="Frontiers meta (proxy)")
+    except Exception:
+        pass
+    # NEW: PLOS meta
+    try:
+        from .plos import extract_plos_meta  # type: ignore[attr-defined]
+        register_meta(r"(?:^|\.)plos\.org$", extract_plos_meta, where="host", name="PLOS meta")
+        register_meta(r"(?:journals[-\.]plos|plosone|plosbiology|ploscompbiol|plosgenetics|plospathogens)",
+                      extract_plos_meta, where="url", name="PLOS meta (path)")
+    except Exception:
+        pass
+    # NEW: OUP meta
+    try:
+        from .oup import extract_oup_meta  # type: ignore[attr-defined]
+        register_meta(r"(?:^|\.)academic\.oup\.com$", extract_oup_meta, where="host", name="OUP meta")
+        register_meta(r"oup\.com/",                    extract_oup_meta, where="url",  name="OUP meta (path)")
+    except Exception:
+        pass
+    # NEW: Nature meta
+    try:
+        from .nature import extract_nature_meta  # type: ignore[attr-defined]
+        register_meta(r"(?:^|\.)nature\.com$", extract_nature_meta, where="host", name="Nature meta")
+        register_meta(r"nature\.com/",          extract_nature_meta, where="url",  name="Nature meta (path)")
     except Exception:
         pass
 
@@ -211,10 +255,6 @@ from . import sciencedirect  # noqa: F401,E402
 from . import pmc            # noqa: F401,E402
 from . import wiley          # noqa: F401,E402
 from . import frontiers      # noqa: F401,E402
-
-__all__ = [
-    "register", "clear_registry", "get_registry",
-    "register_meta", "clear_meta_registry",
-    "extract_references", "extract_sections_meta",
-    "dedupe_references",
-]
+from . import plos           # noqa: F401,E402
+from . import oup            # noqa: F401,E402   # <-- NEW
+from . import nature         # noqa: F401,E402   # <-- NEW

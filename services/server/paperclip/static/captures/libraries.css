@@ -228,3 +228,28 @@
   color: #fff !important;
 }
 .pc-modal .dialog .btn:disabled { opacity: .55; filter: grayscale(0); }
+
+/* ---- Live search spinner ---- */
+.z-search { position: relative; }
+.z-search.is-loading::after {
+  content: "";
+  position: absolute; right: -22px; width: 14px; height: 14px; top: 50%; transform: translateY(-50%);
+  border-radius: 50%;
+  border: 2px solid var(--muted); border-top-color: transparent;
+  animation: pc-spin .8s linear infinite;
+}
+@keyframes pc-spin { to { transform: rotate(360deg); } }
+
+/* ---- Pending delete styling ---- */
+tr.pc-row.pc-row--pending { opacity: .45; filter: grayscale(1); }
+
+/* ---- Search mode chips ---- */
+.z-mode { display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; margin-left:4px }
+.z-mode-chips { display:inline-flex; gap:6px; }
+.z-mode .chip { cursor:pointer; padding:4px 8px; }
+.z-mode .chip.active {
+  background: var(--accent);
+  color:#fff;
+  border-color: color-mix(in oklab, var(--accent) 65%, var(--line) 35%);
+}
+.z-mode-hint { font-size:12px; opacity:.85 }

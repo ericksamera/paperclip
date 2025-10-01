@@ -6,11 +6,18 @@ from typing import Any, Dict, List
 from collections import defaultdict
 
 from captures.models import Capture
-from paperclip.artifacts import artifact_path, read_json_artifact
+from paperclip.artifacts import read_json_artifact
 from paperclip.utils import norm_doi
 
 def _read_view_json(capture_id: str) -> Dict[str, Any]:
-    return read_json_artifact(capture_id, "view.json", default={})
+    """
+    Prefer the classic reduced view name (view.json), but tolerate the newer names.
+    """
+    for name in ("view.json", "server_output_reduced.json", "parsed.json"):
+        data = read_json_artifact(capture_id, name, default=None)
+        if data:
+            return data
+    return {}
 
 @dataclass
 class Doc:
@@ -45,7 +52,7 @@ def collect_docs() -> List[Doc]:
         if isinstance(kws, list) and kws:
             parts.append(" ".join([str(k) for k in kws]))
 
-        # references (prefer view.json, fallback to DB)
+        # references (prefer reduced-view list; otherwise fall back to DB rows)
         refs_list: List[Dict[str, Any]] = []
         refs_doi: List[str] = []
         vrefs = (view.get("references") or [])

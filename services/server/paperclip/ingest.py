@@ -1,6 +1,7 @@
 # services/server/paperclip/ingest.py
 from __future__ import annotations
 from typing import Any, Dict, Tuple
+from urllib.parse import urlparse
 
 from django.db import transaction
 
@@ -13,24 +14,24 @@ from paperclip.conf import AUTO_ENRICH, MAX_REFS_TO_ENRICH
 from paperclip.utils import norm_doi
 
 
-# Import at call-time so tests can patch via module path
 def _build_server_parsed(capture, extraction):
     from captures.artifacts import build_server_parsed as _sp
     return _sp(capture, extraction)
 
 def _robust_parse(*, url: str | None, content_html: str, dom_html: str) -> Dict[str, Any]:
-    from captures.parsing_bridge import robust_parse as _rp  # lazy import for patchability
+    from captures.parsing_bridge import robust_parse as _rp
     return _rp(url=url, content_html=content_html, dom_html=dom_html)
 
+def _host(url: str) -> str:
+    try:
+        return (urlparse(url).hostname or "").replace("www.", "")
+    except Exception:
+        return ""
 
 def _ref_kwargs(r: Dict[str, Any], *, capture: Capture, csl_ok: bool = True) -> Dict[str, Any]:
-    """
-    Build safe kwargs for Reference(), ensuring ref_id is never NULL.
-    csl_ok=False for site-parsed refs where we don't carry CSL.
-    """
     return {
         "capture": capture,
-        "ref_id": (r.get("id") or ""),                       # never None
+        "ref_id": (r.get("id") or ""),
         "raw": r.get("raw", ""),
         "doi": r.get("doi", ""),
         "title": r.get("title", ""),
@@ -49,43 +50,37 @@ def _ref_kwargs(r: Dict[str, Any], *, capture: Capture, csl_ok: bool = True) -> 
         "url": r.get("url", ""),
     }
 
-
+# services/server/paperclip/ingest.py (function replacement)
 def ingest_capture(payload: Dict[str, Any]) -> Tuple[Capture, Dict[str, Any]]:
-    """
-    Orchestrate ingest with SHORT DB transactions to avoid SQLite write-locks.
-    Returns (capture, summary).
-    """
     extraction: Dict[str, Any] = payload.get("extraction") or {}
     meta_in: Dict[str, Any] = extraction.get("meta") or {}
     csl_in: Dict[str, Any] = extraction.get("csl") or {}
     dom_html: str = payload.get("dom_html") or ""
     content_html: str = extraction.get("content_html") or ""
     src_url: str = payload.get("source_url") or ""
+    src_host = _host(src_url)
 
-    # 1) Create Capture row with minimal fields; keep transaction short
+    # 1) Create the Capture row (cheap)
     with transaction.atomic():
         cap = Capture.objects.create(
             url=src_url,
-            # seed title from client/csl, but we will override with strong head meta below
+            site=src_host,
             title=(meta_in.get("title") or "").strip() or (csl_in.get("title") or "").strip(),
             meta=meta_in,
             csl=csl_in or {},
         )
 
-    # 2) Persist artifacts we always want to keep verbatim (HTML stays on disk, not DB)
+    # 2) Persist verbatim artifacts
     if dom_html:
         write_text_artifact(str(cap.id), "page.html", dom_html)
     if content_html:
         write_text_artifact(str(cap.id), "content.html", content_html)
 
-    # 3) Head/meta bridge (robust_parse) for strong head and preview paragraphs
+    # 3) Head/meta + preview/sections (fast path)
     bridge = _robust_parse(url=src_url, content_html=content_html, dom_html=dom_html)
     meta_updates = bridge.get("meta_updates") or {}
 
-    # Always prefer strong head meta for title/doi/year,
-    # and merge the rest into cap.meta.
     if meta_updates:
-        # Promoted fields
         new_title = meta_updates.get("title")
         new_doi = meta_updates.get("doi")
         new_year = meta_updates.get("issued_year")
@@ -97,18 +92,21 @@ def ingest_capture(payload: Dict[str, Any]) -> Tuple[Capture, Dict[str, Any]]:
         if new_year is not None:
             cap.year = str(new_year or "")
 
-        # Merge remaining keys into meta
         passthrough = {k: v for k, v in meta_updates.items() if k not in {"title", "doi", "issued_year"}}
         if passthrough:
             cap.meta = {**(cap.meta or {}), **passthrough}
 
-        cap.save(update_fields=["title", "doi", "year", "meta"])
+        # Update normalized host if needed
+        if not cap.site:
+            cap.site = _host(cap.url or "")
 
-    # 4) Client-provided references as-is (no dedupe here)
+        cap.save(update_fields=["title", "doi", "year", "meta", "site"])
+
+    # 4) Client-provided references
     for r in (extraction.get("references") or []):
         Reference.objects.create(**_ref_kwargs(r, capture=cap, csl_ok=True))
 
-    # 5) Site-level references (parse, compute de-dupes, then one small write)
+    # 5) Site-level references (dedup against client)
     site_refs = dedupe_references(extract_references(cap.url, dom_html))
     with transaction.atomic():
         existing_doi = {norm_doi(r.doi) for r in cap.references.all() if r.doi}
@@ -123,34 +121,7 @@ def ingest_capture(payload: Dict[str, Any]) -> Tuple[Capture, Dict[str, Any]]:
         if to_create:
             Reference.objects.bulk_create(to_create, batch_size=200)
 
-    # 6) Optional auto-enrichment (NO transaction; each save is tiny)
-    if AUTO_ENRICH:
-        try:
-            upd = enrich_capture_via_crossref(cap)
-            if upd:
-                for k, v in upd.items():
-                    setattr(cap, k, v)
-                cap.save(update_fields=list(upd.keys()))
-        except Exception:
-            pass
-
-        count = 0
-        for ref in cap.references.all().order_by("id"):
-            if count >= MAX_REFS_TO_ENRICH:
-                break
-            if not ref.doi:
-                continue
-            try:
-                upd = enrich_reference_via_crossref(ref)
-                if upd:
-                    for k, v in upd.items():
-                        setattr(ref, k, v)
-                    ref.save(update_fields=list(upd.keys()))
-            except Exception:
-                pass
-            count += 1
-
-    # 7) Write canonical + reduced JSON (legacy filenames to satisfy current clients/tests)
+    # 6) Write canonical + reduced JSON **now** so sections appear immediately
     doc = _build_server_parsed(cap, extraction)
     write_json_artifact(str(cap.id), "doc.json", doc)
 
@@ -164,6 +135,18 @@ def ingest_capture(payload: Dict[str, Any]) -> Tuple[Capture, Dict[str, Any]]:
         title=cap.title,
     )
     write_json_artifact(str(cap.id), "view.json", view)
+
+    # NEW: re-index once more so FTS picks up view.json/body & keywords
+    try:
+        from captures.search import upsert_capture as _upsert
+        _upsert(cap)
+    except Exception:
+        pass
+
+    # 7) (Optional) queue enrichment instead of blocking
+    from paperclip.jobs import submit_enrichment
+    if AUTO_ENRICH:
+        submit_enrichment(str(cap.id))
 
     summary = {
         "title": cap.title,

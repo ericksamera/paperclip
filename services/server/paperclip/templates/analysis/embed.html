@@ -8,116 +8,53 @@
   <title>Graph · Paperclip</title>
 
   <script>
-  (function () { try {
-      var KEY='pcTheme', saved=localStorage.getItem(KEY),
-          prefersLight=window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
-      document.documentElement.setAttribute('data-theme', saved || (prefersLight ? 'light' : 'dark'));
-      window.addEventListener('storage', e => { if (e.key===KEY && e.newValue) document.documentElement.setAttribute('data-theme', e.newValue); });
-  } catch(_){} })();
+  (function () {
+    try {
+      var KEY='pcTheme';
+      var qs = new URLSearchParams(location.search);
+      var paramTheme = qs.get('theme');
+      var saved = localStorage.getItem(KEY);
+      var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      var t = paramTheme || saved || (prefersLight ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', t);
+      try { localStorage.setItem(KEY, t); } catch(_) {}
+      window.addEventListener('message', function (e) {
+        var d = e && e.data; if (!d || d.type !== 'paperclip:set-theme') return;
+        document.documentElement.setAttribute('data-theme', d.theme);
+        try { localStorage.setItem(KEY, d.theme); } catch(_) {}
+      });
+      window.addEventListener('storage', function (e) {
+        if (e.key === KEY && e.newValue) document.documentElement.setAttribute('data-theme', e.newValue);
+      });
+    } catch (_) {}
+  })();
   </script>
 
-  <link rel="stylesheet" href="{% static 'analysis/graph.css' %}?v=8">
+  <link rel="stylesheet" href="{% static 'analysis/graph.css' %}?v=9">
+  <style>
+    html, body { height:100%; margin:0; }
+    #graph-root { width:100%; height:100vh; }
+  </style>
 </head>
 <body>
-  <svg id="svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid meet">
-    <g id="scene">
-      <g id="hulls"></g>
-      <g id="edges"></g>
-      <g id="nodes"></g>
-      <g id="clabels"></g>
-    </g>
-  </svg>
-
-  <div class="hud" id="hud">
-    <div class="row"><input id="q" class="search" placeholder="Search title or term…"></div>
-    <div class="row muted">
-      Docs: <span id="nDocs"></span> · Edges: <span id="nEdges"></span> · Clusters: <span id="nClus"></span> · Mode: <span id="modeVal"></span> · Components: <span id="nComp"></span>
-    </div>
-
-    <div class="row" style="display:flex;flex-wrap:wrap;gap:6px">
-      <button id="btnRings" class="btn">Rings</button>
-      <button id="btnForce" class="btn">Force layout</button>
-      <button id="btnConnect" class="btn" title="Pick the densest edge set for current filters">Connect graph</button>
-      <button id="btnSave" class="btn">Save layout</button>
-      <button id="btnReset" class="btn">Reset view</button>
-      <button id="btnUnfix" class="btn">Unfix nodes</button>
-    </div>
-
-    <div class="row" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-      <label class="toggle"><input type="checkbox" id="chkHulls" checked> Show clusters</label>
-      <label class="toggle"><input type="checkbox" id="chkLabels" checked> Labels</label>
-      <label class="toggle"><input type="checkbox" id="chkRefs"> Include refs</label>
-
-      <label class="toggle">Hull style
-        <select id="hullStyle">
-          <option value="circle">circle</option>
-          <option value="smooth" selected>smooth</option>
-          <option value="convex">convex</option>
-          <option value="none">none</option>
-        </select>
-      </label>
-
-      <label class="toggle">Edges
-        <select id="edgeMode">
-          <option value="auto" selected>auto (best)</option>
-          <option value="citations">citations</option>
-          <option value="mutual">mutual (A⇄B)</option>
-          <option value="shared_refs">shared refs</option>
-          <option value="co_cited">co-cited</option>
-          <option value="semantic">semantic (kNN)</option>
-          <option value="suggested">suggested (semantic≠cite)</option>
-          <option value="topic_membership">topic membership (paper→topic)</option>
-          <option value="topic_relations">topic relations (topic↔topic)</option>
-        </select>
-      </label>
-
-      <label class="toggle">Min weight
-        <input id="minW" type="range" min="1" max="10" step="1" value="1">
-        <span id="minWVal" class="muted">1</span>
-      </label>
-
-      <label class="toggle"><input type="checkbox" id="onlyDoi"> Only DOI</label>
-      <label class="toggle"><input type="checkbox" id="hideIso" checked> Hide isolates</label>
-      <label class="toggle"><input type="checkbox" id="chkGaps"> Highlight gaps</label>
-
-      <label class="toggle">Size by
-        <select id="sizeBy">
-          <option value="auto" selected>auto</option>
-          <option value="pagerank">PageRank</option>
-          <option value="degree">Degree</option>
-          <option value="constant">Constant</option>
-        </select>
-      </label>
-      <label class="toggle" style="min-width:180px">Scale
-        <input id="sizeScale" type="range" min="0.5" max="2.5" step="0.1" value="1">
-        <span id="sizeScaleVal" class="muted" style="min-width:2.5ch;display:inline-block;text-align:right">1.0</span>
-      </label>
-
-      <!-- NEW: edge opacity -->
-      <label class="toggle" style="min-width:200px">Edge opacity
-        <input id="edgeOpacity" type="range" min="0.1" max="1" step="0.05" value="0.5">
-        <span id="edgeOpacityVal" class="muted">0.50</span>
-      </label>
-    </div>
-
-    <h2>Topics</h2>
-    <div id="topics" class="topics"></div>
-
-    <!-- NEW: details for selected cluster -->
-    <div class="row" style="margin-top:8px">
-      <h2>Topic details</h2>
-      <div id="topicDetail" class="muted">Click a cluster above or a colored hull to see its top papers.</div>
-    </div>
-
-    <div class="row">
-      <h2>Legend</h2>
-      <div class="muted">
-        Circles = papers · rounded squares = topic nodes · drag to move · wheel to zoom · double-click to reset
-      </div>
-    </div>
-  </div>
-
+  <div id="graph-root"></div>
   <script>window.GRAPH_DATA = {{ data_json|safe }};</script>
-  <script src="{% static 'analysis/graph.js' %}?v=8"></script>
+  <script src="{% static 'analysis/graph.js' %}?v=9"></script>
+  <script>
+    window.addEventListener('load', function () {
+      if (window.PCGraph && typeof window.PCGraph.bootGraphWithData === 'function') {
+        window.PCGraph.bootGraphWithData(window.GRAPH_DATA);
+      } else if (window.PCGraph && typeof window.PCGraph.bootGraph === 'function') {
+        window.PCGraph.bootGraph();
+      } else {
+        var tries = 0, t = setInterval(function(){
+          tries++;
+          if (window.PCGraph && window.PCGraph.bootGraphWithData) {
+            clearInterval(t); window.PCGraph.bootGraphWithData(window.GRAPH_DATA);
+          } else if (tries > 40) { clearInterval(t); }
+        }, 25);
+      }
+    });
+  </script>
 </body>
 </html>

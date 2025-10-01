@@ -5,225 +5,14 @@
 
 {% block content %}
 <div class="z-shell" id="z-shell" style="--left-w:260px; --right-w:360px">
-  <!-- Toolbar -->
-  <div class="z-toolbar">
-    <form class="z-search" method="get" action=".">
-      <input class="z-input" type="text" name="q" placeholder="Search title / URL…" value="{{ selected.q }}">
-      {% if selected.year %}<input type="hidden" name="year" value="{{ selected.year }}">{% endif %}
-      {% if selected.journal %}<input type="hidden" name="journal" value="{{ selected.journal }}">{% endif %}
-      {% if selected.site %}<input type="hidden" name="site" value="{{ selected.site }}">{% endif %}
-      {% if selected.col %}<input type="hidden" name="col" value="{{ selected.col }}">{% endif %}
-      <button class="btn" type="submit">Search</button>
-      <a class="btn z-clear" href="{% url 'library' %}">Clear filters</a>
-    </form>
 
-    <div class="z-actions">
-      <form id="pc-bulk-form" method="post" action="{% url 'capture_bulk_delete' %}">
-        {% csrf_token %}
-        <button id="pc-bulk-delete" class="btn btn--danger" type="button" disabled>Delete selected</button>
-      </form>
+  {% include "captures/_library_toolbar.html" %}
 
-      <!-- Assign to collection -->
-      <div style="display:flex;gap:6px;align-items:center">
-        <select id="pc-assign-select" class="z-input" style="min-width:18ch">
-          <option value="">— Choose collection —</option>
-          {% for c in collections %}
-            <option value="{{ c.id }}">{{ c.name }}</option>
-          {% endfor %}
-        </select>
-        <button id="pc-assign-add" class="btn btn--primary" type="button">Add to</button>
-        <button id="pc-assign-remove" class="btn" type="button">Remove</button>
-      </div>
-
-      {% if selected.col %}
-        <a class="btn" href="{% url 'collection_download_views' selected.col %}">Download views</a>
-      {% else %}
-        <a class="btn" href="{% url 'collection_download_views' 'all' %}">Download views</a>
-      {% endif %}
-      <a class="btn" href="{% url 'dedup_review' %}">Dedup review</a>
-      <a class="btn" href="{% url 'capture_export' %}?{{ current_params.urlencode }}">Export CSV</a>
-
-      <!-- NEW: real sidebar hide/show -->
-      <button id="z-toggle-left" class="btn" type="button" title="Toggle sidebar">Sidebar ⇆</button>
-      <button id="z-toggle-right" class="btn" type="button" title="Toggle info panel">Info ⇆</button>
-
-      <button id="pc-cols-toggle" class="btn" type="button" title="Edit visible columns & widths">Columns</button>
-    </div>
-  </div>
-
-  <!-- Columns editor popover -->
-  <div id="pc-cols-panel" class="panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <strong>Columns</strong>
-      <button id="pc-cols-close" class="btn" type="button" aria-label="Close">✕</button>
-    </div>
-
-    <div class="row">
-      <em class="muted">Show / hide</em>
-      <div class="grid">
-        <label><input type="checkbox" data-col-toggle="title" disabled checked> Title (always on)</label><span></span>
-        <label><input type="checkbox" data-col-toggle="authors"> Authors</label><span></span>
-        <label><input type="checkbox" data-col-toggle="year"> Year</label><span></span>
-        <label><input type="checkbox" data-col-toggle="journal"> Journal</label><span></span>
-        <label><input type="checkbox" data-col-toggle="doi"> DOI</label><span></span>
-        <label><input type="checkbox" data-col-toggle="added"> Added</label><span></span>
-        <label><input type="checkbox" data-col-toggle="refs"> Refs</label><span></span>
-      </div>
-    </div>
-
-    <div class="row" style="margin-top:10px">
-      <em class="muted">Widths (ch units; leave blank = auto)</em>
-      <div class="grid">
-        <label>Authors</label><input class="z-input" data-col-width="authors" placeholder="e.g. 16">
-        <label>Year</label><input class="z-input" data-col-width="year" placeholder="e.g. 6">
-        <label>Journal</label><input class="z-input" data-col-width="journal" placeholder="e.g. 24">
-        <label>DOI</label><input class="z-input" data-col-width="doi" placeholder="e.g. 24">
-        <label>Added</label><input class="z-input" data-col-width="added" placeholder="e.g. 10">
-        <label>Refs</label><input class="z-input" data-col-width="refs" placeholder="e.g. 6">
-      </div>
-    </div>
-
-    <div class="row" style="display:flex;gap:8px">
-      <button id="pc-cols-reset" class="btn" type="button">Reset defaults</button>
-      <span class="muted">Saved automatically</span>
-    </div>
-  </div>
-
-  <!-- Left filters -->
-  <aside class="z-left" id="z-left">
-    <!-- Collections -->
-    <div class="z-group" data-key="grp-collections">
-      <div class="z-group-header">
-        <div class="z-group-title"><span class="z-caret">▾</span> Collections</div>
-        <button id="pc-col-add-btn" class="z-icon-btn" type="button" title="New collection">＋</button>
-      </div>
-      <div class="z-list">
-        <!-- All items (clears the `col` filter) -->
-        <a class="z-link {% if not selected.col %}active{% endif %}"
-          href="?{% qs_update current_params col=None page=None %}">
-          <span class="z-label">All items</span>
-          <span class="z-count">{{ collections_all_count }}</span>
-        </a>
-        {% for c in collections %}
-          <a class="z-link {% if selected.col|default:'' == c.id|stringformat:'s' %}active{% endif %}"
-            data-collection-id="{{ c.id }}"
-            href="?{% qs_update current_params col=c.id page=None %}">
-            <span class="z-label">{{ c.name }}</span>
-            <span class="z-count">{{ c.count }}</span>
-          </a>
-        {% empty %}
-          <div class="empty">No collections yet.</div>
-        {% endfor %}
-      </div>
-    </div>
-
-    <!-- Years -->
-    <div class="z-group" data-key="grp-years">
-      <div class="z-group-header">
-        <div class="z-group-title"><span class="z-caret">▾</span> Years</div>
-      </div>
-      <div class="z-list">
-        {% for y in facets.years %}
-          <a class="z-link z-link-year {% if selected.year == y.label %}active{% endif %}"
-             href="?{% qs_update current_params year=y.label page=None %}">
-            <span class="z-yearbar" style="width: {{ y.pct }}%"></span>
-            <span class="z-label">{{ y.label }}</span>
-            <span class="z-count">{{ y.count }}</span>
-          </a>
-        {% empty %}<div class="empty">—</div>{% endfor %}
-      </div>
-    </div>
-
-    <!-- Journals -->
-    <div class="z-group" data-key="grp-journals">
-      <div class="z-group-header">
-        <div class="z-group-title"><span class="z-caret">▾</span> Journals</div>
-      </div>
-      <div class="z-list">
-        {% for j, n in facets.journals %}
-          <a class="z-link {% if selected.journal == j %}active{% endif %}" href="?{% qs_update current_params journal=j page=None %}">
-            <span class="z-label">{{ j }}</span><span class="z-count">{{ n }}</span>
-          </a>
-        {% empty %}<div class="empty">—</div>{% endfor %}
-      </div>
-    </div>
-
-    <!-- Sites -->
-    <div class="z-group" data-key="grp-sites">
-      <div class="z-group-header">
-        <div class="z-group-title"><span class="z-caret">▾</span> Sites</div>
-      </div>
-      <div class="z-list">
-        {% for s, n in facets.sites %}
-          <a class="z-link {% if selected.site == s %}active{% endif %}" href="?{% qs_update current_params site=s page=None %}">
-            <span class="z-label">{{ s }}</span><span class="z-count">{{ n }}</span>
-          </a>
-        {% empty %}<div class="empty">—</div>{% endfor %}
-      </div>
-    </div>
-  </aside>
+  {% include "captures/_library_left.html" %}
 
   <div class="z-splitter z-splitter-left" id="z-splitter-left" title="Drag to resize"></div>
 
-  <!-- Center: table -->
-  <main class="z-center">
-    <table class="pc-table" id="pc-table" role="grid" aria-label="Library">
-      <thead>
-        <tr>
-          <th class="pc-col-title" data-col="title">
-            <a class="th-link" href="?{% qs_sort current_params 'title' sort dir 'asc' %}">
-              Title{% if sort == 'title' %}<span class="th-arrow">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
-            </a>
-          </th>
-          <th class="pc-col-tight" data-col="authors">Authors</th>
-          <th class="pc-col-tight" data-col="year">
-            <a class="th-link" href="?{% qs_sort current_params 'year' sort dir %}">
-              Year{% if sort == 'year' %}<span class="th-arrow">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
-            </a>
-          </th>
-          <th class="pc-col-tight" data-col="journal">
-            <a class="th-link" href="?{% qs_sort current_params 'journal' sort dir %}">
-              Journal{% if sort == 'journal' %}<span class="th-arrow">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
-            </a>
-          </th>
-          <th class="pc-col-tight" data-col="doi">DOI</th>
-          <th class="pc-col-tight" data-col="added">
-            <a class="th-link" href="?{% qs_sort current_params 'created_at' sort dir 'desc' %}">
-              Added{% if sort == 'created_at' or sort == 'added' %}<span class="th-arrow">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
-            </a>
-          </th>
-          <th class="pc-col-tight" data-col="refs">Refs</th>
-        </tr>
-      </thead>
-      <tbody id="pc-body">
-        {% for r in rows %}
-        <tr class="pc-row" data-id="{{ r.id }}" aria-selected="false"
-            data-title="{{ r.title|escape }}"
-            data-authors="{{ r.authors_intext|escape }}"
-            data-year="{{ r.year }}"
-            data-journal="{{ r.journal|escape }}"
-            data-doi="{{ r.doi|escape }}"
-            data-doi-url="{{ r.doi_url|default:'' }}"
-            data-url="{{ r.url|escape }}"
-            data-abstract="{{ r.abstract|escape }}"
-            data-keywords="{{ r.keywords|join:', '|escape }}">
-          <td class="pc-col-title" data-col="title">
-            <a class="pc-title" href="{% url 'capture_view' r.id %}">{{ r.title|default:r.url|default:"(Untitled)" }}</a>
-            {% if r.url %}<div class="pc-link"><a href="{{ r.url }}" target="_blank" rel="noreferrer">{{ r.site_label }}</a></div>{% endif %}
-          </td>
-          <td class="pc-col-tight" data-col="authors"><span class="pc-authors-inline" title="{{ r.authors_intext }}">{{ r.authors_intext }}</span></td>
-          <td class="pc-col-tight" data-col="year">{{ r.year }}</td>
-          <td class="pc-col-tight" data-col="journal" title="{{ r.journal }}">{{ r.journal_short }}</td>
-          <td class="pc-col-tight" data-col="doi">{% if r.doi_url %}<a href="{{ r.doi_url }}" target="_blank" rel="noreferrer">{{ r.doi }}</a>{% endif %}</td>
-          <td class="pc-col-tight" data-col="added">{{ r.added }}</td>
-          <td class="pc-col-tight" data-col="refs">{{ r.refs }}</td>
-        </tr>
-        {% empty %}
-          <tr><td colspan="7" class="empty">No items yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </main>
+  {% include "captures/_library_table.html" %}
 
   <div class="z-splitter z-splitter-right" id="z-splitter-right" title="Drag to resize"></div>
 
@@ -247,7 +36,9 @@
   </div>
 </div>
 
-<!-- Library-only CSS/JS (cache-busted here; not in base.html) -->
-<link rel="stylesheet" href="{% static 'captures/libraries.css' %}?v=10">
-<script src="{% static 'captures/library.js' %}?v=10"></script>
+{% load static qs capture_extras staticv %}
+
+<link rel="stylesheet" href="{% staticv 'captures/libraries.css' %}">
+<script type="module" src="{% staticv 'captures/library/index.js' %}"></script>
+<script src="{% staticv 'captures/library.toolbar.js' %}"></script>
 {% endblock %}

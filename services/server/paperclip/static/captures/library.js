@@ -3,6 +3,7 @@
 // PLUS: right-click context menu + drag & drop to Collections.
 // NEW: collection context menu (rename/delete), modal create/rename,
 //      sidebar collapsible groups, and "Remove from this collection" when filtered by a collection.
+// NEW: 3-state search mode chips (Text / Semantic / Hybrid) + better empty states (handled by template).
 
 (function () {
   const shell  = document.getElementById('z-shell');
@@ -26,7 +27,101 @@
   const colsReset  = document.getElementById('pc-cols-reset');
 
   const searchInput = document.querySelector('.z-search input[name=q]');
+  const searchModeInput = document.querySelector('.z-search input[name=search]');
+  const modeChips = document.querySelectorAll('.z-mode-chip');
   const colAddBtn   = document.getElementById('pc-col-add-btn');
+
+  // ---- Debounced search-as-you-type ----
+  let searchTimer = null;
+  let searchAbort = null;
+
+  function setSearchLoading(on){
+    document.querySelector('.z-search')?.classList.toggle('is-loading', !!on);
+  }
+  function pushUrlForQuery(q){
+    const url = buildQs({ q: (q && q.trim()) || null, page: null });
+    history.replaceState({}, '', url);
+  }
+  async function fetchAndReplaceTable(url, signal){
+    const resp = await fetch(url, { headers: { 'X-Requested-With': 'fetch' }, signal });
+    if (!resp.ok) return false;
+    const html = await resp.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const newBody = doc.querySelector('#pc-body');
+    if (!newBody) return false;
+    // Clear selection, replace rows, reset details
+    clearSelection();
+    tbody.innerHTML = newBody.innerHTML;
+    if (info) info.innerHTML = '<div class="z-info-empty">Select an item to see details.</div>';
+    return true;
+  }
+
+  // NEW: Search mode chips wiring
+  function urlParamsObj() {
+    const u = new URL(location.href);
+    const o = {};
+    u.searchParams.forEach((v, k) => { if (v !== '') o[k] = v; });
+    return o;
+  }
+  function setModeUI(targetMode){
+    modeChips.forEach(btn => {
+      const on = (btn.dataset.mode || '') === (targetMode || '');
+      btn.classList.toggle('active', on);
+    });
+  }
+  function setSearchMode(mode){
+    const val = (mode || '').trim();
+    if (searchModeInput) searchModeInput.value = val;
+    setModeUI(val);
+    setSearchLoading(true);
+    const url = buildQs({ search: (val || null), q: (searchInput?.value || '').trim() || null, page: null });
+    // fetch rendered HTML and swap table
+    fetchAndReplaceTable(url).catch(()=>{}).finally(() => {
+      setSearchLoading(false);
+      // keep focus in the input
+      if (searchInput){
+        searchInput.focus();
+        const L = searchInput.value.length;
+        searchInput.setSelectionRange(L, L);
+      }
+      history.replaceState({}, '', url);
+    });
+  }
+  // Initialize chips active state from URL (in case server cache missed)
+  (function initModeFromUrl(){
+    const prm = urlParamsObj();
+    const cur = (prm.search || (searchModeInput?.value || '')).trim();
+    setModeUI(cur);
+  })();
+  // Click handlers
+  modeChips.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const mode = btn.dataset.mode || '';
+      setSearchMode(mode);
+    });
+  });
+
+  searchInput?.addEventListener('input', () => {
+    const q = searchInput.value;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        if (searchAbort) searchAbort.abort();
+        const ctl = new AbortController(); searchAbort = ctl;
+        const url = buildQs({ q: q || null, page: null });
+        const ok = await fetchAndReplaceTable(url, ctl.signal);
+        if (ok) pushUrlForQuery(q);
+      } catch(_) { /* ignore */ }
+      finally {
+        setSearchLoading(false);
+        // keep focus in the box
+        searchInput.focus(); searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+      }
+    }, 250); // 200–300ms sweet spot
+  });
+
 
   function getCookie(name) {
     const m = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]*)'));
@@ -38,12 +133,6 @@
   }
   function escapeHtml(s) {
     return (s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  }
-  function urlParamsObj() {
-    const u = new URL(location.href);
-    const o = {};
-    u.searchParams.forEach((v, k) => { if (v !== '') o[k] = v; });
-    return o;
   }
   function currentCollectionId() {
     const p = new URL(location.href).searchParams;
@@ -105,25 +194,77 @@
     }
   });
 
+  // ---- Inline bulk delete with 5s Undo (optimistic) ----
+  let pendingDelete = null;
+
+  // Ensure we don’t lose a pending delete on navigation
+  window.addEventListener('beforeunload', () => {
+    if (pendingDelete && !pendingDelete.sent) {
+      try { pendingDelete.flushNow && pendingDelete.flushNow(); } catch(_) {}
+    }
+  });
+
   bulkBtn?.addEventListener('click', async (e) => {
     e.preventDefault();
     if (!selected.size) return;
-    if (!confirm(`Delete ${selected.size} selected item(s)?`)) return;
-    try {
-      const fd = new FormData();
-      fd.append('csrfmiddlewaretoken', csrfToken());
-      selected.forEach(id => fd.append('ids', id));
-      const resp = await fetch(bulkForm.action, {
-        method: 'POST', body: fd, credentials: 'same-origin',
-        headers: {'X-CSRFToken': csrfToken()}
-      });
-      if (resp.redirected) { window.location.href = resp.url; return; }
-      if (resp.ok) { window.location.reload(); return; }
-      alert(`Delete failed (${resp.status}).`);
-    } catch (err) {
-      alert(`Delete failed.\n${String(err)}`);
+
+    // If there is a previous pending delete, flush it now
+    if (pendingDelete && !pendingDelete.sent) {
+      try { await pendingDelete.flushNow(); } catch(_) {}
+      pendingDelete = null;
     }
+
+    const ids = Array.from(selected);
+    const rows = ids.map(id => tbody.querySelector(`tr.pc-row[data-id="${CSS.escape(id)}"]`)).filter(Boolean);
+    if (!ids.length || !rows.length) return;
+
+    // Optimistic: visually remove, clear selection
+    rows.forEach(tr => { tr.classList.add('pc-row--pending'); tr.setAttribute('aria-selected', 'false'); });
+    selected.clear(); updateBulk();
+
+    // Toast with Undo, and a delayed flush to server
+    let timer = null; let sent = false; let closed = false;
+
+    const flushNow = async () => {
+      if (sent) return; sent = true;
+      try {
+        const fd = new FormData();
+        fd.append('csrfmiddlewaretoken', csrfToken());
+        ids.forEach(id => fd.append('ids', id));
+        const resp = await fetch(bulkForm.action, {
+          method: 'POST', body: fd, credentials: 'same-origin',
+          headers: {'X-CSRFToken': csrfToken()}
+        });
+        if (resp.redirected) { window.location.href = resp.url; return; }
+        if (!resp.ok) throw new Error(`Delete failed (${resp.status})`);
+        // Remove rows from DOM permanently
+        rows.forEach(tr => tr.remove());
+        Toast?.show(`Deleted ${ids.length} item(s).`, { duration: 2500 });
+      } catch (err) {
+        // Roll back on error
+        rows.forEach(tr => tr.classList.remove('pc-row--pending'));
+        Toast?.show(`Delete failed. ${String(err)}`, { duration: 4000 });
+      }
+    };
+
+    const t = Toast?.show(`Deleted ${ids.length} item(s) — Undo`, {
+      actionText: 'Undo',
+      duration: 5000,
+      onAction: () => {
+        closed = true;
+        clearTimeout(timer);
+        // Roll back the UI
+        rows.forEach(tr => tr.classList.remove('pc-row--pending'));
+        // Re-select the items so the user can try again
+        rows.forEach(tr => toggleRow(tr, true));
+      }
+    });
+
+    // After 5s without undo, actually delete on the server
+    timer = setTimeout(() => { if (!closed) flushNow(); }, 5000);
+    pendingDelete = { flushNow, sent };
   });
+
 
   // -------------------- info panel + splitters --------------------
   const info = document.getElementById('z-info');
@@ -289,7 +430,12 @@
       a.addEventListener('click', (e) => { e.preventDefault(); onClose(); });
       return a;
     }
-    const params = urlParamsObj();
+    const params = (function(){
+      const u = new URL(location.href);
+      const o = {};
+      u.searchParams.forEach((v,k)=>{ if (v !== '') o[k] = v; });
+      return o;
+    })();
     const colLabelFromDOM = (() => {
       const activeColLink = document.querySelector('.z-left .z-group:first-child .z-link.active .z-label');
       return activeColLink ? activeColLink.textContent.trim() : null;
@@ -779,9 +925,6 @@
   });
 
   // -------------------- Right-click on Collections (rename/delete) --------------------
-  // Much more defensive: works even if you click the count or label inside the link,
-  // and won't break if we add nested elements later.
-
   let colMenuEl = null, colMenuTarget = null;
 
   function ensureColMenu(){
@@ -848,7 +991,6 @@
     const link = e.target.closest('.z-link[data-collection-id]');
     if (!link) return;
     e.preventDefault();
-    // Prevent any accidental navigation that some browsers trigger on right-click
     e.stopPropagation();
     showColMenu(e.pageX, e.pageY, link);
   });

@@ -6,7 +6,11 @@ from typing import Dict, List, Optional
 from bs4 import BeautifulSoup, Tag
 
 from . import register, register_meta
-from .base import DOI_RE, collapse_spaces, augment_from_raw
+from .base import (
+    DOI_RE, collapse_spaces, augment_from_raw,
+    heading_text, dedupe_keep_order, is_heading, paras_between,
+    dedupe_section_nodes
+)
 
 # -------------------------- small helpers --------------------------
 
@@ -17,26 +21,7 @@ _NONCONTENT_RX = re.compile(
 )
 
 def _txt(x: Optional[str]) -> str:
-    return re.sub(r"\s+", " ", (x or "").replace("\xa0", " ")).strip()
-
-def _heading_text(h: Optional[Tag]) -> str:
-    if not h:
-        return ""
-    t = _txt(h.get_text(" ", strip=True))
-    # Strip outline numbers like "1.", "2.4", "1)"
-    return re.sub(r"^\s*\d+(?:\.\d+)*\s*[\.\)]?\s*", "", t)
-
-def _dedupe_keep_order(items: List[str]) -> List[str]:
-    seen, out = set(), []
-    for k in items:
-        lk = k.lower().strip()
-        if lk and lk not in seen:
-            seen.add(lk)
-            out.append(k.strip())
-    return out
-
-def _is_heading(tag: Tag) -> bool:
-    return isinstance(tag, Tag) and tag.name in {"h2", "h3", "h4"}
+    return collapse_spaces(x)
 
 def _looks_like_kw_host(tag: Tag) -> bool:
     if not isinstance(tag, Tag):
@@ -46,6 +31,14 @@ def _looks_like_kw_host(tag: Tag) -> bool:
     return ("keyword" in cid) or ("keyword" in cls)
 
 # -------------------------- Abstract --------------------------
+
+def _next_heading(h: Tag) -> Optional[Tag]:
+    cur = h.next_sibling
+    while cur:
+        if isinstance(cur, Tag) and is_heading(cur):
+            return cur
+        cur = cur.next_sibling
+    return None
 
 def _extract_abstract(soup: BeautifulSoup) -> Optional[str]:
     # 1) Explicit abstract containers
@@ -59,14 +52,14 @@ def _extract_abstract(soup: BeautifulSoup) -> Optional[str]:
             return " ".join(paras)
 
     # 2) Heading "Abstract" → paragraphs until next heading
-    head = soup.find(lambda t: _is_heading(t) and re.search(r"\babstract\b", _heading_text(t), re.I))
+    head = soup.find(lambda t: is_heading(t) and re.search(r"\babstract\b", heading_text(t), re.I))
     if head:
-        paras = _paras_between(head, _next_heading(head))
+        paras = paras_between(head, _next_heading(head))
         if paras:
             return " ".join(paras)
 
-    # 3) Fallback: paragraphs *above* the "Introduction" heading (Frontiers often uses loose <p> before H2)
-    intro = soup.find(lambda t: _is_heading(t) and re.search(r"\bintroduction\b", _heading_text(t), re.I))
+    # 3) Fallback: paragraphs *above* the "Introduction" heading
+    intro = soup.find(lambda t: is_heading(t) and re.search(r"\bintroduction\b", heading_text(t), re.I))
     if intro:
         out: List[str] = []
         sib = intro.previous_sibling
@@ -74,7 +67,7 @@ def _extract_abstract(soup: BeautifulSoup) -> Optional[str]:
         while sib is not None and steps < 40:
             steps += 1
             if isinstance(sib, Tag):
-                if _is_heading(sib) and re.search(_HEAD_RX, _heading_text(sib)):
+                if is_heading(sib) and re.search(_HEAD_RX, heading_text(sib)):
                     break
                 if sib.name == "p":
                     t = _txt(sib.get_text(" ", strip=True))
@@ -96,7 +89,7 @@ def _extract_keywords(soup: BeautifulSoup) -> List[str]:
         items = [re.sub(r"^\s*Keywords?\s*:\s*", "", _txt(t), flags=re.I) for t in items]
         items = [t for t in items if t and len(t) > 1]
         if items:
-            return _dedupe_keep_order(items)
+            return dedupe_keep_order(items)
 
     # Fallback: any paragraph that starts with “Keywords:”
     p = soup.find(string=re.compile(r"^\s*Keywords?\s*:", re.I))
@@ -104,56 +97,16 @@ def _extract_keywords(soup: BeautifulSoup) -> List[str]:
         text = re.sub(r"^\s*Keywords?\s*:\s*", "", p, flags=re.I)
         parts = [x.strip() for x in re.split(r"[;,/]|[\r\n]+", text) if x.strip()]
         if parts:
-            return _dedupe_keep_order(parts)
+            return dedupe_keep_order(parts)
 
     return []
 
 # -------------------------- Sections --------------------------
 
-def _paras_between(h: Tag, next_h: Optional[Tag]) -> List[str]:
-    """
-    Collect visible paragraph-like text nodes that appear between a heading and the next heading.
-    IMPORTANT: Frontiers often places the first paragraph as a direct sibling <p> of <h2>,
-    e.g. <h2>Introduction</h2><p class="mb15">…</p> — handle that explicitly.
-    """
-    out: List[str] = []
-    sib = h.next_sibling
-    while sib and sib is not next_h:
-        if isinstance(sib, Tag):
-            if _is_heading(sib):
-                break
-            # 1) direct <p> sibling (the bit we were missing)
-            if sib.name == "p":
-                t = _txt(sib.get_text(" ", strip=True))
-                if t:
-                    out.append(t)
-            # 2) lists directly under the container
-            elif sib.name in {"ul", "ol"}:
-                for li in sib.find_all("li", recursive=True):
-                    t = _txt(li.get_text(" ", strip=True))
-                    if t:
-                        out.append(t)
-            # 3) otherwise, any nested <p> within this sibling subtree
-            else:
-                for p in sib.find_all("p"):
-                    t = _txt(p.get_text(" ", strip=True))
-                    if t:
-                        out.append(t)
-        sib = sib.next_sibling
-    return out
-
-def _next_heading(h: Tag) -> Optional[Tag]:
-    cur = h.next_sibling
-    while cur:
-        if isinstance(cur, Tag) and _is_heading(cur):
-            return cur
-        cur = cur.next_sibling
-    return None
-
 def _extract_sections(soup: BeautifulSoup) -> List[Dict[str, object]]:
     root = soup.find("div", class_=re.compile(r"JournalFullText", re.I)) \
         or soup.find("article") or soup.find("main") or soup
-    headings = [h for h in root.find_all(["h2", "h3", "h4"]) if not _NONCONTENT_RX.search(_heading_text(h))]
+    headings = [h for h in root.find_all(["h2", "h3", "h4"]) if not _NONCONTENT_RX.search(heading_text(h))]
     if not headings:
         return []
 
@@ -165,14 +118,14 @@ def _extract_sections(soup: BeautifulSoup) -> List[Dict[str, object]]:
 
     for i, h in enumerate(headings):
         lvl = level_of(h)
-        title = _heading_text(h)
+        title = heading_text(h)
         if not title:
             continue
         next_h = None
         for k in headings[i + 1:]:
             next_h = k
             break
-        node: Dict[str, object] = {"title": title, "paragraphs": _paras_between(h, next_h)}
+        node: Dict[str, object] = {"title": title, "paragraphs": paras_between(h, next_h)}
 
         while stack and stack[-1][0] >= lvl:
             stack.pop()
@@ -182,26 +135,13 @@ def _extract_sections(soup: BeautifulSoup) -> List[Dict[str, object]]:
             top.append(node)
         stack.append((lvl, node))
 
-    # De-dup by (title, children_count)
-    seen, uniq = set(), []
-    for n in top:
-        key = ((n.get("title") or "").strip().lower(), len(n.get("children", []) or []))
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append(n)
-    return uniq
+    return dedupe_section_nodes(top)
 
 # -------------------------- References (Frontiers blocks) --------------------------
 
 def parse_frontiers(_url: str, dom_html: str) -> List[Dict[str, object]]:
     """
-    Frontiers references appear as multiple
-      <div class="References">
-        <p class="ReferencesCopy1">…full citation text…</p>
-        <p class="ReferencesCopy2"><a href="https://doi.org/...">CrossRef Full Text</a> | …</p>
-      </div>
-    We take the main text from ReferencesCopy1 and the DOI from any link or inline text.
+    Frontiers references appear as multiple <div class="References"> ... </div> blocks.
     """
     soup = BeautifulSoup(dom_html or "", "html.parser")
     out: List[Dict[str, object]] = []
@@ -253,9 +193,6 @@ def parse_frontiers(_url: str, dom_html: str) -> List[Dict[str, object]]:
 # -------------------------- public entry (meta/sections) --------------------------
 
 def extract_frontiers_meta(_url: str, dom_html: str) -> Dict[str, object]:
-    """
-    Returns dict with keys: abstract:str?, keywords:list[str], sections:list[dict]
-    """
     soup = BeautifulSoup(dom_html or "", "html.parser")
     abs_text = _extract_abstract(soup)
     keywords = _extract_keywords(soup)

@@ -68,6 +68,8 @@ class LibraryView(View):
         facets = _build_facets(base_qs)
         collections = _collections_with_counts()
 
+        selected = {"q": qterm, "year": year, "journal": journal, "site": site, "col": col, "search": search_mode}
+
         if qterm:
             ids = _search_ids_for_query(qterm, search_mode)
             filtered, _rank = _filter_and_rank(ids, year=year, journal=journal, site=site, col=col)
@@ -89,7 +91,7 @@ class LibraryView(View):
                     "sort": sort,
                     "dir": direction,
                     "current_params": request.GET,
-                    "selected": {"q": qterm, "year": year, "journal": journal, "site": site, "col": col},
+                    "selected": selected,
                     "facets": facets,
                     "collections": collections,
                     "collections_all_count": collections_all_count,
@@ -113,7 +115,7 @@ class LibraryView(View):
                 "sort": sort,
                 "dir": direction,
                 "current_params": request.GET,
-                "selected": {"q": qterm, "year": year, "journal": journal, "site": site, "col": col},
+                "selected": selected,
                 "facets": facets,
                 "collections": collections,
                 "collections_all_count": collections_all_count,
