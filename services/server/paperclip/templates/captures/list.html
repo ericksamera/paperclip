@@ -16,29 +16,5 @@
 
   <div class="z-splitter z-splitter-right" id="z-splitter-right" title="Drag to resize"></div>
 
-  <!-- Right info panel -->
-  <aside class="z-right" id="z-right">
-    <div class="z-info" id="z-info">
-      <div class="z-info-empty">Select an item to see details.</div>
-    </div>
-  </aside>
-</div>
-
-<!-- Simple modal used for New/Rename collection -->
-<div id="pc-modal" class="pc-modal" aria-hidden="true">
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="pc-modal-title">
-    <h3 id="pc-modal-title">Title</h3>
-    <div class="row"><input id="pc-modal-input" class="z-input" placeholder="Name"></div>
-    <div class="actions">
-      <button id="pc-modal-cancel" class="btn" type="button">Cancel</button>
-      <button id="pc-modal-submit" class="btn btn--primary" type="button">OK</button>
-    </div>
-  </div>
-</div>
-
-{% load static qs capture_extras staticv %}
-
-<link rel="stylesheet" href="{% staticv 'captures/libraries.css' %}">
-<script type="module" src="{% staticv 'captures/library/index.js' %}"></script>
-<!-- removed legacy include: <!-- removed legacy include: <script src="{% staticv 'captures/library.toolbar.js' %}"></script> --> -->
+   --> --> -->
 {% endblock %}
