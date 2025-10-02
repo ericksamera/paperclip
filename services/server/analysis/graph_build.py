@@ -43,7 +43,6 @@ def collect_docs() -> List[Doc]:
         if isinstance(kws, list) and kws:
             parts.append(" ".join([str(k) for k in kws]))
 
-        # references (prefer reduced-view list; otherwise fall back to DB rows)
         refs_list: List[Dict[str, Any]] = []
         refs_doi: List[str] = []
         vrefs = (view.get("references") or [])
@@ -64,16 +63,18 @@ def collect_docs() -> List[Doc]:
                 if d:
                     refs_doi.append(d)
 
-        docs.append(Doc(
-            id=str(c.id),
-            title=(c.title or "(Untitled)"),
-            year=str(c.year or ""),
-            doi=norm_doi(c.doi),
-            url=c.url or "",
-            text=" ".join([t for t in parts if t]),
-            refs_doi=refs_doi,
-            refs=refs_list,
-        ))
+        docs.append(
+            Doc(
+                id=str(c.id),
+                title=c.title or "",
+                year=c.year or "",
+                doi=c.doi or "",
+                url=c.url or "",
+                text=" ".join(parts),
+                refs_doi=refs_doi,
+                refs=refs_list,
+            )
+        )
     return docs
 
 def build_citation_edges(docs: List[Doc]) -> List[Dict[str, Any]]:

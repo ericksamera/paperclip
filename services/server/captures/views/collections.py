@@ -87,9 +87,12 @@ def collection_assign(request, pk: int):
 
 def collection_download_views(request, cid: str):
     """
-    Download a zip of all reduced views (view.json) for the current collection (or 'all'),
+    Download a zip of all reduced views (tolerant reader) for the current collection (or 'all'),
     naming each entry as: {year}_{first-author}_{journal-short}__{UUID}.json
     """
+    import io, zipfile, json
+    from captures.reduced_view import read_reduced_view
+
     if cid == "all":
         caps = Capture.objects.all()
         label = "all-items"
@@ -101,13 +104,12 @@ def collection_download_views(request, cid: str):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for c in caps:
-            p = artifact_path(str(c.id), "view.json")
-            if not p.exists():
+            rv = read_reduced_view(str(c.id))
+            if not rv:
                 continue
             slug = _slug_for_capture(c)
-            # Keep UUID suffix to guarantee uniqueness inside the zip
             arcname = f"{slug}__{c.id}.json"
-            zf.write(p, arcname=arcname)
+            zf.writestr(arcname, json.dumps(rv, ensure_ascii=False, indent=2))
 
     buf.seek(0)
     resp = HttpResponse(buf.read(), content_type="application/zip")

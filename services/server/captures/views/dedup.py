@@ -8,6 +8,7 @@ from django.views.decorators.http import require_POST
 from django.utils import timezone
 
 from captures.models import Capture, Reference
+from captures.reduced_view import read_reduced_view
 from paperclip.artifacts import artifact_path, read_json_artifact
 
 from .common import _journal_full
@@ -45,16 +46,14 @@ def _group_key(ids):
     return ",".join(sorted(ids))
 
 
-
-# replace _preview_for with:
 def _preview_for(c: Capture) -> str:
     """
     Small, stable preview for the dedup table:
-      1) Prefer data/artifacts/<id>/view.json -> sections.abstract_or_body (first 1–3 paras)
+      1) Prefer reduced-view paragraphs: sections.abstract_or_body (first 1–3)
       2) Fallback to meta.abstract or csl.abstract
     """
     try:
-        view = read_json_artifact(str(c.id), "view.json", default={})
+        view = read_reduced_view(str(c.id))
         paras = ((view.get("sections") or {}).get("abstract_or_body") or [])
         txt = " ".join((paras[:3] or []))
         if txt:
@@ -71,7 +70,6 @@ def _preview_for(c: Capture) -> str:
         txt = _re.sub(r"\s+", " ", txt)
         return (txt[:280] + "…") if len(txt) > 280 else txt
     return ""
-
 
 
 def _format_added(dt):

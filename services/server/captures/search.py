@@ -137,12 +137,10 @@ def _flatten_sections_text(nodes) -> List[str]:
 
 
 def _body_text_from_view(capture_id: str) -> str:
-    """
-    Body text from the reduced view; tolerant to legacy filenames via read_reduced_view().
-    """
+    from captures.reduced_view import read_reduced_view
     try:
-        rv = read_reduced_view(capture_id)
-        sec = (rv.get("sections") or {}).get("abstract_or_body") or []
+        view = read_reduced_view(str(capture_id))
+        sec = (view.get("sections") or {}).get("abstract_or_body") or []
         if isinstance(sec, list) and sec:
             return " ".join([str(x) for x in sec if x])
     except Exception:

@@ -1,8 +1,8 @@
+# services/server/captures/dedup.py
 from __future__ import annotations
-import json, re
-from typing import Dict, List, Tuple
+import re
+from typing import Dict, List
 from datasketch import MinHash, MinHashLSH
-from paperclip.artifacts import artifact_path
 from captures.reduced_view import read_reduced_view
 from captures.models import Capture
 
@@ -24,7 +24,6 @@ def _text_for(c: Capture) -> str:
 
     return " ".join(bits)
 
-
 def _minhash(text: str, num_perm: int = 128) -> MinHash:
     mh = MinHash(num_perm=num_perm)
     toks = [w.lower() for w in TOKEN_RE.findall(text)]
@@ -44,7 +43,8 @@ def find_near_duplicates(threshold: float = 0.85) -> List[List[str]]:
         lsh.insert(pk, mh)
     seen, groups = set(), []
     for pk, mh in mhs.items():
-        if pk in seen: continue
+        if pk in seen:
+            continue
         bucket = set(lsh.query(mh))
         if len(bucket) > 1:
             groups.append(sorted(bucket))

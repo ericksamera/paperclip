@@ -26,7 +26,6 @@ def read_reduced_view(capture_id: str) -> Dict[str, Any]:
     try:
         from paperclip.artifacts import read_json_artifact
     except Exception:
-        # Very defensive; if import fails, behave as empty.
         return {}
 
     for name in ("view.json", "server_output_reduced.json", "parsed.json"):
