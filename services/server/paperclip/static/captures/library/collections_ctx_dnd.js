@@ -329,41 +329,47 @@ function wireNewCollectionButton() {
 
 // Right‑click on Collections (Open/Rename/Delete)
 let colMenuEl = null, colMenuTarget = null, _wiredLeft = false;
-function ensureColMenu() {
+function ensureColMenu(){
   if (colMenuEl) return;
-  colMenuEl = document.createElement("div");
-  colMenuEl.className = "pc-context";
+  colMenuEl = document.createElement('div');
+  colMenuEl.className = 'pc-context';
   colMenuEl.innerHTML = `
     <ul class="pc-menu">
       <li data-act="open">Open</li>
+      <li data-act="dashboard">Open dashboard</li>
       <li data-act="rename">Rename…</li>
       <li class="danger" data-act="delete">Delete…</li>
     </ul>
   `;
   document.body.appendChild(colMenuEl);
-  colMenuEl.addEventListener("click", onColMenuClick);
-  window.addEventListener("click", (e) => { if (!colMenuEl.contains(e.target)) hideColMenu(); });
-  window.addEventListener("scroll", hideColMenu, { passive: true });
-  window.addEventListener("resize", hideColMenu);
+  colMenuEl.addEventListener('click', onColMenuClick);
+
+  // Close on any outside click/scroll/resize
+  window.addEventListener('click', (e) => { if (!colMenuEl.contains(e.target)) hideColMenu(); });
+  window.addEventListener('scroll', hideColMenu, { passive: true });
+  window.addEventListener('resize', hideColMenu);
 }
-function onColMenuClick(e) {
+
+function onColMenuClick(e){
   const a = colMenuTarget;
   if (!a) return hideColMenu();
-  const id    = a.getAttribute("data-collection-id");
-  const label = (a.querySelector(".z-label")?.textContent || a.textContent || "").trim();
-  const act   = e.target.closest?.("[data-act]")?.getAttribute("data-act");
+  const id = a.getAttribute('data-collection-id');
+  const label = (a.querySelector('.z-label')?.textContent || '').trim();
+  const act = e.target.closest('[data-act]')?.getAttribute('data-act');
   if (!act) return;
 
-  if (act === "open") {
-    window.location.href = a.href || a.getAttribute("href") || "#";
-  } else if (act === "rename") {
+  if (act === 'open') {
+    window.location.href = a.href || a.getAttribute('href') || '#';
+  } else if (act === 'dashboard') {
+    if (id) window.location.href = `/collections/${encodeURIComponent(id)}/dashboard/`;
+  } else if (act === 'rename') {
     openInputModal({
-      title: "Rename collection",
+      title: 'Rename collection',
       initial: label,
-      submitText: "Save",
-      onSubmit: (val) => renameCollection(id, val),
+      submitText: 'Save',
+      onSubmit: (val) => renameCollection(id, val)
     });
-  } else if (act === "delete") {
+  } else if (act === 'delete') {
     if (confirm(`Delete collection “${label}”? Items remain in All items.`)) {
       deleteCollection(id);
     }

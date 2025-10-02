@@ -1,10 +1,9 @@
 # services/server/paperclip/urls.py
 from django.contrib import admin
-from django.urls import include, path
+from django.urls import include, path, re_path
 from django.views.generic import RedirectView
 from rest_framework.routers import DefaultRouter
 
-from django.urls import path, re_path
 from captures import views as cap_views
 from analysis import views as analysis_views
 from paperclip.api import CaptureViewSet, healthz, enrich_doi
@@ -27,6 +26,10 @@ urlpatterns = [
     path("collections/<int:pk>/delete/", cap_views.collection_delete, name="collection_delete"),
     path("collections/<int:pk>/assign/", cap_views.collection_assign, name="collection_assign"),
     path("collections/<str:cid>/download-views.zip", cap_views.collection_download_views, name="collection_download_views"),
+
+    # NEW: per‑collection dashboard + summary API
+    path("collections/<int:pk>/dashboard/", cap_views.collection_dashboard, name="collection_dashboard"),
+    path("collections/<int:pk>/summary.json", cap_views.collection_summary_json, name="collection_summary_json"),
 
     # Dedup UI
     path("dedup/", cap_views.dedup_review, name="dedup_review"),

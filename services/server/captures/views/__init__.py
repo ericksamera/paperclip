@@ -1,3 +1,4 @@
+# services/server/captures/views/__init__.py
 from __future__ import annotations
 
 from .library import LibraryView, library_page
@@ -12,6 +13,9 @@ from .captures import (
 from .dedup import (
     dedup_review, dedup_scan_view, dedup_merge, dedup_ignore,
 )
+from .dashboard import (  # NEW
+    collection_dashboard, collection_summary_json,
+)
 
 __all__ = [
     # library
@@ -24,4 +28,6 @@ __all__ = [
     "capture_enrich_refs", "capture_export", "capture_artifact",
     # dedup
     "dedup_review", "dedup_scan_view", "dedup_merge", "dedup_ignore",
+    # dashboard
+    "collection_dashboard", "collection_summary_json",
 ]
