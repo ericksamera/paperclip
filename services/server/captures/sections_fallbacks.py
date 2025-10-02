@@ -2,6 +2,7 @@ from __future__ import annotations
 import html
 import re
 from typing import Dict, Optional, Tuple, List
+from captures.keywords import split_keywords
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE  = re.compile(r"[ \t\r\f\v]+")
@@ -92,16 +93,6 @@ def _extract_abstract(dom_html: str) -> Optional[str]:
 
 # ---------- head-meta helpers ----------
 
-def _split_keywords(v: str) -> List[str]:
-    parts = [p.strip() for p in re.split(r"[;,/]", v or "") if p.strip()]
-    # dedupe (case-insensitive) in-order
-    seen, out = set(), []
-    for p in parts:
-        k = p.lower()
-        if k not in seen:
-            seen.add(k); out.append(p)
-    return out
-
 def _parse_authors(dom_html: str) -> List[str]:
     # Multiple <meta name="citation_author" content="...">
     out: List[str] = []
@@ -149,7 +140,7 @@ def fallbacks(url: str | None, dom_html: str, content_html: str) -> Dict[str, ob
 
     container = _find_meta(dom_html, ("citation_journal_title", "prism.publicationname")) or ""
     keywords_meta = _find_meta(dom_html, ("citation_keywords", "keywords", "dc.subject")) or ""
-    keywords = _split_keywords(keywords_meta) if keywords_meta else []
+    keywords = split_keywords(keywords_meta) if keywords_meta else []
 
     authors = _parse_authors(dom_html)
 

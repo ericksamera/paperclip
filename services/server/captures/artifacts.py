@@ -1,40 +1,43 @@
+# services/server/captures/artifacts.py
 from __future__ import annotations
 
 import importlib
 from typing import Any, Dict
 
-
 def build_server_parsed(cap, extraction: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Build the 'server parsed' doc. We lazy-import the optional
-    `paperclip_parser` so tests can patch this symbol without an import-time
-    failure and local dev works without that extra package.
+    Canonical adapter to the paperclip-parser package.
+
+    The public API is: parse_html_to_server_parsed(cap, extraction) -> pydantic model or dict
+    We normalize the result to a plain dict so json.dump works and downstream .get() calls are safe.
+    Any exception falls back to a tiny placeholder doc to keep ingest resilient.
     """
+    # Best-effort import of optional parser
     try:
         parser_mod = importlib.import_module("paperclip_parser")
         parse = getattr(parser_mod, "parse_html_to_server_parsed")
     except Exception:
         return _fallback_doc(cap, extraction)
 
-    html = (extraction or {}).get("html") or (extraction or {}).get("content") or ""
-    base_url = getattr(cap, "url", None)
-    head_meta = getattr(cap, "head_meta", None) or (extraction or {}).get("head_meta")
-
-    # Try common signatures; fall back if they don't match.
     try:
-        return parse(html=html, base_url=base_url, head_meta=head_meta)  # type: ignore[misc]
-    except TypeError:
-        try:
-            return parse(html, base_url, head_meta)  # type: ignore[misc]
-        except Exception:
-            return _fallback_doc(cap, extraction)
-
+        out = parse(cap, extraction)  # <- correct, modern signature
+        # Normalize to plain dict regardless of model type
+        if isinstance(out, dict):
+            return out
+        if hasattr(out, "model_dump"):            # pydantic v2
+            return out.model_dump()               # type: ignore[attr-defined]
+        if hasattr(out, "dict"):                  # pydantic v1
+            return out.dict()                     # type: ignore[attr-defined]
+        return _fallback_doc(cap, extraction)     # unknown type
+    except Exception:
+        return _fallback_doc(cap, extraction)
 
 def _fallback_doc(cap, extraction: Dict[str, Any]) -> Dict[str, Any]:
+    # Minimal doc; uses keys expected by artifact_pipeline (metadata/references/title)
     return {
         "id": str(getattr(cap, "id", "")) or "fallback",
-        "title": getattr(cap, "title", "") or (extraction or {}).get("title") or "",
+        "title": (getattr(cap, "title", "") or (extraction or {}).get("title") or "").strip(),
         "url": getattr(cap, "url", None),
-        "sections": [],
-        "meta": {"parser": "fallback", "reason": "paperclip_parser not installed"},
+        "metadata": {},
+        "references": [],
     }

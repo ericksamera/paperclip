@@ -8,6 +8,7 @@ from django.db import connection as _default_connection
 from paperclip.artifacts import read_json_artifact
 
 from captures.reduced_view import read_reduced_view
+from captures.keywords import split_keywords
 
 _FTS = "capture_fts"
 
@@ -149,12 +150,6 @@ def _body_text_from_view(capture_id: str) -> str:
     return ""
 
 
-
-def _split_keywords(v: str) -> List[str]:
-    parts = re.split(r"[;,|]", v)
-    return [p.strip() for p in parts if p.strip()]
-
-
 def _body_text_from_meta(meta: dict, csl: dict) -> str:
     bits = []
     if meta.get("abstract"):
@@ -178,7 +173,7 @@ def _build_row(c) -> tuple[str, str, str, str, str]:
 
     kw = meta.get("keywords") or []
     if isinstance(kw, str):
-        kw = _split_keywords(kw)
+        kw = split_keywords(kw)
     if isinstance(kw, list) and kw:
         body_parts.extend([str(k) for k in kw if k])
 
