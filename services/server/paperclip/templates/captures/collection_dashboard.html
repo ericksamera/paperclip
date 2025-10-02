@@ -19,22 +19,30 @@
   <div id="pc-dash-grid" class="pc-dash-grid">
     <section class="pc-card">
       <h3>Timeline (by year)</h3>
-      <canvas id="pc-chart-years" height="160"></canvas>
+      <div class="pc-chart pc-chart--sm">
+        <canvas id="pc-chart-years"></canvas>
+      </div>
     </section>
 
     <section class="pc-card">
       <h3>Top journals</h3>
-      <canvas id="pc-chart-journals" height="240"></canvas>
+      <div class="pc-chart pc-chart--md">
+        <canvas id="pc-chart-journals"></canvas>
+      </div>
     </section>
 
     <section class="pc-card">
       <h3>Top sites</h3>
-      <canvas id="pc-chart-sites" height="240"></canvas>
+      <div class="pc-chart pc-chart--md">
+        <canvas id="pc-chart-sites"></canvas>
+      </div>
     </section>
 
     <section class="pc-card">
       <h3>Top authors (family)</h3>
-      <canvas id="pc-chart-authors" height="240"></canvas>
+      <div class="pc-chart pc-chart--md">
+        <canvas id="pc-chart-authors"></canvas>
+      </div>
     </section>
   </div>
 </div>
@@ -46,16 +54,17 @@
     <button id="pc-mount-graph" class="btn" type="button">Mount graph (beta)</button>
   </div>
   <div id="pc-graph-host" style="margin-top:10px;display:none">
-    <iframe id="pc-graph-iframe" src="{% url 'analysis_graph_embed' %}" style="width:100%;height:70vh;border:0;background:#0f141a"></iframe>
+    <iframe id="pc-graph-iframe" src="{% url 'analysis_graph_embed' %}"
+            style="width:100%;height:70vh;border:0;background:#0f141a"></iframe>
     <div class="muted" style="margin-top:6px">Note: currently shows the latest global graph run. Per‑collection subgraph is a short follow‑up (see “Next steps”).</div>
   </div>
 </div>
 
 <!-- Chart.js from CDN; matches your pattern of CDN‑loading D3 in /analysis/graph -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<link rel="stylesheet" href="{% static 'captures/collection_dashboard.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'captures/collection_dashboard.css' %}?v=2">
 <script>
   window.PCDASH = Object.freeze({ collectionId: {{ collection.id }} });
 </script>
-<script src="{% static 'captures/collection_dashboard.js' %}?v=1" type="module"></script>
+<script src="{% static 'captures/collection_dashboard.js' %}?v=2" type="module"></script>
 {% endblock %}

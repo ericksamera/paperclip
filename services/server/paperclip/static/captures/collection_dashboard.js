@@ -18,7 +18,9 @@ function barOpts({ horizontal = false, maxTicks = 6 } = {}) {
   return {
     indexAxis: horizontal ? "y" : "x",
     responsive: true,
-    maintainAspectRatio: false,
+    maintainAspectRatio: false,     // size to parent wrapper height
+    resizeDelay: 120,               // soften resize storms
+    animation: false,               // avoid layout thrash on first paint
     plugins: { legend: { display: false } },
     scales: {
       x: { ticks: { autoSkip: true, maxTicksLimit: maxTicks }, grid: { color: cssVar("--line") } },
@@ -93,7 +95,6 @@ function wireGraphMount() {
   if (!btn || !host) return;
   btn.addEventListener("click", () => {
     host.style.display = "block";
-    // Tell the iframe the current theme so it paints correctly (your /graph/embed supports theme param)
     try {
       const iframe = document.getElementById("pc-graph-iframe");
       if (iframe && iframe.contentWindow) {
