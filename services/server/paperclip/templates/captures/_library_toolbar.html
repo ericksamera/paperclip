@@ -77,44 +77,30 @@
 
     <button id="z-toggle-left" class="btn" type="button" title="Toggle sidebar">Sidebar ⇆</button>
     <button id="z-toggle-right" class="btn" type="button" title="Toggle info panel">Info ⇆</button>
-    <button id="pc-cols-toggle" class="btn" type="button" title="Edit visible columns & widths">Columns</button>
+    <button id="pc-cols-toggle" class="btn" type="button" title="Choose columns & order">Columns</button>
   </div>
 </div>
 
-<!-- Columns editor popover -->
-<div id="pc-cols-panel" class="panel">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-    <strong>Columns</strong>
-    <button id="pc-cols-close" class="btn" type="button" aria-label="Close">✕</button>
-  </div>
+<!-- Columns drawer (replaces the old #pc-cols-panel popover) -->
+<div id="pc-cols-drawer" class="pc-drawer" aria-hidden="true">
+  <div class="backdrop" id="pc-cols-drawer-backdrop" tabindex="-1" aria-hidden="true"></div>
 
-  <div class="row">
-    <em class="muted">Show / hide</em>
-    <div class="grid">
-      <label><input type="checkbox" data-col-toggle="title" disabled checked> Title (always on)</label><span></span>
-      <label><input type="checkbox" data-col-toggle="authors"> Authors</label><span></span>
-      <label><input type="checkbox" data-col-toggle="year"> Year</label><span></span>
-      <label><input type="checkbox" data-col-toggle="journal"> Journal</label><span></span>
-      <label><input type="checkbox" data-col-toggle="doi"> DOI</label><span></span>
-      <label><input type="checkbox" data-col-toggle="added"> Added</label><span></span>
-      <label><input type="checkbox" data-col-toggle="refs"> Refs</label><span></span>
+  <aside class="panel" role="dialog" aria-modal="true" aria-label="Columns">
+    <div class="header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <strong>Columns</strong>
+      <button id="pc-cols-close" class="btn" type="button" aria-label="Close">✕</button>
     </div>
-  </div>
 
-  <div class="row" style="margin-top:10px">
-    <em class="muted">Widths (ch units; leave blank = auto)</em>
-    <div class="grid">
-      <label>Authors</label><input class="z-input" data-col-width="authors" placeholder="e.g. 16">
-      <label>Year</label><input class="z-input" data-col-width="year" placeholder="e.g. 6">
-      <label>Journal</label><input class="z-input" data-col-width="journal" placeholder="e.g. 24">
-      <label>DOI</label><input class="z-input" data-col-width="doi" placeholder="e.g. 24">
-      <label>Added</label><input class="z-input" data-col-width="added" placeholder="e.g. 10">
-      <label>Refs</label><input class="z-input" data-col-width="refs" placeholder="e.g. 6">
+    <div class="row">
+      <em class="muted">Show / hide & drag to reorder</em>
+      <ul id="pc-cols-list" class="pc-cols-list" aria-label="Columns order and visibility">
+        {# Rows are injected by JS to reflect saved order; keep server markup minimal #}
+      </ul>
     </div>
-  </div>
 
-  <div class="row" style="display:flex;gap:8px">
-    <button id="pc-cols-reset" class="btn" type="button">Reset defaults</button>
-    <span class="muted">Saved automatically</span>
-  </div>
+    <div class="row" style="display:flex;gap:8px;align-items:center">
+      <button id="pc-cols-reset" class="btn" type="button">Reset defaults</button>
+      <span class="muted">Saved automatically</span>
+    </div>
+  </aside>
 </div>
