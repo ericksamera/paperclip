@@ -1,4 +1,4 @@
-// captures/library/dom.js
+/* services/server/paperclip/static/captures/library/dom.js */
 // One place for tiny DOM utils + UX helpers used across the Library UI.
 // Export as ESM and also attach to window (so classic scripts can use it).
 
@@ -19,7 +19,7 @@ export function buildQs(next) {
     if (v === null || v === undefined || v === "") p.delete(k);
     else p.set(k, String(v));
   });
-  if (!("page" in next)) p.delete("page");
+  if (!("page" in (next || {}))) p.delete("page");
   return "?" + p.toString();
 }
 
@@ -48,7 +48,7 @@ export function keepOnScreen(el, margin = 8) {
   if (!el) return;
   const r = el.getBoundingClientRect();
   let nx = r.left, ny = r.top;
-  if (r.right > innerWidth)  nx = Math.max(margin, innerWidth  - r.width  - margin);
+  if (r.right > innerWidth)   nx = Math.max(margin, innerWidth  - r.width  - margin);
   if (r.bottom > innerHeight) ny = Math.max(margin, innerHeight - r.height - margin);
   if (nx !== r.left) el.style.left = nx + "px";
   if (ny !== r.top)  el.style.top  = ny + "px";
@@ -70,7 +70,7 @@ export function toast(message, { duration = 3000, actionText = "", onAction = nu
     document.body.appendChild(host);
   }
   const card = document.createElement("div");
-  card.style.cssText = "max-width:520px;background:rgba(28,32,38,.98);color:#e6edf3;border:1px solid #2e3640;border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.35)";
+  card.style.cssText = "max-width:520px;background:rgba(28,32,38,0.98);color:#e6edf3;border:1px solid #2e3640;border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,0.35)";
   card.textContent = message;
   if (actionText) {
     const btn = document.createElement("button");
@@ -95,7 +95,6 @@ export function currentCollectionId() {
 export function scanCollections() {
   const zLeft = document.getElementById("z-left");
   if (!zLeft) return [];
-  // ✅ fixed: spread + correct variable name
   const links = [...zLeft.querySelectorAll("[data-collection-id], a[href*='col='], a[href^='/collections/']")];
   const list = [];
   links.forEach(a => {
@@ -128,3 +127,4 @@ window.PCDOM = Object.freeze({
   buildQs, csrfToken, escapeHtml, keepOnScreen, toast,
   currentCollectionId, scanCollections,
 });
+window.Toast = window.Toast || { show: (message, opts) => toast(message, opts) };

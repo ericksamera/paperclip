@@ -6,18 +6,9 @@ from typing import Any, Dict, List
 from collections import defaultdict
 
 from captures.models import Capture
+from captures.reduced_view import read_reduced_view
 from paperclip.artifacts import read_json_artifact
 from paperclip.utils import norm_doi
-
-def _read_view_json(capture_id: str) -> Dict[str, Any]:
-    """
-    Prefer the classic reduced view name (view.json), but tolerate the newer names.
-    """
-    for name in ("view.json", "server_output_reduced.json", "parsed.json"):
-        data = read_json_artifact(capture_id, name, default=None)
-        if data:
-            return data
-    return {}
 
 @dataclass
 class Doc:
@@ -27,13 +18,13 @@ class Doc:
     doi: str
     url: str
     text: str
-    refs_doi: List[str]                # normalized DOIs cited by this capture
-    refs: List[Dict[str, Any]]         # light objects: {"doi","title","issued_year"}
+    refs_doi: List[str]
+    refs: List[Dict[str, Any]]
 
 def collect_docs() -> List[Doc]:
     docs: List[Doc] = []
     for c in Capture.objects.all().order_by("-created_at"):
-        view = _read_view_json(str(c.id))
+        view = read_reduced_view(str(c.id))
         sections = (view.get("sections") or {})
         paras = sections.get("abstract_or_body") or []
 

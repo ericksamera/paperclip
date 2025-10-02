@@ -6,6 +6,7 @@ from io import StringIO
 from django.http import Http404, HttpResponse, FileResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render, redirect
 
+from captures.reduced_view import read_reduced_view
 from captures.models import Capture, Reference
 from captures.xref import enrich_reference_via_crossref
 from paperclip.artifacts import artifact_path
@@ -97,29 +98,24 @@ def capture_view(request, pk):
     if p.exists():
         content = p.read_text(encoding="utf-8")
 
-    # Load reduced sections
-    def _read_reduced_sections(cap_id: str) -> dict:
-        for name in ("view.json", "server_output_reduced.json", "parsed.json"):
-            data = read_json_artifact(str(cap_id), name, default=None)
-            if isinstance(data, dict) and data.get("sections"):
-                return data["sections"] or {}
-        return {}
 
-    reduced = _read_reduced_sections(cap.id)
+    # Load reduced sections (tolerant reader)
+    rv = read_reduced_view(str(cap.id))
+    sections_blob = rv.get("sections") or {}
 
-    # Abstract
+    # Abstract (prefer reduced-view abstract, then DB meta/csl)
     csl = cap.csl if isinstance(cap.csl, dict) else {}
     abs_text = (
-        (reduced.get("abstract") or "")
+        (sections_blob.get("abstract") or "")
         or (cap.meta or {}).get("abstract")
         or csl.get("abstract")
         or ""
     )
 
-    # Sections
-    sections = list(reduced.get("sections") or [])
+    # Sections (structured tree or fallback to preview paragraphs)
+    sections = list(sections_blob.get("sections") or [])
     if not sections:
-        paras = reduced.get("abstract_or_body") or []
+        paras = sections_blob.get("abstract_or_body") or []
         if isinstance(paras, list) and paras:
             sections = [{"title": "Body", "paragraphs": paras}]
 

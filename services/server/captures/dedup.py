@@ -3,6 +3,7 @@ import json, re
 from typing import Dict, List, Tuple
 from datasketch import MinHash, MinHashLSH
 from paperclip.artifacts import artifact_path
+from captures.reduced_view import read_reduced_view
 from captures.models import Capture
 
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z\-]{2,}")
@@ -10,16 +11,19 @@ TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z\-]{2,}")
 def _text_for(c: Capture) -> str:
     bits = [c.title or "", c.doi or ""]
     meta = c.meta or {}
-    if meta.get("abstract"): bits.append(str(meta["abstract"]))
+    if meta.get("abstract"):
+        bits.append(str(meta["abstract"]))
+
     try:
-        p = artifact_path(str(c.id), "view.json")
-        if p.exists():
-            view = json.loads(p.read_text("utf-8"))
-            paras = (view.get("sections") or {}).get("abstract_or_body") or []
+        view = read_reduced_view(str(c.id))
+        paras = ((view.get("sections") or {}).get("abstract_or_body") or [])
+        if isinstance(paras, list) and paras:
             bits.append(" ".join(paras[:80]))
     except Exception:
         pass
+
     return " ".join(bits)
+
 
 def _minhash(text: str, num_perm: int = 128) -> MinHash:
     mh = MinHash(num_perm=num_perm)

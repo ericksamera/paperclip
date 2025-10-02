@@ -11,17 +11,14 @@
   function leftWidth()  { return parseInt(localStorage.getItem("pc-left-w")  || "260", 10) || 260; }
   function rightWidth() { return parseInt(localStorage.getItem("pc-right-w") || "360", 10) || 360; }
 
+  // Use canonical helper to avoid drift
   function currentCollectionId() {
-    try {
-      const u = new URL(location.href);
-      return (u.searchParams.get("col") || "").trim() || "all";
-    } catch (_) {
-      return "all";
-    }
+    try { return window.PCDOM?.currentCollectionId?.() || "all"; }
+    catch (_) { return "all"; }
   }
 
   function makeExportMenu() {
-    // Reuse existing floating menu styles (.pc-context / .pc-menu) from libraries.css
+    // Reuse existing floating menu styles (.pc-context / .pc-menu)
     const menu = document.createElement("div");
     menu.className = "pc-context";
     menu.style.minWidth = "220px";
@@ -38,19 +35,14 @@
       // compute hrefs each time in case col changes
       const col = currentCollectionId();
       menu.dataset.csvHref   = "/captures/export/";
-      // ✅ FIX: use .zip route to match urls.py
       menu.dataset.viewsHref = "/collections/" + encodeURIComponent(col) + "/download-views.zip";
 
       menu.style.display = "block";
       menu.style.left = x + "px";
       menu.style.top  = y + "px";
 
-      // keep on screen
-      const r = menu.getBoundingClientRect();
-      let nx = r.left, ny = r.top, changed = false;
-      if (r.right > innerWidth)  { nx = Math.max(8, innerWidth  - r.width  - 8); changed = true; }
-      if (r.bottom > innerHeight) { ny = Math.max(8, innerHeight - r.height - 8); changed = true; }
-      if (changed) { menu.style.left = nx + "px"; menu.style.top = ny + "px"; }
+      // Keep on screen via canonical helper
+      try { window.PCDOM?.keepOnScreen?.(menu); } catch (_) {}
     }
     function close() { menu.style.display = "none"; }
 
@@ -78,7 +70,6 @@
     qsa("a,button", actions).forEach((el) => {
       const txt = (el.textContent || "").trim().toLowerCase();
       if (txt === "download views" || txt === "export csv") {
-        // remove the old individual actions; we'll add a combined dropdown
         if (el && el.parentNode) el.parentNode.removeChild(el);
       }
     });
@@ -101,7 +92,7 @@
       menu.openAt(r.left, r.bottom + 4);
     });
 
-    // Insert the button near the other actions (before Columns/Sidebar/Info if possible)
+    // Insert near the other actions
     const pivot =
       qs("#pc-cols-toggle", actions) ||
       qs("#z-toggle-right", actions) ||
@@ -118,16 +109,14 @@
     const shell = document.getElementById("z-shell");
     if (!shell) return;
 
-    // 1) Respect saved widths and ensure left pane starts open
+    // Respect saved widths and ensure left pane starts open
     shell.style.setProperty("--left-w",  leftWidth()  + "px");
     shell.style.setProperty("--right-w", rightWidth() + "px");
     localStorage.setItem("pc-left-hidden", "0");
 
-    // 2) Toolbar: keep Delete/Assign controls intact; just add Export menu
+    // Toolbar: keep Delete/Assign controls intact; just add Export menu
     const toolbar = qs(".z-toolbar");
-    if (toolbar) {
-      injectExportButton(toolbar);
-    }
+    if (toolbar) injectExportButton(toolbar);
   }
 
   if (document.readyState === "loading") {

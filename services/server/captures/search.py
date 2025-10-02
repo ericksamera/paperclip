@@ -7,6 +7,8 @@ from contextlib import contextmanager
 from django.db import connection as _default_connection
 from paperclip.artifacts import read_json_artifact
 
+from captures.reduced_view import read_reduced_view
+
 _FTS = "capture_fts"
 
 
@@ -134,14 +136,18 @@ def _flatten_sections_text(nodes) -> List[str]:
 
 
 def _body_text_from_view(capture_id: str) -> str:
+    """
+    Body text from the reduced view; tolerant to legacy filenames via read_reduced_view().
+    """
     try:
-        view = read_json_artifact(capture_id, "view.json", default={})
-        sec = (view.get("sections") or {}).get("abstract_or_body") or []
+        rv = read_reduced_view(capture_id)
+        sec = (rv.get("sections") or {}).get("abstract_or_body") or []
         if isinstance(sec, list) and sec:
             return " ".join([str(x) for x in sec if x])
     except Exception:
         pass
     return ""
+
 
 
 def _split_keywords(v: str) -> List[str]:

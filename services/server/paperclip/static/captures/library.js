@@ -536,33 +536,12 @@
     if (!typing && (e.key.toLowerCase() === 'y')) { e.preventDefault(); copyDoi(); return; }
   });
 
-  // -------------------- Collections discovery --------------------
-  function scanCollections() {
-    if (!zLeft) return [];
-    const links = [...zLeft.querySelectorAll('[data-collection-id], a[href*="col="], a[href^="/collections/"]')];
-    const list = [];
-    links.forEach((a) => {
-      let id = a.getAttribute('data-collection-id');
-      if (!id) {
-        try {
-          const href = a.getAttribute('href') || '';
-          if (href.includes('col=')) {
-            const u = new URL(href, location.href);
-            id = u.searchParams.get('col');
-          } else {
-            const m = href.match(/\/collections\/([^/?#]+)/);
-            if (m) id = m[1];
-          }
-        } catch(_) {}
-      }
-      const label = (a.querySelector('.z-label')?.textContent || a.textContent || '').trim();
-      if (id && label && !/^(All items|New collection)$/i.test(label)) {
-        a.dataset.collectionId = id;
-        list.push({ id, label, el: a });
-      }
-    });
-    return list;
-  }
+  // -------------------- Collections discovery (delegated) --------------------
+  // (duplicate local helper removed — we now rely on the early wrapper which calls dom.js)
+  //
+  // Previously there was a second `function scanCollections(){...}` here that shadowed
+  // the wrapper defined near the top of this file. That duplicate has been removed
+  // to ensure a single source of truth (captures/library/dom.js).
 
   // -------------------- Assign helpers --------------------
   async function assignIdsToCollection(ids, colId, op) {
@@ -588,31 +567,100 @@
   assignAdd?.addEventListener('click', () => assign('add'));
   assignRemove?.addEventListener('click', () => assign('remove'));
 
-  // -------------------- Row context menu --------------------
-  let menuEl = null, submenuEl = null, submenuRemoveEl = null;
-  function ensureMenu() {
+  // --- Row context menu (cleaned to use canonical keepOnScreen via window.PCDOM) ---
+  let menuEl = null, submenuAddEl = null, submenuRemoveEl = null;
+
+  function ensureRowMenu() {
     if (menuEl) return;
-    menuEl = document.createElement('div');
-    menuEl.className = 'pc-context';
+    menuEl = document.createElement("div");
+    menuEl.className = "pc-context";
     document.body.appendChild(menuEl);
-    submenuEl = document.createElement('div');          // add
-    submenuEl.className = 'pc-submenu';
-    submenuRemoveEl = document.createElement('div');    // remove
-    submenuRemoveEl.className = 'pc-submenu';
-    document.body.appendChild(submenuEl);
+
+    submenuAddEl = document.createElement("div");
+    submenuAddEl.className = "pc-submenu";
+    submenuRemoveEl = document.createElement("div");
+    submenuRemoveEl.className = "pc-submenu";
+    document.body.appendChild(submenuAddEl);
     document.body.appendChild(submenuRemoveEl);
 
-    menuEl.addEventListener('mousemove', (e) => {
-      const li = e.target.closest('[data-sub]');
-      if (!li) { hideSubmenus(); return; }
-      const kind = li.getAttribute('data-sub');
-      showSubmenu(kind, menuEl.getBoundingClientRect().right + 2, li.getBoundingClientRect().top);
+    menuEl.addEventListener("mousemove", (e) => {
+      const li = e.target.closest("[data-sub]");
+      if (!li) { submenuAddEl.style.display = "none"; submenuRemoveEl.style.display = "none"; return; }
+      const kind  = li.getAttribute("data-sub");
+      const box   = menuEl.getBoundingClientRect();
+      const liBox = li.getBoundingClientRect();
+      const el    = (kind === "remove") ? submenuRemoveEl : submenuAddEl;
+      const other = (kind === "remove") ? submenuAddEl : submenuRemoveEl;
+
+      other.style.display = "none";
+      el.style.display = "block";
+      el.style.left = (box.right + 2) + "px";
+      el.style.top  = liBox.top + "px";
+      keepOnScreen(el); // uses window.PCDOM.keepOnScreen from the top-of-file bridge
     });
-    menuEl.addEventListener('mouseleave', hideSubmenus);
-    menuEl.addEventListener('click', onMenuClick);
+
+    menuEl.addEventListener("mouseleave", () => {
+      submenuAddEl.style.display = "none";
+      submenuRemoveEl.style.display = "none";
+    });
+
+    menuEl.addEventListener("click", onRowMenuClick);
+    ["click","scroll","resize"].forEach(ev => window.addEventListener(ev, hideRowMenu, { passive:true }));
   }
-  function rowMenuHtml(curCol) {
-    return `
+
+  function populateSubmenu(el, op) {
+    const cols = scanCollections();
+    const html = cols.map(c =>
+      `<div class="pc-subitem" data-col="${escapeHtml(c.id)}">${escapeHtml(c.label)}</div>`
+    ).join("") || `<div class="pc-subitem disabled">(no collections)</div>`;
+    el.innerHTML = html;
+
+    el.onclick = (e) => {
+      const d = e.target.closest(".pc-subitem");
+      if (!d || d.classList.contains("disabled")) return;
+      const ids = idsFromSelection();
+      assignIdsToCollection(ids, d.getAttribute("data-col"), op).catch(()=>{});
+      hideRowMenu();
+    };
+  }
+
+  function onRowMenuClick(e) {
+    const actEl = e.target.closest("[data-act]"); if (!actEl) return;
+    const act = actEl.getAttribute("data-act");
+
+    if (act === "open") {
+      const tr = document.querySelector("#pc-body tr.pc-row[aria-selected='true']") || document.querySelector("#pc-body tr.pc-row");
+      if (tr) window.location.href = `/captures/${tr.dataset.id}/`;
+    } else if (act === "open-ext") {
+      const tr = document.querySelector("#pc-body tr.pc-row[aria-selected='true']") || document.querySelector("#pc-body tr.pc-row");
+      if (tr) {
+        const href = tr.dataset.doiUrl || tr.dataset.url;
+        if (href) window.open(href, "_blank", "noopener");
+      }
+    } else if (act === "copy-doi") {
+      const tr = document.querySelector("#pc-body tr.pc-row[aria-selected='true']");
+      if (tr?.dataset?.doi) navigator.clipboard?.writeText(tr.dataset.doi);
+    } else if (act === "remove-here") {
+      const curCol = currentCollectionId();
+      if (!curCol) return;
+      const ids = idsFromSelection();
+      assignIdsToCollection(ids, curCol, "remove");
+    } else if (act === "delete") {
+      document.getElementById("pc-bulk-delete")?.click();
+    }
+    hideRowMenu();
+  }
+
+  function hideRowMenu() {
+    if (menuEl) menuEl.style.display = "none";
+    if (submenuAddEl) submenuAddEl.style.display = "none";
+    if (submenuRemoveEl) submenuRemoveEl.style.display = "none";
+  }
+
+  function showRowMenu(x, y) {
+    ensureRowMenu();
+    const curCol = currentCollectionId();
+    menuEl.innerHTML = `
       <ul class="pc-menu">
         <li data-act="open">Open</li>
         <li data-act="open-ext">Open DOI/URL</li>
@@ -624,77 +672,15 @@
         <li class="danger" data-act="delete">Delete…</li>
       </ul>
     `;
-  }
-  function populateSubmenu(el, op) {
-    const cols = scanCollections();
-    const html = cols.map(c => `<div class="pc-subitem" data-col="${escapeHtml(c.id)}">${escapeHtml(c.label)}</div>`).join('') || '<div class="pc-subitem disabled">(no collections)</div>';
-    el.innerHTML = html;
-    el.onclick = (e) => {
-      const d = e.target.closest('.pc-subitem'); if (!d || d.classList.contains('disabled')) return;
-      const ids = [...selected];
-      assignIdsToCollection(ids, d.getAttribute('data-col'), op).catch(()=>{});
-      hideMenu();
-    };
-  }
-  function onMenuClick(e) {
-    const actEl = e.target.closest('[data-act]'); if (!actEl) return;
-    const act = actEl.getAttribute('data-act');
-    if (act === 'open') openCurrent('detail');
-    else if (act === 'open-ext') openCurrent('doi_or_url');
-    else if (act === 'copy-doi') copyDoi();
-    else if (act === 'remove-here') {
-      const curCol = currentCollectionId();
-      if (!curCol) return;
-      const ids = [...selected];
-      assignIdsToCollection(ids, curCol, 'remove').catch(()=>{});
-    }
-    else if (act === 'delete') { performBulkDelete(); }
-    hideMenu();
+    menuEl.style.display = "block";
+    menuEl.style.left = x + "px";
+    menuEl.style.top  = y + "px";
+    populateSubmenu(submenuAddEl, "add");
+    if (!currentCollectionId()) { populateSubmenu(submenuRemoveEl, "remove"); } else { submenuRemoveEl.style.display = "none"; }
+    keepOnScreen(menuEl); // canonical helper
   }
 
-  function showMenu(x, y) {
-    ensureMenu();
-    const curCol = currentCollectionId();
-    menuEl.innerHTML = rowMenuHtml(!!curCol);
-    menuEl.style.display = 'block';
-    menuEl.style.left = x + 'px';
-    menuEl.style.top = y + 'px';
-    populateSubmenu(submenuEl, 'add');
-    if (curCol) { submenuRemoveEl.style.display = 'none'; }
-    else { populateSubmenu(submenuRemoveEl, 'remove'); }
-    keepOnScreen(menuEl);
-  }
-  function hideMenu() {
-    if (menuEl) menuEl.style.display = 'none';
-    hideSubmenus();
-  }
-  function hideSubmenus(){ if (submenuEl) submenuEl.style.display = 'none'; if (submenuRemoveEl) submenuRemoveEl.style.display = 'none'; }
-  function showSubmenu(which, x, y){
-    const el = (which === 'remove') ? submenuRemoveEl : submenuEl;
-    el.style.display = 'block';
-    el.style.left = x + 'px';
-    el.style.top = y + 'px';
-    keepOnScreen(el);
-  }
-
-  tbody.addEventListener('contextmenu', (e) => {
-    const tr = e.target.closest('tr.pc-row');
-    if (!tr) return;
-    e.preventDefault();
-    // if right-clicking a non-selected row, select only it
-    if (tr.getAttribute('aria-selected') !== 'true') {
-      clearSelection();
-      toggleRow(tr, true);
-    }
-    showMenu(e.pageX, e.pageY);
-  });
-  window.addEventListener('click', (e) => {
-    if (!menuEl) return;
-    if (!menuEl.contains(e.target) && !submenuEl.contains(e.target) && !submenuRemoveEl.contains(e.target)) hideMenu();
-  });
-  window.addEventListener('scroll', hideMenu, { passive: true });
-  window.addEventListener('resize', hideMenu);
-
+ 
   // -------------------- Drag & Drop to Collections --------------------
   function ensureRowsDraggable(){
     tbody.querySelectorAll('tr.pc-row').forEach(tr => {
