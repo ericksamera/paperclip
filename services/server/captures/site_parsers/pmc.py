@@ -75,15 +75,16 @@ def _txt(s: Optional[str]) -> str:
 _KEYWORDS_LABEL_RX = re.compile(
     r"^\s*(keywords?|key\s*words?|"
     r"mots[\s-]*clés?|"
+    r")\s*[:：]?\s*$",
     re.I,
 )
 
 _EXTRA_KWD_SEP_RX = re.compile(
     r"""\s*[
-        ,;:/|\\
-        \u2010-\u2015\u2212\u2043
-        \u2022\u2027\u00B7\u2219\u30FB
-        \u3001\uFF0C\uFF1B\uFF0F
+        ,;:/|\\                      # ASCII punctuation
+        \u2010-\u2015\u2212\u2043    # hyphen, en/em/figure/horizontal bar, minus, hyphen bullet
+        \u2022\u2027\u00B7\u2219\u30FB  # bullets & middle dots
+        \u3001\uFF0C\uFF1B\uFF0F       # 、 fullwidth comma/semicolon/solidus
     ]+\s*""",
     re.UNICODE | re.VERBOSE
 )
