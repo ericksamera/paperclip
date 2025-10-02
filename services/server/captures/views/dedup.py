@@ -9,7 +9,6 @@ from django.utils import timezone
 
 from captures.models import Capture, Reference
 from captures.reduced_view import read_reduced_view
-from paperclip.artifacts import artifact_path, read_json_artifact
 
 from .common import _journal_full
 
@@ -49,7 +48,7 @@ def _group_key(ids):
 def _preview_for(c: Capture) -> str:
     """
     Small, stable preview for the dedup table:
-      1) Prefer reduced-view paragraphs: sections.abstract_or_body (first 1–3)
+      1) Prefer reduced view -> sections.abstract_or_body (first 1–3 paras)
       2) Fallback to meta.abstract or csl.abstract
     """
     try:

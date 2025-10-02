@@ -8,7 +8,7 @@ from django.core.cache import cache
 
 from captures.models import Capture, Collection
 from paperclip.journals import get_short_journal_name
-from paperclip.artifacts import read_json_artifact
+from captures.reduced_view import read_reduced_view
 
 
 def _site_label(url: str) -> str:
@@ -84,20 +84,27 @@ def _doi_url(doi: str | None) -> str | None:
     return doi if doi.startswith("http://") or doi.startswith("https://") else f"https://doi.org/{doi}"
 
 
-# ---------- NEW: pull abstract from reduced view (with preview fallback) ----------
+# ---------- Pull abstract from reduced view (with preview fallback) ----------
 def _abstract_from_view(c: Capture, preview_max_paras: int = 3) -> str:
     """
-    Prefer the 'abstract' we persist in data/artifacts/<id>/view.json.
-    Fall back to joining the first few paragraphs of 'abstract_or_body'.
+    Prefer the 'abstract' we persist in the reduced view; fall back to a short
+    preview constructed from the first few 'abstract_or_body' paragraphs.
+
+    Reads via read_reduced_view(...) which tolerates historical filenames
+    ('view.json', 'server_output_reduced.json', 'parsed.json').
     """
     try:
-        view = read_json_artifact(str(c.id), "view.json", default={})
-        sections = (view.get("sections") or {})
-        abs_txt = (sections.get("abstract") or "") if isinstance(sections, dict) else ""
-        if abs_txt:
-            return str(abs_txt).strip()
-        paras = sections.get("abstract_or_body") or []
+        view = read_reduced_view(str(c.id)) or {}
+        sections = view.get("sections") or {}
+        if not isinstance(sections, dict):
+            return ""
+        abs_txt = sections.get("abstract")
+        if isinstance(abs_txt, str) and abs_txt.strip():
+            return abs_txt.strip()
+
+        paras = sections.get("abstract_or_body")
         if isinstance(paras, list) and paras:
+            # join a short preview
             return " ".join([str(p) for p in paras[:preview_max_paras] if p]).strip()
     except Exception:
         pass
@@ -115,7 +122,7 @@ def _row(c: Capture) -> Dict[str, Any]:
     doi = (c.doi or meta.get("doi") or csl.get("DOI") or "").strip()
     keywords = meta.get("keywords") or []
 
-    # Prefer view.json abstract; fall back to meta/csl
+    # Prefer reduced view abstract; fall back to meta/csl
     abstract = _abstract_from_view(c) or (meta.get("abstract") or (csl.get("abstract") if isinstance(csl, dict) else "") or "")
 
     try:
@@ -123,7 +130,7 @@ def _row(c: Capture) -> Dict[str, Any]:
     except Exception:
         refs_count = 0
 
-    # Prefer normalized host field if present; else derive
+    # Prefer normalized host field if present; else derive from URL
     site_lbl = (c.site or "").replace("www.", "") if (getattr(c, "site", "") or "") else _site_label(c.url or "")
 
     return {
@@ -136,7 +143,7 @@ def _row(c: Capture) -> Dict[str, Any]:
         "journal_short": j_short or j_full,
         "year": c.year or meta.get("year") or meta.get("publication_year") or "",
         "doi": doi,
-        "doi_url": (doi if doi.startswith("http") else (f"https://doi.org/{doi}" if doi else "")) or "",
+        "doi_url": _doi_url(doi) or "",
         "keywords": keywords,
         "abstract": abstract,
         "added": c.created_at.strftime("%Y-%m-%d"),
@@ -147,22 +154,34 @@ def _row(c: Capture) -> Dict[str, Any]:
 def _apply_filters(qs: Iterable[Capture], *, year: str, journal: str, site: str, col: str) -> List[Capture]:
     """
     Stable, case-insensitive filtering over year / journal / site / collection.
-    (Fix: normalize journal & site query params to lowercase before comparing.)
+    Normalizes journal & site query params to lowercase before comparing.
+    Prefers the persisted Capture.site host for site filtering (added in migration 0003).
     """
     j_key = (journal or "").strip().lower()
     s_key = (site or "").strip().lower()
+    y_key = (year or "").strip()
 
     out: List[Capture] = []
     for c in qs:
         meta = c.meta or {}; csl = c.csl or {}
-        year_ok = (not year) or (str(c.year or "") == year)
+
+        # Year: match persisted or common meta fallbacks used by _row
+        year_val = str(c.year or meta.get("year") or meta.get("publication_year") or "")
+        year_ok = (not y_key) or (year_val == y_key)
+
+        # Journal
         j = _journal_full(meta, csl).lower()
         journal_ok = (not j_key) or (j == j_key)
-        s = (_site_label(c.url or "")).lower()
-        site_ok = (not s_key) or (s == s_key)
+
+        # Site: prefer normalized persisted host, then fallback to deriving from URL
+        site_src = (c.site or "").replace("www.", "") or _site_label(c.url or "")
+        site_ok = (not s_key) or (site_src.lower() == s_key)
+
+        # Collection
         col_ok = True
         if col:
             col_ok = c.collections.filter(id=col).exists()
+
         if year_ok and journal_ok and site_ok and col_ok:
             out.append(c)
     return out

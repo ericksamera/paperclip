@@ -7,7 +7,6 @@ from collections import defaultdict
 
 from captures.models import Capture
 from captures.reduced_view import read_reduced_view
-from paperclip.artifacts import read_json_artifact
 from paperclip.utils import norm_doi
 
 @dataclass

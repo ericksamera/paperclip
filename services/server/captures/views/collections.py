@@ -1,12 +1,12 @@
 from __future__ import annotations
-import io, zipfile, re, unicodedata
+import io, json, zipfile, re, unicodedata
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from captures.models import Capture, Collection
-from paperclip.artifacts import artifact_path
+from captures.reduced_view import read_reduced_view
 from paperclip.journals import get_short_journal_name
 from .common import _author_list, _journal_full, _family_from_name
 
@@ -87,12 +87,9 @@ def collection_assign(request, pk: int):
 
 def collection_download_views(request, cid: str):
     """
-    Download a zip of all reduced views (tolerant reader) for the current collection (or 'all'),
+    Download a zip of all reduced views for the current collection (or 'all'),
     naming each entry as: {year}_{first-author}_{journal-short}__{UUID}.json
     """
-    import io, zipfile, json
-    from captures.reduced_view import read_reduced_view
-
     if cid == "all":
         caps = Capture.objects.all()
         label = "all-items"
@@ -104,12 +101,12 @@ def collection_download_views(request, cid: str):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for c in caps:
-            rv = read_reduced_view(str(c.id))
-            if not rv:
+            view = read_reduced_view(str(c.id))
+            if not view:
                 continue
             slug = _slug_for_capture(c)
-            arcname = f"{slug}__{c.id}.json"
-            zf.writestr(arcname, json.dumps(rv, ensure_ascii=False, indent=2))
+            arcname = f"{slug}__{c.id}.json"  # keep UUID suffix for uniqueness
+            zf.writestr(arcname, json.dumps(view, ensure_ascii=False, indent=2))
 
     buf.seek(0)
     resp = HttpResponse(buf.read(), content_type="application/zip")

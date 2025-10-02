@@ -43,8 +43,7 @@ def find_near_duplicates(threshold: float = 0.85) -> List[List[str]]:
         lsh.insert(pk, mh)
     seen, groups = set(), []
     for pk, mh in mhs.items():
-        if pk in seen:
-            continue
+        if pk in seen: continue
         bucket = set(lsh.query(mh))
         if len(bucket) > 1:
             groups.append(sorted(bucket))

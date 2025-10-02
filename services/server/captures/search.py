@@ -5,7 +5,6 @@ import re
 from typing import List
 from contextlib import contextmanager
 from django.db import connection as _default_connection
-from paperclip.artifacts import read_json_artifact
 
 from captures.reduced_view import read_reduced_view
 from captures.keywords import split_keywords
@@ -137,9 +136,8 @@ def _flatten_sections_text(nodes) -> List[str]:
 
 
 def _body_text_from_view(capture_id: str) -> str:
-    from captures.reduced_view import read_reduced_view
     try:
-        view = read_reduced_view(str(capture_id))
+        view = read_reduced_view(capture_id)
         sec = (view.get("sections") or {}).get("abstract_or_body") or []
         if isinstance(sec, list) and sec:
             return " ".join([str(x) for x in sec if x])

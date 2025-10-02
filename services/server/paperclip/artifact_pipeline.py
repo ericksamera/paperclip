@@ -4,10 +4,11 @@ from typing import Dict, Any
 from paperclip.artifacts import write_text_artifact, write_json_artifact
 from captures.parsing_bridge import robust_parse
 from captures.artifacts import build_server_parsed
-from captures.reduced_view import build_reduced_view
+from captures.reduced_view import build_reduced_view, CANONICAL_REDUCED_BASENAME
 
-def build_and_write_all(capture_id: str, *, url: str | None,
-                        dom_html: str, extraction: Dict[str, Any]) -> Dict[str, Any]:
+def build_and_write_all(
+    capture_id: str, *, url: str | None, dom_html: str, extraction: Dict[str, Any]
+) -> Dict[str, Any]:
     # 1) Verbatim inputs
     if dom_html:
         write_text_artifact(capture_id, "page.html", dom_html)
@@ -19,17 +20,16 @@ def build_and_write_all(capture_id: str, *, url: str | None,
 
     # 3) Canonical normalization (single parse into typed schema)
     server_parsed = build_server_parsed(_capture_stub(capture_id, extraction), extraction)
-
-    write_json_artifact(capture_id, "server_parsed.json", server_parsed)  # canonical
+    write_json_artifact(capture_id, "server_parsed.json", server_parsed)  # canonical normalized doc
 
     # 4) Reduced projection for the UI (and legacy alias parsed.json)
     reduced = build_reduced_view(
         content=bridge.get("content_sections"),
         meta=server_parsed.get("metadata") or {},
         references=server_parsed.get("references") or [],
-        title=server_parsed.get("title") or ""
+        title=server_parsed.get("title") or "",
     )
-    write_json_artifact(capture_id, "server_output_reduced.json", reduced)
+    write_json_artifact(capture_id, CANONICAL_REDUCED_BASENAME, reduced)  # single source of truth
     write_json_artifact(capture_id, "parsed.json", reduced)  # keep until clients stop reading it
 
     return {"bridge": bridge, "server_parsed": server_parsed, "reduced": reduced}
