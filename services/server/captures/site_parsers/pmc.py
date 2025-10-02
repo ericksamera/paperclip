@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional
-from bs4 import BeautifulSoup, Tag
+from typing import Dict, List, Optional, Iterable
+from bs4 import BeautifulSoup, Tag, NavigableString
 
 from . import register, register_meta
 from .base import (
@@ -67,6 +67,66 @@ def _txt(s: Optional[str]) -> str:
     return re.sub(r"\s+", " ", (s or "").replace("\xa0", " ")).strip()
 
 
+# --------------------------------------------------------------------------------------
+# Keywords detection helpers (more robust than PMC-only English "Keywords:" lines)
+# --------------------------------------------------------------------------------------
+
+# Widely seen "Keywords" headings/labels on PMC and mirrored journals (English + a few common langs)
+_KEYWORDS_LABEL_RX = re.compile(
+    r"^\s*(keywords?|key\s*words?|"
+    r"mots[\s-]*clés?|"
+    re.I,
+)
+
+_EXTRA_KWD_SEP_RX = re.compile(
+    r"""\s*[
+        ,;:/|\\
+        \u2010-\u2015\u2212\u2043
+        \u2022\u2027\u00B7\u2219\u30FB
+        \u3001\uFF0C\uFF1B\uFF0F
+    ]+\s*""",
+    re.UNICODE | re.VERBOSE
+)
+
+def _is_keywords_line(text: str) -> bool:
+    t = _txt(text)
+    if not t:
+        return False
+    # Either our broader label regex OR the shared base KEYWORDS_PREFIX_RX (if it matches at line start)
+    return bool(_KEYWORDS_LABEL_RX.match(t) or KEYWORDS_PREFIX_RX.match(t))
+
+def _strip_keywords_label(text: str) -> str:
+    t = _txt(text)
+    # Remove known prefixes like "Keywords:" (from base) and our wider label set
+    t = re.sub(KEYWORDS_PREFIX_RX, "", t)
+    t = re.sub(r"^\s*(?:keywords?|key\s*words?)\s*[:：]\s*", "", t, flags=re.I)
+    return t
+
+def _split_keywords(text: str) -> List[str]:
+    """
+    Use the project's splitter first; then apply a permissive extra split to catch bullets/pipes/etc.
+    """
+    base_items = [i for i in split_keywords_block(_strip_keywords_label(text)) if i]
+    out: List[str] = []
+    for item in base_items:
+        parts = [p for p in _EXTRA_KWD_SEP_RX.split(item) if p]
+        if parts:
+            out.extend(parts)
+        else:
+            out.append(item)
+    # Normalize, dedupe, and filter trivial tokens
+    cleaned = []
+    seen_lower = set()
+    for i in (re.sub(r"\s+", " ", it).strip(" .:;,-") for it in out):
+        if not i or len(i) < 2:
+            continue
+        low = i.lower()
+        if low not in seen_lower:
+            cleaned.append(i)
+            seen_lower.add(low)
+    return cleaned
+
+
 # ------------------------ Abstract ------------------------
 
 def _abstract_block(soup: BeautifulSoup) -> Optional[Tag]:
@@ -113,7 +173,7 @@ def _extract_pmc_abstract(soup: BeautifulSoup) -> Optional[str]:
         t = _txt(p.get_text(" ", strip=True))
         if not t:
             continue
-        if KEYWORDS_PREFIX_RX.match(t):
+        if KEYWORDS_PREFIX_RX.match(t) or _KEYWORDS_LABEL_RX.match(t):
             continue
         paras.append(t)
 
@@ -122,54 +182,93 @@ def _extract_pmc_abstract(soup: BeautifulSoup) -> Optional[str]:
 
 # ------------------------ Keywords ------------------------
 
-def _extract_pmc_keywords(soup: BeautifulSoup) -> List[str]:
+def _harvest_keywords_from_host(host: Tag) -> List[str]:
     """
-    Extract keywords from standard PMC keyword locations, including inline
-    (<p><strong>Keywords:</strong> ...</p>) and list formats.
+    Pull keywords out of a given 'kwd-group' (or similar) container.
+    Supports list and inline formats.
     """
     items: List[str] = []
 
-    # Primary containers used by PMC
-    for host in soup.select(
-        "section.kwd-group, div.kwd-group, #kwd-group, [id^='kwd-group'], .kwd-group"
-    ):
-        # List style
-        for li in host.select("li"):
-            t = _txt(li.get_text(" ", strip=True))
-            if t:
-                items.append(t)
+    # List style: <ul><li>…</li></ul> or <ol>…
+    for li in host.select("li"):
+        t = _txt(li.get_text(" ", strip=True))
+        if t:
+            items.extend(_split_keywords(t))
 
-        # Inline paragraph style like: "<p><strong>Keywords:</strong> term1, term2 …</p>"
-        for p in host.find_all("p"):
-            t = _txt(p.get_text(" ", strip=True))
-            if not t:
-                continue
-            if KEYWORDS_PREFIX_RX.search(t) or any(ch in t for ch in (",", ";", "/")):
-                items.extend(split_keywords_block(t))
+    # Inline paragraph style like: "<p><strong>Keywords:</strong> term1, term2 …</p>"
+    for p in host.find_all("p"):
+        t = _txt(p.get_text(" ", strip=True))
+        if not t:
+            continue
+        if _is_keywords_line(t) or any(ch in t for ch in (",", ";", "/", "|", "•", "·", "・")):
+            items.extend(_split_keywords(t))
 
-        # Sometimes keywords are put into spans/anchors
-        for el in host.select("a, span"):
-            t = _txt(el.get_text(" ", strip=True))
-            if t and not KEYWORDS_PREFIX_RX.match(t):
-                items.append(t)
+    # Sometimes keywords are placed into spans/anchors
+    for el in host.select("a, span"):
+        t = _txt(el.get_text(" ", strip=True))
+        if t and not _is_keywords_line(t):
+            items.extend(_split_keywords(t))
 
-    # Fallback 1: a stray "Keywords:" paragraph elsewhere
+    return items
+
+
+def _extract_pmc_keywords(soup: BeautifulSoup) -> List[str]:
+    """
+    Extract keywords from standard PMC keyword locations, including inline
+    (<p><strong>Keywords:</strong> ...</p>), list formats, headings titled "Keywords",
+    and a few common non-English labels. Also falls back to <meta> tags (citation_keywords/DC).
+    """
+    items: List[str] = []
+
+    # Primary containers used by PMC (incl. when nested inside Abstract)
+    keyword_hosts = soup.select(
+        "section.kwd-group, div.kwd-group, #kwd-group, [id^='kwd-group'], "
+        ".kwd-group, [class*='kwd' i], [class*='keyword' i]"
+    )
+    for host in keyword_hosts:
+        items.extend(_harvest_keywords_from_host(host))
+
+    # Headings literally named "Keywords" (or language variants) with content right after them
+    # e.g., <h3>Keywords</h3><p>…</p> or <ul><li>…</li></ul>
+    if not items:
+        for h in soup.find_all(["h2", "h3", "h4"]):
+            ht = heading_text(h)
+            if _KEYWORDS_LABEL_RX.match(ht or ""):
+                sib = h.find_next_sibling()
+                while sib and isinstance(sib, (Tag, NavigableString)):
+                    if isinstance(sib, Tag) and sib.name in ("h2", "h3", "h4"):
+                        break  # stop at next section heading
+                    if isinstance(sib, Tag):
+                        # harvest text from immediate paragraph/list siblings
+                        if sib.name in ("p", "div"):
+                            t = _txt(sib.get_text(" ", strip=True))
+                            if t:
+                                items.extend(_split_keywords(t))
+                        for li in sib.find_all("li"):
+                            t = _txt(li.get_text(" ", strip=True))
+                            if t:
+                                items.extend(_split_keywords(t))
+                    sib = sib.next_sibling
+
+    # Fallback 1: a stray "Keywords:" paragraph anywhere
     if not items:
         for p in soup.find_all(["p", "div"]):
             t = _txt(p.get_text(" ", strip=True))
-            if KEYWORDS_PREFIX_RX.match(t):
-                items.extend(split_keywords_block(t))
+            if _is_keywords_line(t):
+                items.extend(_split_keywords(t))
 
-    # Fallback 2: <meta name="keywords" content="…">
+    # Fallback 2: <meta …> variants commonly used in PMC mirrors
     if not items:
-        for m in soup.select('meta[name*="keyword" i], meta[name="dc.Subject" i]'):
+        for m in soup.select(
+            'meta[name*="keyword" i], meta[name="dc.Subject" i], meta[name="citation_keywords" i]'
+        ):
             content = _txt(m.get("content"))
             if content:
-                items.extend(split_keywords_block(content))
+                items.extend(_split_keywords(content))
 
     # Final cleanup & de-dupe
     items = [_txt(i) for i in items if i and len(i) > 1]
-    items = [i for i in items if not KEYWORDS_PREFIX_RX.match(i)]
+    items = [i for i in items if not _is_keywords_line(i)]
     return dedupe_keep_order(items)
 
 
