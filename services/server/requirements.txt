@@ -4,3 +4,4 @@ django-cors-headers>=4.3
 beautifulsoup4>=4.12
 markdownify>=1.2
 requests>=2.32
+celery>=5.5.3
