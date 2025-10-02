@@ -1,13 +1,15 @@
 // captures/library/index.js
-// Entry: wire up selection, search/paging, context menus, bulk delete, the details panel,
-// and (NEW) panels/columns so column visibility & widths apply (DOI hidden by default).
+// Entry: wire up selection, search/paging, context menus, bulk delete, details panel,
+// and panels/columns so column visibility & widths apply.
+
+import "./events.js";
 
 import { initSelection } from "./selection.js";
 import { initBulkDelete } from "./bulk_delete.js";
 import { initSearchAndPaging, ensureInitialRows } from "./search_paging.js";
 import { initCollectionsAndContextMenus } from "./collections_ctx_dnd.js";
 import { initDetailsPanel } from "./details_panel.js";
-import { initPanelsAndColumns } from "./columns_panels.js"; // NEW
+import { initPanelsAndColumns } from "./columns_panels.js";
 
 (function boot() {
   if (!document.getElementById("z-shell")) return;
@@ -16,13 +18,11 @@ import { initPanelsAndColumns } from "./columns_panels.js"; // NEW
   initBulkDelete();
   initSearchAndPaging();
   initCollectionsAndContextMenus();
+  initPanelsAndColumns();
   initDetailsPanel();
-  initPanelsAndColumns(); // NEW: applies DEFAULT_COLS (doi:false) + wires the Columns editor
 
-  // If the tbody shipped empty, load the first page.
   ensureInitialRows();
 
-  // Nudge any listeners (legacy & new)
   document.dispatchEvent(new CustomEvent("pc:rows-updated"));
   document.dispatchEvent(new CustomEvent("pc:rows-changed"));
 })();

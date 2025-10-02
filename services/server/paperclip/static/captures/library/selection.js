@@ -146,38 +146,69 @@ function syncFromDOM() {
 // --- Public-ish helpers -----------------------------------------------------
 
 function selectOnly(id) {
+  const before = new Set(selected);
   selected.clear();
   if (id) selected.add(id);
   lastId = id || null;
-  renderAll();
+
+  const changed = new Set([...before, ...(id ? [id] : [])]);
+  changed.forEach((cid) => {
+    const tr = findRowById(cid);
+    if (tr) renderRow(tr, selected.has(cid));
+  });
+
+  mirrorForLegacy();
+  dispatchChanged();
 }
 function toggleOne(id) {
   if (!id) return;
-  if (selected.has(id)) selected.delete(id);
-  else selected.add(id);
+  const wasSelected = selected.has(id);
+  if (wasSelected) selected.delete(id); else selected.add(id);
   lastId = id;
-  renderAll();
+
+  const tr = findRowById(id);
+  if (tr) renderRow(tr, !wasSelected);
+
+  mirrorForLegacy();
+  dispatchChanged();
 }
 function selectRangeBetween(tbody, aId, bId) {
   if (!tbody || !aId || !bId) return;
   const rows = [...tbody.querySelectorAll("tr")];
   const idx = {};
   rows.forEach((tr, i) => (idx[rowId(tr)] = i));
-  const ai = idx[aId],
-    bi = idx[bId];
+  const ai = idx[aId], bi = idx[bId];
   if (ai == null || bi == null) return;
+
   const [lo, hi] = ai < bi ? [ai, bi] : [bi, ai];
+  const changedIds = [];
   for (let i = lo; i <= hi; i++) {
-    const id = rowId(rows[i]);
-    if (id) selected.add(id);
+    const id = rowId(rows[i]); if (!id) continue;
+    if (!selected.has(id)) { selected.add(id); changedIds.push(id); }
   }
-  renderAll();
+
+  changedIds.forEach((cid) => {
+    const tr = findRowById(cid);
+    if (tr) renderRow(tr, true);
+  });
+
+  mirrorForLegacy();
+  dispatchChanged();
 }
 
 export function clearSelection() {
+  if (!selected.size) return;
+  const changed = [...selected];
   selected.clear();
   lastId = null;
-  renderAll();
+
+  changed.forEach((cid) => {
+    const tr = findRowById(cid);
+    if (tr) renderRow(tr, false);
+  });
+
+  mirrorForLegacy();
+  dispatchChanged();
 }
 export function getSelectedIds() {
   return [...selected];
@@ -465,24 +496,14 @@ normalizeAll();
 
 // ===== Event alias hub: emit `pc:rows-changed` whenever legacy events fire =====
 (() => {
-  if (window.__pcRowsChangedAliased) return;
+  // If the centralized bridge in events.js already wired, skip this to avoid double-firing.
+  if (window.__pcRowsChangedAliased || window.__pcRowsEventsWired) return;
   window.__pcRowsChangedAliased = true;
 
-  function reemit(detail) {
-    try {
-      document.dispatchEvent(new CustomEvent('pc:rows-changed', { detail }));
-    } catch (_) {}
-  }
-
-  function makeHandler() {
-    return (e) => reemit(e && e.detail);
-  }
-
   function reemitRowsChanged(e) {
-    document.dispatchEvent(new CustomEvent('pc:rows-changed', { detail: e.detail }));
+    document.dispatchEvent(new CustomEvent("pc:rows-changed", { detail: e.detail }));
   }
-
-  document.addEventListener('pc:rows-updated',  reemitRowsChanged, { capture: true });
-  document.addEventListener('pc:rows-replaced', reemitRowsChanged, { capture: true });
+  document.addEventListener("pc:rows-updated",  reemitRowsChanged, { capture: true });
+  document.addEventListener("pc:rows-replaced", reemitRowsChanged, { capture: true });
 })();
 /// ===== end alias hub =====
