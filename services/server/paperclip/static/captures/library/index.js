@@ -1,8 +1,8 @@
-// captures/library/index.js
-// Entry: wire up selection, search/paging, context menus, bulk delete, details panel,
-// and panels/columns so column visibility & widths apply.
+// services/server/paperclip/static/captures/library/index.js
+// Entry: wire up events bridge, selection, paging, context menus, bulk delete,
+// details panel, and panels/columns.
 
-import "./events.js";
+import "./events.js"; // ← make sure legacy events are bridged before anything else
 
 import { initSelection } from "./selection.js";
 import { initBulkDelete } from "./bulk_delete.js";
@@ -21,8 +21,5 @@ import { initPanelsAndColumns } from "./columns_panels.js";
   initPanelsAndColumns();
   initDetailsPanel();
 
-  ensureInitialRows();
-
-  document.dispatchEvent(new CustomEvent("pc:rows-updated"));
-  document.dispatchEvent(new CustomEvent("pc:rows-changed"));
+  ensureInitialRows(); // if tbody shipped empty, load first page
 })();

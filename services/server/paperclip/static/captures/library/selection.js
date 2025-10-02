@@ -18,9 +18,17 @@
 //
 // Safe to import multiple times; it wires only once.
 
+try {
+  window.__pcSelectionESM = true;
+  window.dispatchEvent(new Event("pc:selection-esm-ready"));
+} catch {}
+
 import { $, $$, on } from "./dom.js";
 
 let _wired = false;
+
+// Let legacy code know ESM selection is active, and give it a chance to unbind.
+
 
 // Find all possible bodies (helps if the table appears in multiple templates)
 function bodies() {
@@ -493,17 +501,3 @@ normalizeAll();
   }
 })();
 /// ===== end hotkeys =====
-
-// ===== Event alias hub: emit `pc:rows-changed` whenever legacy events fire =====
-(() => {
-  // If the centralized bridge in events.js already wired, skip this to avoid double-firing.
-  if (window.__pcRowsChangedAliased || window.__pcRowsEventsWired) return;
-  window.__pcRowsChangedAliased = true;
-
-  function reemitRowsChanged(e) {
-    document.dispatchEvent(new CustomEvent("pc:rows-changed", { detail: e.detail }));
-  }
-  document.addEventListener("pc:rows-updated",  reemitRowsChanged, { capture: true });
-  document.addEventListener("pc:rows-replaced", reemitRowsChanged, { capture: true });
-})();
-/// ===== end alias hub =====

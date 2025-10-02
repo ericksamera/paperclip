@@ -8,16 +8,25 @@ export const EVENTS = Object.freeze({
   SELECTION:     "pc:selection-change",
 });
 
+// ----- Rows-changed (canonical) -----
 export function emitRowsChanged(detail) {
   document.dispatchEvent(new CustomEvent(EVENTS.ROWS_CHANGED, { detail }));
 }
-
 export function onRowsChanged(handler, opts) {
   document.addEventListener(EVENTS.ROWS_CHANGED, handler, opts);
   return () => document.removeEventListener(EVENTS.ROWS_CHANGED, handler, opts);
 }
 
-// Idempotent legacy bridge: re-emit canonical event when older events fire.
+// ----- Selection-change (canonical) -----
+export function emitSelectionChange(detail) {
+  document.dispatchEvent(new CustomEvent(EVENTS.SELECTION, { detail }));
+}
+export function onSelectionChange(handler, opts) {
+  document.addEventListener(EVENTS.SELECTION, handler, opts);
+  return () => document.removeEventListener(EVENTS.SELECTION, handler, opts);
+}
+
+// ----- Idempotent legacy bridge: re-emit canonical when older events fire -----
 (function wireLegacyOnce(){
   if (window.__pcRowsEventsWired) return;
   window.__pcRowsEventsWired = true;

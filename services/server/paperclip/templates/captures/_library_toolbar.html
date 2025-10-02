@@ -12,12 +12,37 @@
     {% if selected.col %}<input type="hidden" name="col" value="{{ selected.col }}">{% endif %}
 
     <span class="z-mode">
-      <span class="z-mode-chips" role="group" aria-label="Search mode">
-        <button type="button" class="chip z-mode-chip {% if not selected.search %}active{% endif %}" data-mode="">Text</button>
-        <button type="button" class="chip z-mode-chip {% if selected.search == 'semantic' %}active{% endif %}" data-mode="semantic">Semantic</button>
-        <button type="button" class="chip z-mode-chip {% if selected.search == 'hybrid' %}active{% endif %}" data-mode="hybrid">Hybrid</button>
+      <!-- Segmented control -->
+      <span class="segmented" role="group" aria-label="Search mode">
+        <button
+          type="button"
+          class="seg-btn z-mode-chip {% if not selected.search %}active{% endif %}"
+          data-mode=""
+          aria-pressed="{% if not selected.search %}true{% else %}false{% endif %}">
+          Text
+        </button>
+        <button
+          type="button"
+          class="seg-btn z-mode-chip {% if selected.search == 'semantic' %}active{% endif %}"
+          data-mode="semantic"
+          aria-pressed="{% if selected.search == 'semantic' %}true{% else %}false{% endif %}">
+          Semantic
+        </button>
+        <button
+          type="button"
+          class="seg-btn z-mode-chip {% if selected.search == 'hybrid' %}active{% endif %}"
+          data-mode="hybrid"
+          aria-pressed="{% if selected.search == 'hybrid' %}true{% else %}false{% endif %}">
+          Hybrid
+        </button>
       </span>
-      <span class="z-mode-hint muted">Text = exact; Semantic = meaning; Hybrid = both</span>
+
+      <!-- ⓘ icon with native tooltip (renamed to avoid clash with the right pane .z-info) -->
+      <button
+        type="button"
+        class="z-mode-info"
+        title="Text = exact; Semantic = meaning; Hybrid = both"
+        aria-label="Explain search modes">ⓘ</button>
     </span>
 
     <button class="btn" type="submit">Search</button>
@@ -30,7 +55,7 @@
       <button id="pc-bulk-delete" class="btn btn--danger" type="button" disabled>Delete selected</button>
     </form>
 
-    <!-- Optional: assign to collection (kept for now; safe to remove later) -->
+    <!-- Optional: assign to collection -->
     <div style="display:flex;gap:6px;align-items:center">
       <select id="pc-assign-select" class="z-input" style="min-width:18ch">
         <option value="">— Choose collection —</option>
@@ -52,7 +77,6 @@
 
     <button id="z-toggle-left" class="btn" type="button" title="Toggle sidebar">Sidebar ⇆</button>
     <button id="z-toggle-right" class="btn" type="button" title="Toggle info panel">Info ⇆</button>
-
     <button id="pc-cols-toggle" class="btn" type="button" title="Edit visible columns & widths">Columns</button>
   </div>
 </div>

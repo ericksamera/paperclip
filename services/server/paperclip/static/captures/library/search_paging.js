@@ -14,6 +14,7 @@ function setModeUI(targetMode) {
   $$(".z-mode-chip").forEach(btn => {
     const on = (btn.dataset.mode || "") === (targetMode || "");
     btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", String(on));
   });
 }
 
@@ -65,7 +66,10 @@ export function initSearchAndPaging() {
   });
 
   // Initialize chip UI to current URL
-  setModeUI(new URL(location.href).searchParams.get("search") || "");
+  setModeUI(
+    new URL(location.href).searchParams.get("search") ||
+    (document.querySelector(".z-search input[name=search]")?.value || "")
+  );
 
   // Debounced search-as-you-type
   let searchTimer = null;

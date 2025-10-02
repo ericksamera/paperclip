@@ -81,6 +81,7 @@
     modeChips.forEach(btn => {
       const on = (btn.dataset.mode || '') === (targetMode || '');
       btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));  // NEW: reflect state for a11y
     });
   }
   function setSearchMode(mode){

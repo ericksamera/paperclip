@@ -240,16 +240,44 @@
 }
 @keyframes pc-spin { to { transform: rotate(360deg); } }
 
-/* ---- Pending delete styling ---- */
-tr.pc-row.pc-row--pending { opacity: .45; filter: grayscale(1); }
+/* ---- Search mode segmented control ---- */
+.z-mode { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:4px }
 
-/* ---- Search mode chips ---- */
-.z-mode { display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; margin-left:4px }
-.z-mode-chips { display:inline-flex; gap:6px; }
-.z-mode .chip { cursor:pointer; padding:4px 8px; }
-.z-mode .chip.active {
-  background: var(--accent);
-  color:#fff;
-  border-color: color-mix(in oklab, var(--accent) 65%, var(--line) 35%);
+/* Segmented pill */
+.segmented {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--panel) 96%, var(--fg) 4%);
+  box-shadow: var(--shadow);
 }
-.z-mode-hint { font-size:12px; opacity:.85 }
+.segmented .seg-btn {
+  border: 0;
+  background: transparent;
+  padding: 4px 10px;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--fg);
+  line-height: 1.2;
+}
+.segmented .seg-btn + .seg-btn {
+  border-left: 1px solid color-mix(in oklab, var(--line) 85%, var(--panel) 15%);
+}
+.segmented .seg-btn.active,
+.segmented .seg-btn[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.z-mode-info {
+  width: 20px; height: 20px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--panel-strong) 92%, var(--fg) 8%);
+  font-weight: 800;
+  cursor: help;
+  box-shadow: var(--shadow);
+}

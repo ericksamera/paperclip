@@ -1,56 +1,35 @@
-/**
- * selection_harden.js — robust legacy binder (click + j/k + arrows)
- * Idempotent, and bails out if the ESM selection is active.
- */
-(() => {
-  // Bail if modern ESM selection has initialized
-  if (window.__pcESMSelectionReady) {
-    try { console.info("[paperclip] selection_harden skipped (ESM active)"); } catch {}
+// services/server/paperclip/static/captures/selection_harden.js
+// Legacy safety binder: only active if the modern ESM selection isn't present.
+// If ESM selection becomes ready later, we unbind ourselves.
+
+(function () {
+  // If ESM selection already signaled readiness, do nothing.
+  if (window.__pcSelectionESM) {
+    try { console.info("[paperclip] legacy selection: disabled (ESM present)."); } catch {}
     return;
   }
-  if (window.__pcLegacySelBound) return;
-  window.__pcLegacySelBound = true;
+
+  let _bound = false;
+  let _onKeydown = null;
+  let _onClick = null;
 
   function isEditable(el) {
     if (!el) return false;
-    if (el.isContentEditable) return true;
-    const t = el.tagName;
-    return t === "INPUT" || t === "TEXTAREA" || t === "SELECT";
-  }
-  function tbody() {
+    const t = (el.tagName || "").toLowerCase();
     return (
-      document.querySelector("#z-table tbody") ||
-      document.getElementById("pc-body") ||
-      document.querySelector(".pc-table tbody") ||
-      document.querySelector("tbody")
+      t === "input" || t === "textarea" || el.isContentEditable || t === "select"
     );
   }
-  function rows() {
-    const tb = tbody();
-    return tb ? Array.from(tb.querySelectorAll("tr.pc-row, tr[data-row='pc-row'], tr")) : [];
-  }
-  function current() {
-    return document.querySelector(
-      "tr.pc-row.is-selected, tr.pc-row.selected, tr.pc-row[aria-selected='true'], tr[data-selected='true']"
-    );
-  }
+
+  function tbody() { return document.querySelector("#pc-body"); }
+  function rows() { return Array.from(document.querySelectorAll("#pc-body tr.pc-row")); }
+  function current() { return document.querySelector("#pc-body tr.pc-row[aria-selected='true']"); }
 
   function simulateClick(tr) {
     if (!tr) return;
-    const ev = new MouseEvent("click", { bubbles: true, cancelable: true, view: window });
-    // 🔒 mark as simulated so our capture listener can ignore (prevents recursion)
-    Object.defineProperty(ev, "__pcSimulated", { value: true });
-    tr.dispatchEvent(ev);
-
-    // If no listener set selection, provide minimal UX fallback
-    if (
-      !tr.classList.contains("is-selected") &&
-      !tr.classList.contains("selected") &&
-      tr.getAttribute("aria-selected") !== "true"
-    ) {
-      tr.classList.add("selected");
-      tr.setAttribute("aria-selected", "true");
-    }
+    try {
+      tr.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    } catch {}
   }
 
   function move(delta) {
@@ -67,29 +46,44 @@
     try { tr.focus({ preventScroll: true }); } catch {}
   }
 
-  function onKeydown(e) {
-    if (e.defaultPrevented) return;
-    if (isEditable(e.target) || e.altKey || e.ctrlKey || e.metaKey) return;
-    if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); move(+1); }
-    else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+  function bind() {
+    if (_bound) return;
+    _onKeydown = (e) => {
+      if (e.defaultPrevented) return;
+      if (isEditable(e.target) || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); move(+1); }
+      else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+    };
+    _onClick = (e) => {
+      const tb = tbody();
+      if (!tb) return;
+      const tr = e.target && e.target.closest && e.target.closest("tr");
+      if (!tr || !tb.contains(tr)) return;
+      if (isEditable(e.target)) return;
+      // Avoid fighting with native link clicks inside the row; let default happen then re-select
+      simulateClick(tr);
+    };
+    document.addEventListener("keydown", _onKeydown, true);
+    document.addEventListener("click", _onClick, true);
+    _bound = true;
+    try { console.info("[paperclip] legacy selection: bound."); } catch {}
   }
 
-  function onClick(e) {
-    // 🔒 ignore our own synthetic click
-    if (e && e.__pcSimulated) return;
-
-    const tb = tbody();
-    if (!tb) return;
-
-    const tr = e.target && e.target.closest && e.target.closest("tr");
-    if (!tr || !tb.contains(tr)) return;
-    if (isEditable(e.target)) return;
-
-    // Let selection owner decide; we only simulate if needed
-    simulateClick(tr);
+  function unbind() {
+    if (!_bound) return;
+    document.removeEventListener("keydown", _onKeydown, true);
+    document.removeEventListener("click", _onClick, true);
+    _onKeydown = _onClick = null;
+    _bound = false;
+    try { console.info("[paperclip] legacy selection: unbound (ESM took over)."); } catch {}
   }
 
-  document.addEventListener("keydown", onKeydown, true);
-  document.addEventListener("click", onClick, true);
-  try { console.info("[paperclip] selection_harden bound (legacy binder active)."); } catch {}
+  // If/when the ESM selection initializes, unbind ourselves.
+  window.addEventListener("pc:selection-esm-ready", unbind, { once: true });
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bind, { once: true });
+  } else {
+    bind();
+  }
 })();

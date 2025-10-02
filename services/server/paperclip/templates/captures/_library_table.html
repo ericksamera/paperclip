@@ -11,7 +11,6 @@
           </a>
         </th>
 
-        <!-- NEW: Authors is now sortable -->
         <th class="pc-col-tight" data-col="authors">
           <a class="th-link" href="?{% qs_sort current_params 'authors' sort dir 'asc' %}">
             Authors{% if sort == 'authors' %}<span class="th-arrow">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
@@ -30,7 +29,6 @@
           </a>
         </th>
 
-        <!-- DOI remains in the DOM but will be hidden by default via columns panel JS -->
         <th class="pc-col-tight" data-col="doi">DOI</th>
 
         <th class="pc-col-tight" data-col="added">

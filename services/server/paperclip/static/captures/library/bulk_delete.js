@@ -1,5 +1,6 @@
-// captures/library/bulk_delete.js  (ESM)
+// services/server/paperclip/static/captures/library/bulk_delete.js  (ESM)
 import { $, csrfToken, toast } from "./dom.js";
+import { onSelectionChange, EVENTS } from "./events.js";
 
 function selectedRowEls() {
   return Array.from(document.querySelectorAll("#pc-body tr.pc-row[aria-selected='true']"));
@@ -17,10 +18,12 @@ export function initBulkDelete() {
   const bulkBtn  = $("#pc-bulk-delete");
   if (!bulkForm || !bulkBtn) return;
 
-  // Keep button label right if some other code toggles selection
+  // Keep button label right when selection or rows change.
   const refresh = () => updateBulkBtnState(bulkBtn);
-  document.addEventListener("pc:rows-changed", refresh);
-  document.addEventListener("pc:rows-updated", refresh); // legacy, harmless duplicate
+  document.addEventListener(EVENTS.ROWS_CHANGED, refresh);
+  document.addEventListener("pc:rows-updated", refresh);   // legacy, harmless duplicate
+  onSelectionChange(refresh);                               // ← NEW: react instantly to selection
+
   updateBulkBtnState(bulkBtn);
 
   // Flush any uncanceled pending delete if the user navigates away
@@ -74,10 +77,12 @@ export function initBulkDelete() {
 
         // Notify both names (legacy) + the canonical one
         document.dispatchEvent(new CustomEvent("pc:rows-updated"));
-        document.dispatchEvent(new CustomEvent("pc:rows-changed"));
+        document.dispatchEvent(new CustomEvent(EVENTS.ROWS_CHANGED));
       } catch (err) {
         // Roll back on error
         rows.forEach(tr => tr.classList.remove("pc-row--pending"));
+        rows.forEach(tr => tr.setAttribute("aria-selected", "true"));
+        updateBulkBtnState(bulkBtn);
         toast(`Delete failed. ${String(err)}`, { duration: 4000 });
       }
     };
@@ -89,7 +94,7 @@ export function initBulkDelete() {
       rows.forEach(tr => tr.classList.remove("pc-row--pending"));
       rows.forEach(tr => tr.setAttribute("aria-selected", "true"));
       updateBulkBtnState(bulkBtn);
-      window.PCState && (window.PCState.pendingDelete = null);
+      if (window.PCState) window.PCState.pendingDelete = null;
     };
 
     toast(`Deleted ${ids.length} item(s) — Undo`, {
@@ -99,12 +104,17 @@ export function initBulkDelete() {
     });
 
     timer = setTimeout(() => { if (!canceled) flushNow(); }, 5000);
-    window.PCState && (window.PCState.pendingDelete = { ids, flushNow, sent, canceled, cancel });
+    if (!window.PCState) window.PCState = { selected: new Set(), pendingDelete: null };
+    window.PCState.pendingDelete = { ids, flushNow, sent, canceled, cancel };
   });
 
   // Optional: when some other code toggles selection, keep the button accurate
   document.addEventListener("click", () => updateBulkBtnState(bulkBtn), { capture: true });
 }
 
-// Auto-boot when the page is ready
-document.addEventListener("DOMContentLoaded", initBulkDelete);
+// Allow either index.js to call us or fallback-boot if loaded directly.
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initBulkDelete, { once: true });
+} else {
+  initBulkDelete();
+}
