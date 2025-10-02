@@ -5,7 +5,14 @@
 //      sidebar collapsible groups, and "Remove from this collection" when filtered by a collection.
 // NEW: 3-state search mode chips (Text / Semantic / Hybrid) + better empty states (handled by template).
 
+
 (function () {
+
+  if (window.__pcESMSelectionReady) {
+    try { console.info("[paperclip] classic captures/library.js skipped (ESM active)"); } catch (_) {}
+    return;
+  }
+
   const shell  = document.getElementById('z-shell');
   const tbody  = document.getElementById('pc-body');
   const zLeft  = document.getElementById('z-left');
