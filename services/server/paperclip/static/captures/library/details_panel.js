@@ -10,14 +10,22 @@ function truncate(s, n) {
 }
 
 function oneRowHtml(row) {
-  const title   = row.getAttribute("data-title")   || "";
-  const doi     = row.getAttribute("data-doi")     || "";
-  const doiUrl  = row.getAttribute("data-doi-url") || (doi ? `https://doi.org/${encodeURIComponent(doi)}` : "");
-  const journal = row.getAttribute("data-journal") || "";
-  const authors = row.getAttribute("data-authors") || "";
-  const abs     = row.getAttribute("data-abstract")|| "";
-  const site    = row.getAttribute("data-site")    || "";
-  const year    = row.getAttribute("data-year")    || "";
+  const title   = row.getAttribute("data-title")    || "";
+  const doi     = row.getAttribute("data-doi")      || "";
+  const doiUrl  = row.getAttribute("data-doi-url")  || (doi ? `https://doi.org/${encodeURIComponent(doi)}` : "");
+  const journal = row.getAttribute("data-journal")  || "";
+  const authors = row.getAttribute("data-authors")  || "";
+  const abs     = row.getAttribute("data-abstract") || "";
+  const site    = row.getAttribute("data-site")     || "";
+  const year    = row.getAttribute("data-year")     || "";
+
+  // NEW: keywords (already provided on each row as data-keywords)
+  // Accept comma or semicolon separators, trim, and drop empties.
+  const kwRaw = row.getAttribute("data-keywords") || "";
+  const kws = kwRaw.split(/[;,]/).map(s => s.trim()).filter(Boolean);
+  const kwsHtml = kws.length
+    ? `<div class="z-kws">${kws.map(k => `<span class="z-kw">${escapeHtml(k)}</span>`).join("")}</div>`
+    : "";
 
   return `
     <h3>${escapeHtml(title)}</h3>
@@ -27,6 +35,7 @@ function oneRowHtml(row) {
     ${authors ? `<div class="z-meta">${escapeHtml(authors)}</div>` : ""}
     ${doi ? `<div class="z-meta"><a href="${escapeHtml(doiUrl)}" target="_blank" rel="noopener">${escapeHtml(doi)}</a></div>` : ""}
     ${abs ? `<div class="z-meta"><strong>Abstract.</strong> ${escapeHtml(truncate(abs, 700))}</div>` : ""}
+    ${kwsHtml}
   `;
 }
 

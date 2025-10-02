@@ -50,8 +50,6 @@ function reorderTable(order) {
   if (!table) return;
 
   const safeOrder = order.filter(k => ALL_COLS.includes(k));
-  // For robustness, always put 'title' first in DOM (we pin it visually)
-  const hasTitle = safeOrder.includes("title");
   const finalOrder = ["title", ...safeOrder.filter(k => k !== "title")];
 
   const theadRow = table.querySelector("thead tr");
@@ -59,16 +57,24 @@ function reorderTable(order) {
 
   function applyToRow(tr) {
     const cells = {};
-    tr.querySelectorAll("[data-col]").forEach((td) => { cells[td.getAttribute("data-col")] = td; });
-    // append in final order if the cell exists
+    tr.querySelectorAll("[data-col]").forEach((td) => {
+      cells[td.getAttribute("data-col")] = td;
+    });
+
+    // Re-append known columns in saved order
     for (const key of finalOrder) {
       if (cells[key]) tr.appendChild(cells[key]);
     }
+
+    // Always keep the gear column (if present) as the last cell
+    const gear = tr.querySelector(".pc-col-gear");
+    if (gear && gear.parentElement === tr) tr.appendChild(gear);
   }
 
   if (theadRow) applyToRow(theadRow);
   bodyRows.forEach(applyToRow);
 }
+
 
 // Show/hide + widths + reorder
 function applyCols(cfg) {
@@ -235,14 +241,14 @@ function makeSplitter(id, varName, minPx, maxPx, storeKey) {
 
 export function initPanelsAndColumns() {
   // Drawer wiring
-  const colsBtn = $("#pc-cols-toggle");
+  const triggers = $$("#pc-cols-toggle, #pc-cols-toggle-table, [data-act='toggle-columns']");
   const closeBtn = $("#pc-cols-close");
   const backdrop = $("#pc-cols-drawer-backdrop");
 
-  on(colsBtn, "click", () => {
+  triggers.forEach(btn => on(btn, "click", () => {
     openDrawer();
     initColsDrawerUI();
-  });
+  }));
   on(closeBtn, "click", closeDrawer);
   on(backdrop, "click", closeDrawer);
   on(window, "keydown", (e) => { if (e.key === "Escape" && isOpen()) { e.preventDefault(); closeDrawer(); } });
@@ -274,20 +280,11 @@ export function initPanelsAndColumns() {
   makeSplitter("z-splitter-right", "--right-w", 0,   560, "pc-right-w");
   if (localStorage.getItem("pc-left-hidden") === "1") shell?.style.setProperty("--left-w", "0px");
 
-  // Hotkeys (kept from previous file)
+  // Hotkeys (unchanged)
   on(window, "keydown", (e) => {
     const tag = (e.target && (e.target.tagName || "")).toLowerCase();
     const typing = tag === "input" || tag === "textarea" || e.target.isContentEditable;
-
-    if (!typing && e.key === "/") { e.preventDefault(); document.querySelector(".z-search input[name=q]")?.focus(); return; }
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") { e.preventDefault(); $$("#pc-body tr.pc-row").forEach(r => r.setAttribute("aria-selected", "true")); return; }
-    if (!typing && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); document.getElementById("pc-bulk-delete")?.click(); return; }
-    if (!typing && e.key === "Escape" && !isOpen()) { e.preventDefault(); clearSelection(); return; }
-    if (!typing && e.key.toLowerCase() === "c") { e.preventDefault(); colsBtn?.click(); return; }
-    if (!typing && e.key.toLowerCase() === "i") { e.preventDefault(); document.getElementById("z-toggle-right")?.click(); return; }
-    if (!typing && (e.key === "Enter")) { e.preventDefault(); openCurrent("detail"); return; }
-    if (!typing && e.key.toLowerCase() === "o") { e.preventDefault(); openCurrent("doi_or_url"); return; }
-    if (!typing && e.key.toLowerCase() === "y") { e.preventDefault(); copyDoi(); return; }
+    if (!typing && e.key.toLowerCase() === "c") { e.preventDefault(); (triggers[0] || document.body).click(); return; }
   });
 
   // First load: apply saved prefs

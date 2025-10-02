@@ -1,4 +1,4 @@
-{% load qs capture_extras %}
+{% load qs %}
 
 <!-- Toolbar -->
 <div class="z-toolbar">
@@ -50,21 +50,24 @@
   </form>
 
   <div class="z-actions">
-    <form id="pc-bulk-form" method="post" action="{% url 'capture_bulk_delete' %}">
-      {% csrf_token %}
-      <button id="pc-bulk-delete" class="btn btn--danger" type="button" disabled>Delete selected</button>
-    </form>
+    {# Hidden “ghost” container keeps legacy controls in the DOM for scripts, but removes them from the UI #}
+    <div id="pc-ghost-controls" style="display:none" aria-hidden="true">
+      <form id="pc-bulk-form" method="post" action="{% url 'capture_bulk_delete' %}">
+        {% csrf_token %}
+        <button id="pc-bulk-delete" class="btn btn--danger" type="button" disabled>Delete selected</button>
+      </form>
 
-    <!-- Optional: assign to collection -->
-    <div style="display:flex;gap:6px;align-items:center">
-      <select id="pc-assign-select" class="z-input" style="min-width:18ch">
-        <option value="">— Choose collection —</option>
-        {% for c in collections %}
-          <option value="{{ c.id }}">{{ c.name }}</option>
-        {% endfor %}
-      </select>
-      <button id="pc-assign-add" class="btn btn--primary" type="button">Add to</button>
-      <button id="pc-assign-remove" class="btn" type="button">Remove</button>
+      <!-- Optional: assign to collection (kept functional but hidden) -->
+      <div style="display:flex;gap:6px;align-items:center">
+        <select id="pc-assign-select" class="z-input" style="min-width:18ch">
+          <option value="">— Choose collection —</option>
+          {% for c in collections %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+        <button id="pc-assign-add" class="btn btn--primary" type="button">Add to</button>
+        <button id="pc-assign-remove" class="btn" type="button">Remove</button>
+      </div>
     </div>
 
     {% if selected.col %}
@@ -77,11 +80,10 @@
 
     <button id="z-toggle-left" class="btn" type="button" title="Toggle sidebar">Sidebar ⇆</button>
     <button id="z-toggle-right" class="btn" type="button" title="Toggle info panel">Info ⇆</button>
-    <button id="pc-cols-toggle" class="btn" type="button" title="Choose columns & order">Columns</button>
   </div>
 </div>
 
-<!-- Columns drawer (replaces the old #pc-cols-panel popover) -->
+<!-- Columns drawer (modal overlay) -->
 <div id="pc-cols-drawer" class="pc-drawer" aria-hidden="true">
   <div class="backdrop" id="pc-cols-drawer-backdrop" tabindex="-1" aria-hidden="true"></div>
 
@@ -92,7 +94,7 @@
     </div>
 
     <div class="row">
-      <em class="muted">Show / hide & drag to reorder</em>
+      <em class="muted">Show / hide &amp; drag to reorder</em>
       <ul id="pc-cols-list" class="pc-cols-list" aria-label="Columns order and visibility">
         {# Rows are injected by JS to reflect saved order; keep server markup minimal #}
       </ul>

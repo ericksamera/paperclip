@@ -111,10 +111,10 @@ export function initSearchAndPaging() {
 
 function rowHtml(r) {
   const title = escapeHtml(r.title || r.url || "(Untitled)");
-  const url   = r.url ? `<div class="pc-link"><a href="${escapeHtml(r.url)}" target="_blank" rel="noreferrer">${escapeHtml(r.site_label || "")}</a></div>` : "";
-  const doi   = r.doi_url ? `<a href="${escapeHtml(r.doi_url)}" target="_blank" rel="noreferrer">${escapeHtml(r.doi)}</a>` : "";
   const authorsTitle = escapeHtml(r.authors_intext || "");
-  const journalCell = `<td class="pc-col-tight" data-col="journal" title="${escapeHtml(r.journal || "")}">${escapeHtml(r.journal_short || r.journal || "")}</td>`;
+  const doi = r.doi_url ? `<a href="${escapeHtml(r.doi_url)}" target="_blank" rel="noreferrer">${escapeHtml(r.doi || "")}</a>` : "";
+  const url = r.url ? `<div class="pc-link"><a href="${escapeHtml(r.url)}" target="_blank" rel="noreferrer">${escapeHtml(r.site_label || "")}</a></div>` : "";
+  const journalCell = `<td class="pc-col-tight" data-col="journal" title="${escapeHtml(r.journal || "")}">${escapeHtml(r.journal_short || "")}</td>`;
   const snippet = r.preview ? `<div class="pc-snippet">${escapeHtml(r.preview)}</div>` : "";
   return `
 <tr class="pc-row" draggable="true" data-id="${r.id}" aria-selected="false"
@@ -138,8 +138,11 @@ function rowHtml(r) {
   <td class="pc-col-tight" data-col="doi">${doi}</td>
   <td class="pc-col-tight" data-col="added">${escapeHtml(r.added || "")}</td>
   <td class="pc-col-tight" data-col="refs">${escapeHtml(String(r.refs ?? ""))}</td>
+  <!-- NEW: placeholder to match the header gear column -->
+  <td class="pc-col-gear" aria-hidden="true"></td>
 </tr>`;
 }
+
 
 async function fetchPage(pageNo) {
   const base = new URL(location.origin + "/library/page/");

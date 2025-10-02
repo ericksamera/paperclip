@@ -104,6 +104,37 @@
 .z-kws { display:flex; gap:6px; flex-wrap:wrap }
 .z-kw { font-size:12px; padding:2px 6px; border:1px solid var(--line); border-radius:999px }
 
+/* Icon-only button used for the Columns trigger */
+.btn--icon {
+  padding: 0;
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+}
+/* Ensure the inline SVG inherits theme color */
+.btn--icon svg { display: block; width: 20px; height: 20px; fill: currentColor; }
+
+/* Screen-reader only text helper */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+}
+
+/* header icon behaves like text but is clickable */
+.pc-col-gear .icon-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;        /* no button padding */
+}
+.pc-col-gear .icon-trigger:focus { outline: 2px solid var(--focus, #6aa3ff); outline-offset: 2px; }
+.pc-col-gear .icon-trigger svg { width: 20px; height: 20px; fill: currentColor; }
+
+
 /* Splitters */
 .z-splitter { position:absolute; top:40px; bottom:0; width:6px; cursor:col-resize; z-index:10 }
 .z-splitter-left { left:calc(var(--left-w) - 3px) }
