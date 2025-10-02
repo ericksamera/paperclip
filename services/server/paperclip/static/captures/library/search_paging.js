@@ -28,9 +28,10 @@ export async function fetchAndReplaceTable(url, signal) {
   const tbody = $("#pc-body");
   tbody.innerHTML = newBody.innerHTML;
 
-  // Notify both names (legacy + new)
+  // Notify both names (legacy) + the canonical one
   document.dispatchEvent(new CustomEvent("pc:rows-replaced"));
   document.dispatchEvent(new CustomEvent("pc:rows-updated"));
+  document.dispatchEvent(new CustomEvent("pc:rows-changed"));
   return true;
 }
 
@@ -158,7 +159,7 @@ function updateScrollStatus() {
 export async function ensureInitialRows() {
   const tbody = document.getElementById("pc-body");
   if (!tbody) return;
-  if (tbody.querySelector("tr.pc-row")) return; // already server-rendered
+  if (tbody.querySelector("tr.pc-row")) return;
   try {
     state.loading = true;
     const j = await fetchPage(1);
@@ -169,6 +170,7 @@ export async function ensureInitialRows() {
       state.total = j?.page?.total ?? null;
       document.dispatchEvent(new CustomEvent("pc:rows-replaced"));
       document.dispatchEvent(new CustomEvent("pc:rows-updated"));
+      document.dispatchEvent(new CustomEvent("pc:rows-changed"));
       updateScrollStatus();
     }
   } catch (e) {
@@ -177,6 +179,7 @@ export async function ensureInitialRows() {
     state.loading = false;
   }
 }
+
 
 async function prefetchMeta() {
   try {
@@ -202,6 +205,7 @@ async function maybeLoadMore() {
       const html = rows.map(rowHtml).join("");
       document.getElementById("pc-body").insertAdjacentHTML("beforeend", html);
       document.dispatchEvent(new CustomEvent("pc:rows-updated"));
+      document.dispatchEvent(new CustomEvent("pc:rows-changed"));
     }
     state.nextPage = j?.page?.next_page ?? null;
     updateScrollStatus();

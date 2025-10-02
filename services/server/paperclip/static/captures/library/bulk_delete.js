@@ -18,7 +18,9 @@ export function initBulkDelete() {
   if (!bulkForm || !bulkBtn) return;
 
   // Keep button label right if some other code toggles selection
-  document.addEventListener("pc:rows-updated", () => updateBulkBtnState(bulkBtn));
+  const refresh = () => updateBulkBtnState(bulkBtn);
+  document.addEventListener("pc:rows-changed", refresh);
+  document.addEventListener("pc:rows-updated", refresh); // legacy, harmless duplicate
   updateBulkBtnState(bulkBtn);
 
   // Flush any uncanceled pending delete if the user navigates away
@@ -69,7 +71,10 @@ export function initBulkDelete() {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         rows.forEach(tr => tr.remove());
         toast(`Deleted ${ids.length} item(s).`, { duration: 2500 });
+
+        // Notify both names (legacy) + the canonical one
         document.dispatchEvent(new CustomEvent("pc:rows-updated"));
+        document.dispatchEvent(new CustomEvent("pc:rows-changed"));
       } catch (err) {
         // Roll back on error
         rows.forEach(tr => tr.classList.remove("pc-row--pending"));

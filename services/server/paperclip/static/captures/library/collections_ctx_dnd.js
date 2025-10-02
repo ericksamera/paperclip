@@ -1,8 +1,6 @@
 // services/server/paperclip/static/captures/library/collections_ctx_dnd.js
-import {
-  $, $$, on, csrfToken, escapeHtml, toast,
-  currentCollectionId, scanCollections, keepOnScreen
-} from "./dom.js";
+// services/server/paperclip/static/captures/library/collections_ctx_dnd.js
+import { $, $$, on, csrfToken, escapeHtml, buildQs, toast, currentCollectionId, scanCollections, keepOnScreen } from "./dom.js";
 import { state } from "./state.js";
 
 /* --------------------- Assign helpers --------------------- */

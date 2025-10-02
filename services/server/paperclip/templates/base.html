@@ -67,9 +67,7 @@
 
   {% block scripts %}{% endblock %}
 
-  <script src="{% static 'ui/toast.js' %}?v=1"></script>
   <script>
-  // When theme changes, also nudge any same-origin iframes immediately
   (function () {
     const root = document.documentElement, wrap = document.getElementById('pc-theme');
     if (!wrap) return;

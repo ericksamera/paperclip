@@ -19,6 +19,7 @@ import { initDetailsPanel } from "./details_panel.js";
   // If the tbody shipped empty, load the first page.
   ensureInitialRows();
 
-  // Nudge any legacy listeners.
+  // Nudge any listeners (legacy & new)
   document.dispatchEvent(new CustomEvent("pc:rows-updated"));
+  document.dispatchEvent(new CustomEvent("pc:rows-changed"));
 })();

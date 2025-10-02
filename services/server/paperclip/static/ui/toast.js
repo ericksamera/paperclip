@@ -1,6 +1,7 @@
+// services/server/paperclip/static/ui/toast.js
 // Tiny toast API: Toast.show(text, { actionText, duration, onAction })
 (() => {
-  if (window.Toast) return;
+  if (window.Toast && window.Toast.__pc_origin === "ui") return;
 
   const WRAP = document.createElement('div');
   WRAP.className = 'pc-toast-wrap';
@@ -51,5 +52,6 @@
     return { close };
   }
 
-  window.Toast = { show };
+  // Mark as the real UI toast so the module helper can safely delegate to us
+  window.Toast = { show, __pc_origin: "ui" };
 })();

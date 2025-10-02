@@ -1,6 +1,7 @@
 /* services/server/paperclip/static/captures/library/dom.js */
-// One place for tiny DOM utils + UX helpers used across the Library UI.
-// Export as ESM and also attach to window (so classic scripts can use it).
+/* One place for tiny DOM utils + UX helpers used across the Library UI.
+   Exports ESM functions and also attaches a safe window.PCDOM bridge for legacy.
+*/
 
 /* ------------------------- DOM shorthands ------------------------- */
 export function $(sel, root = document) { return root.querySelector(sel); }
@@ -19,6 +20,7 @@ export function buildQs(next) {
     if (v === null || v === undefined || v === "") p.delete(k);
     else p.set(k, String(v));
   });
+  // changing filters should reset paging
   if (!("page" in (next || {}))) p.delete("page");
   return "?" + p.toString();
 }
@@ -48,20 +50,15 @@ export function keepOnScreen(el, margin = 8) {
   if (!el) return;
   const r = el.getBoundingClientRect();
   let nx = r.left, ny = r.top;
-  if (r.right > innerWidth)   nx = Math.max(margin, innerWidth  - r.width  - margin);
-  if (r.bottom > innerHeight) ny = Math.max(margin, innerHeight - r.height - margin);
+  if (r.right  > innerWidth)   nx = Math.max(margin, innerWidth  - r.width  - margin);
+  if (r.bottom > innerHeight)  ny = Math.max(margin, innerHeight - r.height - margin);
   if (nx !== r.left) el.style.left = nx + "px";
   if (ny !== r.top)  el.style.top  = ny + "px";
 }
 
-/* ------------------------- Toast (fallback) ---------------------- */
-export function toast(message, { duration = 3000, actionText = "", onAction = null } = {}) {
-  // Prefer global Toast if present
-  if (typeof window.Toast?.show === "function") {
-    window.Toast.show(message, actionText ? { actionText, duration, onAction } : { duration });
-    return { close() {} };
-  }
-  // Tiny fallback
+/* ------------------------- Toast helpers ------------------------- */
+/** A tiny, non‑recursive toast used as our guaranteed fallback. */
+function _miniToast(message, { duration = 3000, actionText = "", onAction = null } = {}) {
   let host = document.getElementById("pc-toast-host");
   if (!host) {
     host = document.createElement("div");
@@ -72,6 +69,7 @@ export function toast(message, { duration = 3000, actionText = "", onAction = nu
   const card = document.createElement("div");
   card.style.cssText = "max-width:520px;background:rgba(28,32,38,0.98);color:#e6edf3;border:1px solid #2e3640;border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,0.35)";
   card.textContent = message;
+
   if (actionText) {
     const btn = document.createElement("button");
     btn.textContent = actionText;
@@ -79,10 +77,22 @@ export function toast(message, { duration = 3000, actionText = "", onAction = nu
     btn.onclick = () => { try { onAction?.(); } finally { close(); } };
     card.appendChild(btn);
   }
+
   host.appendChild(card);
   const t = setTimeout(close, duration);
-  function close(){ clearTimeout(t); card.remove(); }
+  function close() { clearTimeout(t); card.remove(); }
   return { close };
+}
+
+/** Public toast API for modules: prefers real UI toast if present, else mini. */
+export function toast(message, opts = {}) {
+  const T = window.Toast;
+  // Only delegate to the "real" UI toast. If the global is our shim, use mini to avoid recursion.
+  if (T && typeof T.show === "function" && T.__pc_origin === "ui") {
+    const r = T.show(message, opts);
+    return r && typeof r.close === "function" ? r : { close() {} };
+  }
+  return _miniToast(message, opts);
 }
 
 /* ------------------------- Library helpers ----------------------- */
@@ -95,9 +105,12 @@ export function currentCollectionId() {
 export function scanCollections() {
   const zLeft = document.getElementById("z-left");
   if (!zLeft) return [];
-  const links = [...zLeft.querySelectorAll("[data-collection-id], a[href*='col='], a[href^='/collections/']")];
+  // correct: Array.from + zLeft (not ".zLeft")
+  const links = Array.from(
+    zLeft.querySelectorAll("[data-collection-id], a[href*='col='], a[href^='/collections/']")
+  );
   const list = [];
-  links.forEach(a => {
+  links.forEach((a) => {
     let id = a.getAttribute("data-collection-id");
     if (!id) {
       try {
@@ -127,4 +140,7 @@ window.PCDOM = Object.freeze({
   buildQs, csrfToken, escapeHtml, keepOnScreen, toast,
   currentCollectionId, scanCollections,
 });
-window.Toast = window.Toast || { show: (message, opts) => toast(message, opts) };
+
+if (!window.Toast) {
+  window.Toast = { show: (message, opts) => _miniToast(message, opts), __pc_origin: "shim" };
+}
