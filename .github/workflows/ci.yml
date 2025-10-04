@@ -22,8 +22,10 @@ jobs:
           python -m pip install -U pip
           python -m pip install -r requirements-dev.txt
 
-      - name: Black (check)
-        run: black --check .
+      - name: Check formatting (black)
+        run: |
+          python -m black --version
+          python -m black --check --diff .
 
       - name: Ruff (lint)
         run: ruff check .
