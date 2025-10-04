@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import IO, Any
 
@@ -27,9 +29,11 @@ def write_json_artifact(capture_id: str, name: str, obj: Any) -> None:
     p.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def open_artifact(capture_id: str, name: str, mode: str = "rb") -> IO[Any]:
+@contextmanager
+def open_artifact(capture_id: str, name: str, mode: str = "rb") -> Iterator[IO[Any]]:
     p = artifact_path(capture_id, name)
-    return open(p, mode)  # noqa: SIM115 - caller is responsible for closing
+    with open(p, mode) as f:
+        yield f
 
 
 def read_json_artifact(capture_id: str, name: str, default: Any = None) -> Any:
