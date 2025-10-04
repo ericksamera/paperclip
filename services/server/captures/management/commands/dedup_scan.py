@@ -1,8 +1,12 @@
 from __future__ import annotations
+
 import json
-from django.core.management.base import BaseCommand
+
 from django.conf import settings
+from django.core.management.base import BaseCommand
+
 from captures.dedup import find_near_duplicates
+
 
 class Command(BaseCommand):
     help = "Scan for near-duplicate captures with MinHash/LSH and write data/analysis/dupes.json"

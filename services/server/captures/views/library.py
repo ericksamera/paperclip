@@ -1,6 +1,7 @@
 # services/server/captures/views/library.py
 from __future__ import annotations
-from typing import List, Dict, Tuple, Any
+
+from typing import Any, cast
 
 from django.core.paginator import Paginator
 from django.http import JsonResponse
@@ -9,18 +10,19 @@ from django.views import View
 
 from captures.models import Capture
 from captures.search import search_ids
+
 from .common import (
-    _row,
     _apply_filters,
+    _authors_intext,
     _build_facets,
     _collections_with_counts,
-    _authors_intext,
     _journal_full,
+    _row,
 )
 
-# ------------------------ helpers (shared by both endpoints) ------------------------
 
-def _search_ids_for_query(qterm: str, search_mode: str) -> List[str]:
+# ------------------------ helpers (shared by both endpoints) ------------------------
+def _search_ids_for_query(qterm: str, search_mode: str) -> list[str]:
     """
     Returns a ranked list of capture IDs for the given query, honoring:
       • 'semantic' mode
@@ -30,25 +32,29 @@ def _search_ids_for_query(qterm: str, search_mode: str) -> List[str]:
     """
     qterm = (qterm or "").strip()
     use_sem = (search_mode == "semantic") or (qterm.startswith("~") and len(qterm) > 1)
-    use_hybrid = (search_mode == "hybrid")
+    use_hybrid = search_mode == "hybrid"
     if not (use_sem or use_hybrid):
         return search_ids(qterm)
     qraw = qterm[1:].strip() if qterm.startswith("~") else qterm
     try:
         if use_sem:
             from captures.semantic import search_ids_semantic
+
             return search_ids_semantic(qraw, k=2000)
         from captures.semantic import rrf_hybrid_ids
+
         return rrf_hybrid_ids(qraw, limit=2000)
     except Exception:
         return search_ids(qraw)
 
 
-def _filter_and_rank(ids: List[str], *, year: str, journal: str, site: str, col: str) -> Tuple[List[Capture], Dict[str, int]]:
+def _filter_and_rank(
+    ids: list[str], *, year: str, journal: str, site: str, col: str
+) -> tuple[list[Capture], dict[str, int]]:
     """Filter the subset of Capture rows in ids and return (ordered_list, rank_map)."""
     rank = {pk: i for i, pk in enumerate(ids)}
     qs = Capture.objects.filter(id__in=ids)
-    filtered: List[Capture] = _apply_filters(qs, year=year, journal=journal, site=site, col=col)
+    filtered: list[Capture] = _apply_filters(qs, year=year, journal=journal, site=site, col=col)
     filtered.sort(key=lambda c: rank.get(str(c.id), 10**9))
     return filtered, rank
 
@@ -66,12 +72,11 @@ def _sort_key(c: Capture, key: str) -> Any:
     """
     meta = c.meta or {}
     csl = c.csl or {}
-
     k = (key or "").lower()
     if k in ("added", "created_at"):
         return c.created_at
     if k == "title":
-        t = (c.title or meta.get("title") or csl.get("title") or c.url or "")
+        t = c.title or meta.get("title") or csl.get("title") or c.url or ""
         return str(t).casefold()
     if k == "authors":
         return _authors_intext(meta, csl).casefold()
@@ -84,18 +89,21 @@ def _sort_key(c: Capture, key: str) -> Any:
     if k == "journal":
         return _journal_full(meta, csl).casefold()
     if k == "refs":
-        try:
-            return int(c.references.count())
-        except Exception:
-            return 0
+        return _safe_refs_count(c)  # <-- typed helper (avoids mypy 'attr-defined')
     if k == "doi":
-        d = (c.doi or meta.get("doi") or (csl.get("DOI") if isinstance(csl, dict) else "") or "")
+        d = c.doi or meta.get("doi") or (csl.get("DOI") if isinstance(csl, dict) else "") or ""
         return str(d).casefold()
     # Fallback = added
     return c.created_at
 
 
-def _maybe_sort(caps: List[Capture], *, qterm: str, sort: str | None, direction: str | None) -> List[Capture]:
+def _maybe_sort(
+    caps: list[Capture],
+    *,
+    qterm: str,
+    sort: str | None,
+    direction: str | None,
+) -> list[Capture]:
     """
     Sorts only when requested. For search mode (qterm present) we default to 'rank'
     (keep the relevance order) unless a sort key is explicitly provided.
@@ -109,35 +117,39 @@ def _maybe_sort(caps: List[Capture], *, qterm: str, sort: str | None, direction:
             return caps  # keep the relevance order computed earlier
     else:
         effective_sort = (sort or "created_at").lower()
-
-    reverse = (str(direction or "").lower() == "desc")
+    reverse = str(direction or "").lower() == "desc"
     caps.sort(key=lambda c: _sort_key(c, effective_sort), reverse=reverse)
     return caps
 
-# ------------------------ views ------------------------
 
+# ------------------------ views ------------------------
 class LibraryView(View):
     template_name = "captures/list.html"
 
     def get(self, request):
         # Read request params
-        sort = request.GET.get("sort")          # None means defaulting logic applies
+        sort = request.GET.get("sort")  # None means defaulting logic applies
         direction = request.GET.get("dir", "desc")
         qterm = (request.GET.get("q") or "").strip()
-        search_mode = (request.GET.get("search") or "").strip().lower()  # 'semantic' | 'hybrid' | ''
+        search_raw = (request.GET.get("search") or "").strip()
+        search_mode = search_raw.lower()  # 'semantic' | 'hybrid' | ''
         year = (request.GET.get("year") or "").strip()
         journal = (request.GET.get("journal") or "").strip()
         site = (request.GET.get("site") or "").strip()
         col = (request.GET.get("col") or "").strip()
         per = int(request.GET.get("per") or 200)
         page_no = int(request.GET.get("page") or 1)
-
         base_qs = Capture.objects.all().order_by("-created_at")
         facets = _build_facets(base_qs)
         collections = _collections_with_counts()
-
-        selected = {"q": qterm, "year": year, "journal": journal, "site": site, "col": col, "search": search_mode}
-
+        selected = {
+            "q": qterm,
+            "year": year,
+            "journal": journal,
+            "site": site,
+            "col": col,
+            "search": search_mode,
+        }
         if qterm:
             # Searching: get ranked IDs then optionally resort if user clicked a header
             ids = _search_ids_for_query(qterm, search_mode)
@@ -147,17 +159,16 @@ class LibraryView(View):
             start = (page_no - 1) * per
             end = start + per
             rows = [_row(c) for c in filtered[start:end]]
-
-            # “All items” count for the Collections header when a search is active
-            all_items_filtered = _apply_filters(Capture.objects.filter(id__in=ids), year=year, journal=journal, site=site, col="")
+            # "All items" count for the Collections header when a search is active
+            all_items_filtered = _apply_filters(
+                Capture.objects.filter(id__in=ids), year=year, journal=journal, site=site, col=""
+            )
             collections_all_count = len(all_items_filtered)
-
             # Expose current params so qs_sort can generate toggles
             current_params = request.GET
-
-            # For UI arrows: if user didn't choose a sort, we surface 'rank' so no arrow is highlighted
+            # For UI arrows: if user didn't choose a sort, we surface 'rank'
+            # so no arrow is highlighted.
             ui_sort = sort or "rank"
-
             return render(
                 request,
                 self.template_name,
@@ -173,7 +184,6 @@ class LibraryView(View):
                     "collections_all_count": collections_all_count,
                 },
             )
-
         # Non-search listing (simple ordering + pagination)
         filtered = _apply_filters(base_qs, year=year, journal=journal, site=site, col=col)
         filtered = _maybe_sort(filtered, qterm="", sort=sort, direction=direction)
@@ -182,10 +192,8 @@ class LibraryView(View):
         rows = [_row(c) for c in page.object_list]
         all_items_filtered = _apply_filters(base_qs, year=year, journal=journal, site=site, col="")
         collections_all_count = len(all_items_filtered)
-
         current_params = request.GET
-        ui_sort = (sort or "created_at")
-
+        ui_sort = sort or "created_at"
         return render(
             request,
             self.template_name,
@@ -212,9 +220,8 @@ def library_page(request):
     journal = (request.GET.get("journal") or "").strip()
     site = (request.GET.get("site") or "").strip()
     col = (request.GET.get("col") or "").strip()
-    sort = request.GET.get("sort")           # same semantics as full page
+    sort = request.GET.get("sort")  # same semantics as full page
     direction = request.GET.get("dir", "desc")
-
     if qterm:
         ids = _search_ids_for_query(qterm, search_mode)
         filtered, _rank = _filter_and_rank(ids, year=year, journal=journal, site=site, col=col)
@@ -234,7 +241,6 @@ def library_page(request):
                 },
             }
         )
-
     qs = Capture.objects.all().order_by("-created_at")
     filtered = _apply_filters(qs, year=year, journal=journal, site=site, col=col)
     filtered = _maybe_sort(filtered, qterm="", sort=sort, direction=direction)
@@ -253,3 +259,15 @@ def library_page(request):
             },
         }
     )
+
+
+def _safe_refs_count(c: Capture) -> int:
+    """
+    Access the related manager defensively so mypy doesn't complain when Django
+    dynamically attaches `references` at runtime via `related_name=...`.
+    """
+    try:
+        refs_mgr = cast(object, getattr(c, "references", None))
+        return int(getattr(refs_mgr, "count", lambda: 0)())
+    except Exception:
+        return 0

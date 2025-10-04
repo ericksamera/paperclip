@@ -1,11 +1,16 @@
 from __future__ import annotations
-from django import template
+
+from collections.abc import Mapping
+from typing import Any
 from urllib.parse import urlencode
+
+from django import template
 
 register = template.Library()
 
+
 @register.simple_tag
-def qs_update(params, **updates):
+def qs_update(params: Mapping[str, Any], **updates: Any) -> str:
     params = dict(params)
     for k, v in updates.items():
         if v is None:
@@ -14,8 +19,15 @@ def qs_update(params, **updates):
             params[k] = v
     return urlencode(params, doseq=True)
 
+
 @register.simple_tag
-def qs_sort(params, key, current_sort, current_dir, default_dir="asc"):
+def qs_sort(
+    params: Mapping[str, Any],
+    key: str,
+    current_sort: str | None,
+    current_dir: str | None,
+    default_dir: str = "asc",
+) -> str:
     params = dict(params)
     if current_sort == key:
         # toggle

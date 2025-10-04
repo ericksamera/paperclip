@@ -1,25 +1,30 @@
 # services/server/captures/site_parsers/__init__.py
-# Registry + public API. Site modules (pmc/sciencedirect/…) self-register on import.
+# Registry + public API. Site modules (pmc/sciencedirect/...) self-register on import.
 from __future__ import annotations
-from typing import Callable, Dict, List, Tuple, Pattern, Union
-from dataclasses import dataclass
+
 import re
+from collections.abc import Callable
+from contextlib import suppress
+from dataclasses import dataclass
+from re import Pattern
 from urllib.parse import urlparse
 
 # --------------------------- Reference registry ---------------------------
+Parser = Callable[[str, str], list[dict[str, object]]]
 
-Parser = Callable[[str, str], List[Dict[str, object]]]
 
 @dataclass
 class Rule:
-    pattern: Pattern[str]        # compiled regex
-    where: str                   # "host" or "url"
+    pattern: Pattern[str]  # compiled regex
+    where: str  # "host" or "url"
     parser: Parser
     name: str
 
-_REGISTRY: List[Rule] = []
 
-def _compile_pattern(p: Union[str, Pattern[str]], where: str) -> Pattern[str]:
+_REGISTRY: list[Rule] = []
+
+
+def _compile_pattern(p: str | Pattern[str], where: str) -> Pattern[str]:
     if isinstance(p, re.Pattern):
         return p
     s = p.strip()
@@ -29,44 +34,70 @@ def _compile_pattern(p: Union[str, Pattern[str]], where: str) -> Pattern[str]:
         return re.compile(s, re.I)
     return re.compile(s, re.I)
 
-def register(pattern: Union[str, Pattern[str]], parser: Parser, *, where: str = "host", name: str = "") -> None:
+
+def register(
+    pattern: str | Pattern[str], parser: Parser, *, where: str = "host", name: str = ""
+) -> None:
     where = where.lower()
     if where not in ("host", "url"):
         raise ValueError('where must be "host" or "url"')
-    _REGISTRY.append(Rule(pattern=_compile_pattern(pattern, where), where=where, parser=parser, name=name or str(pattern)))
+    _REGISTRY.append(
+        Rule(
+            pattern=_compile_pattern(pattern, where),
+            where=where,
+            parser=parser,
+            name=name or str(pattern),
+        )
+    )
+
 
 def clear_registry() -> None:
     _REGISTRY.clear()
 
-def get_registry() -> List[Tuple[str, str]]:
+
+def get_registry() -> list[tuple[str, str]]:
     return [(r.name, r.where) for r in _REGISTRY]
 
-# --------------------------- Meta/Sections registry ---------------------------
 
-MetaParser = Callable[[str, str], Dict[str, object]]
+# --------------------------- Meta/Sections registry ---------------------------
+MetaParser = Callable[[str, str], dict[str, object]]
+
 
 @dataclass
 class MetaRule:
     pattern: Pattern[str]
-    where: str                   # "host" or "url"
+    where: str  # "host" or "url"
     parser: MetaParser
     name: str
 
-_REG_META: List[MetaRule] = []
 
-def register_meta(pattern: Union[str, Pattern[str]], parser: MetaParser, *, where: str = "host", name: str = "") -> None:
+_REG_META: list[MetaRule] = []
+
+
+def register_meta(
+    pattern: str | Pattern[str], parser: MetaParser, *, where: str = "host", name: str = ""
+) -> None:
     where = where.lower()
     if where not in ("host", "url"):
         raise ValueError('where must be "host" or "url"')
-    _REG_META.append(MetaRule(pattern=_compile_pattern(pattern, where), where=where, parser=parser, name=name or str(pattern)))
+    _REG_META.append(
+        MetaRule(
+            pattern=_compile_pattern(pattern, where),
+            where=where,
+            parser=parser,
+            name=name or str(pattern),
+        )
+    )
+
 
 def clear_meta_registry() -> None:
     _REG_META.clear()
 
-# --------------------------- Routers ---------------------------
 
+# --------------------------- Routers ---------------------------
 # Default generic parser (imported after helpers)
 from .generic import parse_generic as _DEFAULT_PARSER  # noqa: E402
+
 
 def _ensure_default_rules() -> None:
     """
@@ -75,53 +106,64 @@ def _ensure_default_rules() -> None:
     """
     if _REGISTRY:
         return
-    try:
+    with suppress(Exception):
         from .pmc import parse_pmc
+
         register(r"(?:^|\.)pmc\.ncbi\.nlm\.nih\.gov$", parse_pmc, where="host", name="PMC host")
-        register(r"ncbi\.nlm\.nih\.gov/.*/pmc/|/pmc/", parse_pmc, where="url",  name="PMC path")
-    except Exception:
-        pass
-    try:
+        register(r"ncbi\.nlm\.nih\.gov/.*/pmc/|/pmc/", parse_pmc, where="url", name="PMC path")
+    with suppress(Exception):
         from .sciencedirect import parse_sciencedirect
-        register(r"(?:^|\.)sciencedirect\.com$", parse_sciencedirect, where="host", name="ScienceDirect")
-        register(r"sciencedirect[-\.]",          parse_sciencedirect, where="url", name="ScienceDirect (proxy)")
-    except Exception:
-        pass
-    try:
+
+        register(
+            r"(?:^|\.)sciencedirect\.com$", parse_sciencedirect, where="host", name="ScienceDirect"
+        )
+        register(
+            r"sciencedirect[-\.]", parse_sciencedirect, where="url", name="ScienceDirect (proxy)"
+        )
+    with suppress(Exception):
         from .wiley import parse_wiley
-        register(r"(?:^|\.)onlinelibrary\.wiley\.com$", parse_wiley, where="host", name="Wiley Online Library")
+
+        register(
+            r"(?:^|\.)onlinelibrary\.wiley\.com$",
+            parse_wiley,
+            where="host",
+            name="Wiley Online Library",
+        )
         register(r"onlinelibrary[-\.]wiley", parse_wiley, where="url", name="Wiley (proxy)")
-    except Exception:
-        pass
     # NEW: Frontiers references
-    try:
-        from .frontiers import parse_frontiers  # type: ignore[attr-defined]
-        register(r"(?:^|\.)frontiersin\.org$", parse_frontiers, where="host", name="Frontiers references")
-        register(r"frontiersin[-\.]",          parse_frontiers, where="url",  name="Frontiers references (proxy)")
-    except Exception:
-        pass
+    with suppress(Exception):
+        from .frontiers import parse_frontiers
+
+        register(
+            r"(?:^|\.)frontiersin\.org$", parse_frontiers, where="host", name="Frontiers references"
+        )
+        register(
+            r"frontiersin[-\.]", parse_frontiers, where="url", name="Frontiers references (proxy)"
+        )
     # NEW: PLOS references
-    try:
-        from .plos import parse_plos  # type: ignore[attr-defined]
+    with suppress(Exception):
+        from .plos import parse_plos
+
         register(r"(?:^|\.)plos\.org$", parse_plos, where="host", name="PLOS references")
-        register(r"(?:journals[-\.]plos|plosone|plosbiology|ploscompbiol|plosgenetics|plospathogens)",
-                 parse_plos, where="url", name="PLOS references (path)")
-    except Exception:
-        pass
+        register(
+            r"(?:journals[-\.]plos|plosone|plosbiology|ploscompbiol|plosgenetics|plospathogens)",
+            parse_plos,
+            where="url",
+            name="PLOS references (path)",
+        )
     # NEW: OUP references
-    try:
-        from .oup import parse_oup  # type: ignore[attr-defined]
+    with suppress(Exception):
+        from .oup import parse_oup
+
         register(r"(?:^|\.)academic\.oup\.com$", parse_oup, where="host", name="OUP references")
-        register(r"oup\.com/",                    parse_oup, where="url",  name="OUP references (path)")
-    except Exception:
-        pass
+        register(r"oup\.com/", parse_oup, where="url", name="OUP references (path)")
     # NEW: Nature references
-    try:
-        from .nature import parse_nature  # type: ignore[attr-defined]
+    with suppress(Exception):
+        from .nature import parse_nature
+
         register(r"(?:^|\.)nature\.com$", parse_nature, where="host", name="Nature references")
-        register(r"nature\.com/",          parse_nature, where="url",  name="Nature references (path)")
-    except Exception:
-        pass
+        register(r"nature\.com/", parse_nature, where="url", name="Nature references (path)")
+
 
 def _ensure_default_meta_rules() -> None:
     """
@@ -130,55 +172,88 @@ def _ensure_default_meta_rules() -> None:
     """
     if _REG_META:
         return
-    try:
+    with suppress(Exception):
         from .sciencedirect import extract_sciencedirect_meta
-        register_meta(r"(?:^|\.)sciencedirect\.com$", extract_sciencedirect_meta, where="host", name="ScienceDirect meta")
-        register_meta(r"sciencedirect[-\.]", extract_sciencedirect_meta, where="url", name="ScienceDirect meta (proxy)")
-    except Exception:
-        pass
-    try:
-        from .wiley import extract_wiley_meta  # type: ignore[attr-defined]
-        register_meta(r"(?:^|\.)onlinelibrary\.wiley\.com$", extract_wiley_meta, where="host", name="Wiley meta")
-        register_meta(r"onlinelibrary[-\.]wiley", extract_wiley_meta, where="url", name="Wiley meta (proxy)")
-    except Exception:
-        pass
-    try:
-        from .pmc import extract_pmc_meta  # type: ignore[attr-defined]
-        register_meta(r"(?:^|\.)pmc\.ncbi\.nlm\.nih\.gov$", extract_pmc_meta, where="host", name="PMC meta")
-        register_meta(r"ncbi\.nlm\.nih\.gov/.*/pmc/|/pmc/", extract_pmc_meta, where="url", name="PMC meta (path)")
-    except Exception:
-        pass
-    # NEW: Frontiers meta
-    try:
-        from .frontiers import extract_frontiers_meta  # type: ignore[attr-defined]
-        register_meta(r"(?:^|\.)frontiersin\.org$", extract_frontiers_meta, where="host", name="Frontiers meta")
-        register_meta(r"frontiersin[-\.]",          extract_frontiers_meta, where="url",  name="Frontiers meta (proxy)")
-    except Exception:
-        pass
-    # NEW: PLOS meta
-    try:
-        from .plos import extract_plos_meta  # type: ignore[attr-defined]
-        register_meta(r"(?:^|\.)plos\.org$", extract_plos_meta, where="host", name="PLOS meta")
-        register_meta(r"(?:journals[-\.]plos|plosone|plosbiology|ploscompbiol|plosgenetics|plospathogens)",
-                      extract_plos_meta, where="url", name="PLOS meta (path)")
-    except Exception:
-        pass
-    # NEW: OUP meta
-    try:
-        from .oup import extract_oup_meta  # type: ignore[attr-defined]
-        register_meta(r"(?:^|\.)academic\.oup\.com$", extract_oup_meta, where="host", name="OUP meta")
-        register_meta(r"oup\.com/",                    extract_oup_meta, where="url",  name="OUP meta (path)")
-    except Exception:
-        pass
-    # NEW: Nature meta
-    try:
-        from .nature import extract_nature_meta  # type: ignore[attr-defined]
-        register_meta(r"(?:^|\.)nature\.com$", extract_nature_meta, where="host", name="Nature meta")
-        register_meta(r"nature\.com/",          extract_nature_meta, where="url",  name="Nature meta (path)")
-    except Exception:
-        pass
 
-def extract_references(url: str | None, dom_html: str) -> List[Dict[str, object]]:
+        register_meta(
+            r"(?:^|\.)sciencedirect\.com$",
+            extract_sciencedirect_meta,
+            where="host",
+            name="ScienceDirect meta",
+        )
+        register_meta(
+            r"sciencedirect[-\.]",
+            extract_sciencedirect_meta,
+            where="url",
+            name="ScienceDirect meta (proxy)",
+        )
+    with suppress(Exception):
+        from .wiley import extract_wiley_meta
+
+        register_meta(
+            r"(?:^|\.)onlinelibrary\.wiley\.com$",
+            extract_wiley_meta,
+            where="host",
+            name="Wiley meta",
+        )
+        register_meta(
+            r"onlinelibrary[-\.]wiley", extract_wiley_meta, where="url", name="Wiley meta (proxy)"
+        )
+    with suppress(Exception):
+        from .pmc import extract_pmc_meta
+
+        register_meta(
+            r"(?:^|\.)pmc\.ncbi\.nlm\.nih\.gov$", extract_pmc_meta, where="host", name="PMC meta"
+        )
+        register_meta(
+            r"ncbi\.nlm\.nih\.gov/.*/pmc/|/pmc/",
+            extract_pmc_meta,
+            where="url",
+            name="PMC meta (path)",
+        )
+    # NEW: Frontiers meta
+    with suppress(Exception):
+        from .frontiers import extract_frontiers_meta
+
+        register_meta(
+            r"(?:^|\.)frontiersin\.org$",
+            extract_frontiers_meta,
+            where="host",
+            name="Frontiers meta",
+        )
+        register_meta(
+            r"frontiersin[-\.]", extract_frontiers_meta, where="url", name="Frontiers meta (proxy)"
+        )
+    # NEW: PLOS meta
+    with suppress(Exception):
+        from .plos import extract_plos_meta
+
+        register_meta(r"(?:^|\.)plos\.org$", extract_plos_meta, where="host", name="PLOS meta")
+        register_meta(
+            r"(?:journals[-\.]plos|plosone|plosbiology|ploscompbiol|plosgenetics|plospathogens)",
+            extract_plos_meta,
+            where="url",
+            name="PLOS meta (path)",
+        )
+    # NEW: OUP meta
+    with suppress(Exception):
+        from .oup import extract_oup_meta
+
+        register_meta(
+            r"(?:^|\.)academic\.oup\.com$", extract_oup_meta, where="host", name="OUP meta"
+        )
+        register_meta(r"oup\.com/", extract_oup_meta, where="url", name="OUP meta (path)")
+    # NEW: Nature meta
+    with suppress(Exception):
+        from .nature import extract_nature_meta
+
+        register_meta(
+            r"(?:^|\.)nature\.com$", extract_nature_meta, where="host", name="Nature meta"
+        )
+        register_meta(r"nature\.com/", extract_nature_meta, where="url", name="Nature meta (path)")
+
+
+def extract_references(url: str | None, dom_html: str) -> list[dict[str, object]]:
     """
     Route by registry:
       • host rules (e.g., r"(?:^|\\.)sciencedirect\\.com$")
@@ -186,7 +261,6 @@ def extract_references(url: str | None, dom_html: str) -> List[Dict[str, object]
     First matching parser that returns non-empty wins; otherwise generic fallback.
     """
     _ensure_default_rules()
-
     host = (urlparse(url or "").hostname or "").lower()
     full = (url or "").lower()
     for rule in _REGISTRY:
@@ -200,13 +274,14 @@ def extract_references(url: str | None, dom_html: str) -> List[Dict[str, object]
                 return refs
     return _DEFAULT_PARSER(url or "", dom_html)
 
-def extract_sections_meta(url: str | None, dom_html: str) -> Dict[str, object]:
+
+def extract_sections_meta(url: str | None, dom_html: str) -> dict[str, object]:
     """
     Route to site meta/sections extractors when available.
-    Returns a dict (possibly empty) with keys: abstract:str?, keywords:list[str], sections:list[dict].
+    Returns a dict (possibly empty) with keys:
+    abstract:str?, keywords:list[str], sections:list[dict].
     """
     _ensure_default_meta_rules()
-
     host = (urlparse(url or "").hostname or "").lower()
     full = (url or "").lower()
     for rule in _REG_META:
@@ -222,9 +297,9 @@ def extract_sections_meta(url: str | None, dom_html: str) -> Dict[str, object]:
             return out
     return {}
 
-# --------------------------- Utilities ---------------------------
 
-def dedupe_references(refs: List[Dict[str, object]]) -> List[Dict[str, object]]:
+# --------------------------- Utilities ---------------------------
+def dedupe_references(refs: list[dict[str, object]]) -> list[dict[str, object]]:
     """
     Stable in-order de-duplication for reference dicts.
     Preference:
@@ -232,9 +307,10 @@ def dedupe_references(refs: List[Dict[str, object]]) -> List[Dict[str, object]]:
       2) Else → dedupe by lowercased 'raw' text
     """
     from paperclip.utils import norm_doi
+
     seen_doi: set[str] = set()
     seen_raw: set[str] = set()
-    out: List[Dict[str, object]] = []
+    out: list[dict[str, object]] = []
     for r in refs or []:
         doi = norm_doi(str((r or {}).get("doi") or ""))
         if doi:
@@ -250,11 +326,14 @@ def dedupe_references(refs: List[Dict[str, object]]) -> List[Dict[str, object]]:
         out.append(r)
     return out
 
+
 # Import built-ins so they call register() at import time
-from . import sciencedirect  # noqa: F401,E402
-from . import pmc            # noqa: F401,E402
-from . import wiley          # noqa: F401,E402
-from . import frontiers      # noqa: F401,E402
-from . import plos           # noqa: F401,E402
-from . import oup            # noqa: F401,E402   # <-- NEW
-from . import nature         # noqa: F401,E402   # <-- NEW
+from . import (  # noqa: E402,F401
+    frontiers,
+    nature,
+    oup,
+    plos,
+    pmc,
+    sciencedirect,
+    wiley,
+)

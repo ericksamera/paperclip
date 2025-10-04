@@ -1,6 +1,7 @@
 from django.db import migrations, models
 from urllib.parse import urlparse
 
+
 def forwards_fill_site(apps, schema_editor):
     Capture = apps.get_model("captures", "Capture")
     for c in Capture.objects.all().only("id", "url"):
@@ -12,6 +13,7 @@ def forwards_fill_site(apps, schema_editor):
         if host != c.__dict__.get("site", ""):
             c.site = host
             c.save(update_fields=["site"])
+
 
 class Migration(migrations.Migration):
     dependencies = [("captures", "0002_collections")]

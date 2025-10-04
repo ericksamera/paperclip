@@ -1,5 +1,6 @@
 from django.db import migrations, models
 
+
 class Migration(migrations.Migration):
     dependencies = [("analysis", "0001_initial")]
 
@@ -9,7 +10,12 @@ class Migration(migrations.Migration):
             name="status",
             field=models.CharField(
                 max_length=20,
-                choices=[("PENDING","PENDING"),("RUNNING","RUNNING"),("SUCCESS","SUCCESS"),("FAILED","FAILED")],
+                choices=[
+                    ("PENDING", "PENDING"),
+                    ("RUNNING", "RUNNING"),
+                    ("SUCCESS", "SUCCESS"),
+                    ("FAILED", "FAILED"),
+                ],
                 default="PENDING",
             ),
         ),

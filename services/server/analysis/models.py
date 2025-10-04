@@ -1,8 +1,12 @@
 from __future__ import annotations
+
+from typing import ClassVar
+
 from django.db import models
 
+
 class AnalysisRun(models.Model):
-    STATUS = [
+    STATUS: ClassVar[list[tuple[str, str]]] = [
         ("PENDING", "PENDING"),
         ("RUNNING", "RUNNING"),
         ("SUCCESS", "SUCCESS"),
@@ -16,7 +20,11 @@ class AnalysisRun(models.Model):
     log = models.TextField(blank=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering: ClassVar[list[str]] = ["-created_at"]
+
+    @property
+    def id(self) -> int:  # satisfies strict type-checkers that expect an 'id' attr
+        return int(self.pk or 0)
 
     def __str__(self) -> str:
         return f"Run {self.pk} ({self.status})"

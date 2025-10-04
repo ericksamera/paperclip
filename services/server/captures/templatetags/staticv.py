@@ -4,6 +4,7 @@ from django.templatetags.static import static as _static
 
 register = template.Library()
 
+
 @register.simple_tag
 def staticv(path: str) -> str:
     """

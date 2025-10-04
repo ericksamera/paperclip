@@ -1,31 +1,37 @@
 # services/server/paperclip/api.py
 from __future__ import annotations
+
 import json
-from typing import Any, Dict
+from typing import Any
 
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
-from rest_framework import status, viewsets, serializers
-from rest_framework.response import Response
+from rest_framework import serializers, status, viewsets
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
 
 from captures.models import Capture
 from captures.serializers import CaptureInSerializer
-from paperclip.artifacts import open_artifact, artifact_path
+from paperclip.artifacts import artifact_path, open_artifact
 from paperclip.ingest import ingest_capture  # orchestrates DB writes + artifacts
 
+
 # Patch target for tests: keep symbol here and delegate at call-time
-def build_server_parsed(*args, **kwargs) -> Dict[str, Any]:  # pragma: no cover
+def build_server_parsed(*args, **kwargs) -> dict[str, Any]:  # pragma: no cover
     from captures.artifacts import build_server_parsed as _sp
+
     return _sp(*args, **kwargs)
+
 
 class _CaptureListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Capture
         fields = ("id", "title", "url")
 
+
 class _CapPagination(PageNumberPagination):
     page_size_query_param = "page_size"
+
 
 class CaptureViewSet(viewsets.ViewSet):
     """
@@ -45,7 +51,6 @@ class CaptureViewSet(viewsets.ViewSet):
         c = Capture.objects.filter(pk=pk).first()
         if not c:
             return Response({"detail": "Not found"}, status=404)
-
         # Try canonical "server_parsed.json" then legacy "doc.json"
         doc = None
         for name in ("server_parsed.json", "doc.json"):
@@ -57,27 +62,33 @@ class CaptureViewSet(viewsets.ViewSet):
                         break
             except Exception:
                 doc = None
-
-        return Response({
-            "id": str(c.id),
-            "title": c.title,
-            "url": c.url,
-            "doi": c.doi,
-            "year": c.year,
-            "meta": c.meta or {},
-            "csl": c.csl or {},
-            "server_parsed": doc,
-        })
+        return Response(
+            {
+                "id": str(c.id),
+                "title": c.title,
+                "url": c.url,
+                "doi": c.doi,
+                "year": c.year,
+                "meta": c.meta or {},
+                "csl": c.csl or {},
+                "server_parsed": doc,
+            }
+        )
 
     def create(self, request):
         ser = CaptureInSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         cap, summary = ingest_capture(ser.validated_data)
-        return Response({"capture_id": str(cap.id), "summary": summary}, status=status.HTTP_201_CREATED)
+        return Response(
+            {"capture_id": str(cap.id), "summary": summary},
+            status=status.HTTP_201_CREATED,
+        )
+
 
 # Utility endpoints used by urls.py
 def healthz(_request):
     return JsonResponse({"ok": True})
+
 
 def enrich_doi(_request, pk):
     # kept for compatibility; main ingest already enriches automatically

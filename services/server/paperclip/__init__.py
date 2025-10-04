@@ -1,2 +1,11 @@
-from .celery import app as celery_app  # noqa: F401
-__all__ = ("celery_app",)
+# services/server/paperclip/__init__.py
+from __future__ import annotations
+
+from typing import Any
+
+celery_app: Any
+
+try:
+    from .celery import app as celery_app
+except Exception:  # pragma: no cover
+    celery_app = None

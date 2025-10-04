@@ -47,11 +47,14 @@
 
   <h3>Artifacts</h3>
   <ul>
-    <li><a href="{% url 'artifact' cap.id 'doc.json' %}" target="_blank">doc.json</a> <span class="muted">— canonical, full</span></li>
-    <li><a href="{% url 'artifact' cap.id 'view.json' %}" target="_blank">view.json</a> <span class="muted">— reduced, UI-friendly</span></li>
-    <li><a href="{% url 'artifact' cap.id 'page.html' %}" target="_blank">page.html</a></li>
-    {% if content %}<li><a href="{% url 'artifact' cap.id 'content.html' %}" target="_blank">content.html</a></li>{% endif %}
+    <li><a href="{% url 'artifact' cap.id 'server_parsed.json' %}">server_parsed.json</a> — canonical, full</li>
+    <li><a href="{% url 'artifact' cap.id 'server_output_reduced.json' %}">server_output_reduced.json</a> — reduced, UI-friendly</li>
+    <li><a href="{% url 'artifact' cap.id 'page.html' %}">page.html</a></li>
+    <li><a href="{% url 'artifact' cap.id 'content.html' %}">content.html</a></li>
   </ul>
+  <p class="muted" style="margin:.25rem 0 0">
+    Older captures on <code>doc.json</code>/<code>view.json</code> still open via fallback.
+  </p>
 
   <div style="display:flex;align-items:center;gap:10px">
     <h3 style="margin:0">References ({{ refs|length }})</h3>

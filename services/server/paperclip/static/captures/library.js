@@ -688,7 +688,7 @@
     keepOnScreen(menuEl); // canonical helper
   }
 
- 
+
   // -------------------- Drag & Drop to Collections --------------------
   function ensureRowsDraggable(){
     tbody.querySelectorAll('tr.pc-row').forEach(tr => {

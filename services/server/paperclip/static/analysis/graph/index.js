@@ -67,20 +67,22 @@ class GraphView {
     this.w = Math.max(600, root.clientWidth || 900);
     this.h = Math.max(400, root.clientHeight || 600);
 
-    // --- SVG scaffold: wrap all layers in a pan-able group
+    // --- SVG scaffold: wrap all layers in a pan/zoom group
     this.svg   = d3.select(root).append("svg")
       .attr("width", this.w).attr("height", this.h)
       .attr("class", "pc-noselect");
-    this.gMain = this.svg.append("g").attr("class", "g-main");
+    this.gMain  = this.svg.append("g").attr("class", "g-main");
     this.gHulls = this.gMain.append("g").attr("class", "g-hulls");
     this.gEdges = this.gMain.append("g").attr("class", "g-edges");
     this.gNodes = this.gMain.append("g").attr("class", "g-nodes");
 
-    // Enable canvas panning (no zoom scaling; use browser zoom)
-    this.zoom = d3.zoom().scaleExtent([1, 1]).on("zoom", (ev) => {
-      this.gMain.attr("transform", ev.transform);
-    });
-    this.svg.call(this.zoom).on("dblclick.zoom", null); // disable dblclick zoom
+    // Enable pan **and** wheel zoom (bounded)
+    this.zoom = d3.zoom()
+      .scaleExtent([0.25, 8])                 // ← previously [1,1] (no zoom)
+      .on("zoom", (ev) => {
+        this.gMain.attr("transform", ev.transform);
+      });
+    this.svg.call(this.zoom).on("dblclick.zoom", null); // keep dblclick from zooming
 
     // --- data ---
     this.nodes = (graph.nodes || []).map(n => ({ ...n }));
@@ -326,7 +328,7 @@ class GraphView {
 
   fit()  {
     Layout.fitToViewport(this.nodes, this.w, this.h, 24);
-    // Also reset pan so “Fit” centers the canvas
+    // Also reset pan & zoom so “Fit” recenters the canvas
     try { this.svg.transition().duration(200).call(this.zoom.transform, d3.zoomIdentity); } catch (_) {}
     this.kick();
   }

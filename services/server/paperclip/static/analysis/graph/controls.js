@@ -114,25 +114,25 @@ export function initControls(view) {
     <h4>Physics</h4>
     <div class="pcg-row">
       <label for="pcg-charge" style="min-width:70px">Charge</label>
-      <input id="pcg-charge" class="pcg-range" type="range" min="-400" max="0" step="1" value="${view.charge}">
-      <input id="pcg-charge-num" class="pcg-num" type="number" min="-400" max="0" step="1" value="${view.charge}" style="width:70px">
+      <input id="pcg-charge" class="pcg-range" type="range" min="-400" max="0" step="1" value="\${view.charge}">
+      <input id="pcg-charge-num" class="pcg-num" type="number" min="-400" max="0" step="1" value="\${view.charge}" style="width:70px">
     </div>
     <div class="pcg-row">
       <label for="pcg-link" style="min-width:70px">Link dist</label>
-      <input id="pcg-link" class="pcg-range" type="range" min="12" max="220" step="1" value="${view.linkDistance}">
-      <input id="pcg-link-num" class="pcg-num" type="number" min="12" max="220" step="1" value="${view.linkDistance}" style="width:70px">
+      <input id="pcg-link" class="pcg-range" type="range" min="12" max="220" step="1" value="\${view.linkDistance}">
+      <input id="pcg-link-num" class="pcg-num" type="number" min="12" max="220" step="1" value="\${view.linkDistance}" style="width:70px">
     </div>
     <div class="pcg-row">
       <label for="pcg-collide" style="min-width:70px">Collision</label>
-      <input id="pcg-collide" class="pcg-range" type="range" min="0" max="40" step="1" value="${view.collision}">
-      <input id="pcg-collide-num" class="pcg-num" type="number" min="0" max="40" step="1" value="${view.collision}" style="width:70px">
+      <input id="pcg-collide" class="pcg-range" type="range" min="0" max="40" step="1" value="\${view.collision}">
+      <input id="pcg-collide-num" class="pcg-num" type="number" min="0" max="40" step="1" value="\${view.collision}" style="width:70px">
     </div>
     <div class="pcg-row" style="gap:6px">
       <button id="pcg-fit" class="pcg-btn">Fit</button>
       <button id="pcg-pause" class="pcg-btn">Pause</button>
       <button id="pcg-reset" class="pcg-btn primary">Reset</button>
     </div>
-    <div class="pcg-row"><span class="pcg-small">Tip: drag to pan, use browser zoom.</span></div>
+    <div class="pcg-row"><span class="pcg-small">Tip: drag to pan, scroll to zoom.</span></div>
   `;
   host.appendChild(cardPhysics);
 

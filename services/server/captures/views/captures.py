@@ -1,16 +1,19 @@
 # services/server/captures/views/captures.py
 from __future__ import annotations
-import csv, re
+
+import csv
+import re
 from io import StringIO
 
-from django.http import Http404, HttpResponse, FileResponse, HttpResponseRedirect
-from django.shortcuts import get_object_or_404, render, redirect
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseRedirect
+from django.shortcuts import get_object_or_404, redirect, render
 
+from captures.models import Capture
 from captures.reduced_view import read_reduced_view
-from captures.models import Capture, Reference
 from captures.xref import enrich_reference_via_crossref
 from paperclip.artifacts import artifact_path
-from .common import _authors_intext, _journal_full, _author_list
+
+from .common import _author_list, _authors_intext, _journal_full
 
 
 def _first_m_last_from_parts(given: str, family: str) -> str:
@@ -27,7 +30,7 @@ def _first_m_last_from_parts(given: str, family: str) -> str:
         first = parts[0] if parts else ""
         mids = parts[1:]
         mid_inits = [m[0].upper() + "." for m in mids if m and m[0].isalpha()]
-        giv_fmt = " ".join([p for p in [first] + mid_inits if p])
+        giv_fmt = " ".join([p for p in [first, *mid_inits] if p])
     return (giv_fmt + (" " + family if family else "")).strip()
 
 
@@ -37,7 +40,6 @@ def _authors_line(meta: dict, csl: dict) -> str:
     (family/given). Falls back to meta.authors which may be 'Family, Given' strings.
     """
     names: list[tuple[str, str]] = []
-
     # Prefer CSL
     if isinstance(csl, dict) and isinstance(csl.get("author"), list) and csl["author"]:
         for a in csl["author"]:
@@ -45,7 +47,6 @@ def _authors_line(meta: dict, csl: dict) -> str:
             giv = (a.get("given") or a.get("first") or "").strip()
             if fam or giv:
                 names.append((giv, fam))
-
     # Fallback: meta.authors (strings or dicts)
     if not names and isinstance(meta, dict) and isinstance(meta.get("authors"), list):
         for a in meta["authors"]:
@@ -71,7 +72,6 @@ def _authors_line(meta: dict, csl: dict) -> str:
                         names.append((giv, fam))
                     else:
                         names.append((s, ""))
-
     # Format
     formatted = [_first_m_last_from_parts(g, f) for (g, f) in names if (g or f)]
     # De-dup while keeping order (case-insensitive)
@@ -86,23 +86,20 @@ def _authors_line(meta: dict, csl: dict) -> str:
 
 
 def capture_view(request, pk):
-    from django.shortcuts import get_object_or_404, render
-    from paperclip.artifacts import artifact_path, read_json_artifact
+    from django.shortcuts import get_object_or_404
+
     from captures.models import Capture
+    from paperclip.artifacts import artifact_path
 
     cap = get_object_or_404(Capture, pk=pk)
-
     # Optional HTML snapshot for the debug panel
     content = ""
     p = artifact_path(str(cap.id), "content.html")
     if p.exists():
         content = p.read_text(encoding="utf-8")
-
-
     # Load reduced sections (tolerant reader)
     rv = read_reduced_view(str(cap.id))
     sections_blob = rv.get("sections") or {}
-
     # Abstract (prefer reduced-view abstract, then DB meta/csl)
     csl = cap.csl if isinstance(cap.csl, dict) else {}
     abs_text = (
@@ -111,20 +108,16 @@ def capture_view(request, pk):
         or csl.get("abstract")
         or ""
     )
-
     # Sections (structured tree or fallback to preview paragraphs)
     sections = list(sections_blob.get("sections") or [])
     if not sections:
         paras = sections_blob.get("abstract_or_body") or []
         if isinstance(paras, list) and paras:
             sections = [{"title": "Body", "paragraphs": paras}]
-
     refs = cap.references.all().order_by("id")
-
     # Author strings
     meta = cap.meta or {}
     authors_line = _authors_line(meta, csl)
-
     return render(
         request,
         "captures/detail.html",
@@ -134,8 +127,8 @@ def capture_view(request, pk):
             "refs": refs,
             "abs": abs_text,
             "sections": sections,
-            "authors": _author_list(meta, csl),     # still available if needed anywhere else
-            "authors_line": authors_line,           # NEW: 'First M Last, ...'
+            "authors": _author_list(meta, csl),  # still available if needed anywhere else
+            "authors_line": authors_line,  # NEW: 'First M Last, ...'
         },
     )
 
@@ -187,7 +180,9 @@ def capture_export(_request):
     for c in Capture.objects.all().order_by("-created_at"):
         meta = c.meta or {}
         csl = c.csl or {}
-        title = (c.title or meta.get("title") or csl.get("title") or c.url or "").strip() or "(Untitled)"
+        title = (
+            c.title or meta.get("title") or csl.get("title") or c.url or ""
+        ).strip() or "(Untitled)"
         authors = _authors_intext(meta, csl)
         j_full = _journal_full(meta, csl)
         j_short = j_full
@@ -199,10 +194,30 @@ def capture_export(_request):
 
 
 def capture_artifact(_request, pk, basename: str):
+    """
+    Serve an artifact file for a capture, with graceful fallbacks between
+    canonical and legacy basenames so links never 404.
+    """
     cap = get_object_or_404(Capture, pk=pk)
-    p = artifact_path(str(cap.id), basename)
-    if not p.exists():
+    FALLBACKS = {
+        # canonical → legacy
+        "server_parsed.json": ["doc.json"],
+        "server_output_reduced.json": ["view.json", "parsed.json"],
+        # legacy → canonical (so old links keep working too)
+        "doc.json": ["server_parsed.json"],
+        "view.json": ["server_output_reduced.json"],
+        "parsed.json": ["server_output_reduced.json"],
+    }
+    candidates = [basename, *FALLBACKS.get(basename, [])]
+    path = None
+    for name in candidates:
+        p = artifact_path(str(cap.id), name)
+        if p.exists():
+            path = p
+            break
+    if path is None:
         raise Http404("Artifact not found")
-    if p.suffix in {".json", ".html", ".txt"}:
-        return FileResponse(open(p, "rb"), content_type="text/plain; charset=utf-8")
-    return FileResponse(open(p, "rb"))
+    # keep prior behavior: show text for .json/.html/.txt
+    if path.suffix in {".json", ".html", ".txt"}:
+        return FileResponse(path.open("rb"), content_type="text/plain; charset=utf-8")
+    return FileResponse(path.open("rb"))

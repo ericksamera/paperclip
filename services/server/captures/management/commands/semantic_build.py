@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 from django.core.management.base import BaseCommand
+
 from captures.semantic import build_index
+
 
 class Command(BaseCommand):
     help = "Build/update semantic ANN index (Sentence Transformers)."

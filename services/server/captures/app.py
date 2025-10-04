@@ -1,9 +1,12 @@
 # services/server/captures/app.py
 from __future__ import annotations
+
+from contextlib import suppress
+
 from django.apps import AppConfig
-from django.db.backends.signals import connection_created
-from django.db.models.signals import post_save, post_delete
 from django.core.cache import cache
+from django.db.backends.signals import connection_created
+from django.db.models.signals import post_delete, post_save
 
 
 class CapturesConfig(AppConfig):
@@ -13,28 +16,24 @@ class CapturesConfig(AppConfig):
     def ready(self):
         # Import inside ready() so Django app loading stays clean.
         from .models import Capture
-        from .search import upsert_capture, delete_capture, ensure_fts  # reindex_all imported lazily below
+        from .search import (  # reindex_all imported lazily below
+            delete_capture,
+            ensure_fts,
+            upsert_capture,
+        )
 
         # --- FTS live index hooks (cheap) ---
         def _on_save(sender, instance: Capture, **kwargs):
-            try:
+            with suppress(Exception):
                 upsert_capture(instance)
-            except Exception:
-                pass
-            try:
+            with suppress(Exception):
                 cache.delete("facets:all")
-            except Exception:
-                pass
 
         def _on_delete(sender, instance: Capture, **kwargs):
-            try:
+            with suppress(Exception):
                 delete_capture(instance.id)
-            except Exception:
-                pass
-            try:
+            with suppress(Exception):
                 cache.delete("facets:all")
-            except Exception:
-                pass
 
         post_save.connect(_on_save, sender=Capture, weak=False)
         post_delete.connect(_on_delete, sender=Capture, weak=False)
@@ -48,15 +47,15 @@ class CapturesConfig(AppConfig):
                         c.execute("PRAGMA journal_mode=WAL;")
                         c.execute("PRAGMA synchronous=NORMAL;")
                         c.execute("PRAGMA foreign_keys=ON;")
-
                 # Create FTS table if missing
                 ensure_fts(connection)
-
                 # NEW: Auto-populate FTS once when empty but captures exist
                 try:
                     with connection.cursor() as c:
-                        # Does capture_fts exist?
-                        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='capture_fts'")
+                        c.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table' "
+                            "AND name='capture_fts'"
+                        )
                         exists = bool(c.fetchone())
                         fts_rows = cap_rows = 0
                         if exists:
@@ -65,15 +64,14 @@ class CapturesConfig(AppConfig):
                         # Count captures regardless
                         c.execute("SELECT COUNT(*) FROM captures_capture")
                         cap_rows = int(c.fetchone()[0] or 0)
-
                     if cap_rows > 0 and fts_rows == 0:
                         # Lazy import to avoid cycles
                         from .search import reindex_all
+
                         reindex_all()
                 except Exception:
                     # Never block startup on best-effort indexing
                     pass
-
             except Exception:
                 # Never block startup
                 pass

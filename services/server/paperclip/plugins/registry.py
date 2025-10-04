@@ -1,3 +1,6 @@
+from typing import Any
+
+
 # Minimal registry so api.run_auto_enrichers() is safe to call.
-def run_auto_enrichers(_capture) -> None:
+def run_auto_enrichers(_capture: Any) -> None:
     return None

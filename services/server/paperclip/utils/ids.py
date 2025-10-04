@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import re
 
 _DOI_PREFIX = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)\s*", re.I)
+
 
 def norm_doi(s: str | None) -> str:
     """

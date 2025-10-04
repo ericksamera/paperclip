@@ -1,0 +1,54 @@
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = '\.pyi?$'
+extend-exclude = '''
+(
+  ^.*/migrations/.*$
+| ^.*/node_modules/.*$
+| ^.*/venv/.*$
+| ^.*/.venv/.*$
+)
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["packages", "services"]
+exclude = [
+  ".git",
+  ".venv",
+  "venv",
+  "node_modules",
+  "services/server/**/migrations/*",
+]
+
+[tool.ruff.lint]
+# E,F: pycodestyle/pyflakes
+# I: isort
+# B: bugbear
+# UP: pyupgrade
+# C4: comprehensions
+# SIM: simplify
+# ANN: annotation nudges
+select = ["E","F","I","B","UP","C4","SIM","ANN"]
+# Black already handles line length; stop fighting tests/URLs/long literals.
+ignore = [
+  "E501",
+  "ANN101",  # missing type for self
+  "ANN102",  # missing type for cls
+  "ANN401",  # Any allowed (tighten later)
+]
+fix = true
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: de-noise and keep focus on correctness, not styling.
+"**/tests/**/*.py" = ["ANN", "E501", "SIM117", "F841"]
+# __all__ sorting here is not useful; skip it.
+"services/server/captures/views/__init__.py" = ["RUF022"]
+"services/server/captures/site_parsers/__init__.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["paperclip","paperclip_schemas","paperclip_parser"]
+combine-as-imports = true
+force-sort-within-sections = true

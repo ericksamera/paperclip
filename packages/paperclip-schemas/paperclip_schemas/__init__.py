@@ -1,2 +1,3 @@
-from .documents import ServerParsed, Reference
-__all__ = ["ServerParsed", "Reference"]
+from .documents import Reference, ServerParsed
+
+__all__ = ["Reference", "ServerParsed"]

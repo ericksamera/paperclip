@@ -1,5 +1,11 @@
 from __future__ import annotations
-import io, json, zipfile, re, unicodedata
+
+import io
+import json
+import re
+import unicodedata
+import zipfile
+
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -8,7 +14,8 @@ from django.views.decorators.http import require_POST
 from captures.models import Capture, Collection
 from captures.reduced_view import read_reduced_view
 from paperclip.journals import get_short_journal_name
-from .common import _author_list, _journal_full, _family_from_name
+
+from .common import _author_list, _family_from_name, _journal_full
 
 
 def _ascii_slug(s: str) -> str:
@@ -28,17 +35,13 @@ def _slug_for_capture(c: Capture) -> str:
     """
     meta = c.meta or {}
     csl = c.csl or {}
-
     year = (c.year or meta.get("year") or meta.get("publication_year") or "").strip() or "na"
-
     authors = _author_list(meta, csl)
     fam = _family_from_name(authors[0]) if authors else ""
     fam_slug = _ascii_slug(fam or "anon") or "anon"
-
     j_full = _journal_full(meta, csl)
     j_short = get_short_journal_name(j_full, csl) or j_full or "journal"
     j_slug = _ascii_slug(j_short) or "journal"
-
     return f"{year}_{fam_slug}_{j_slug}"
 
 
@@ -97,7 +100,6 @@ def collection_download_views(request, cid: str):
         col = get_object_or_404(Collection, pk=int(cid))
         caps = col.captures.all()
         label = f"collection-{col.id}"
-
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for c in caps:
@@ -107,7 +109,6 @@ def collection_download_views(request, cid: str):
             slug = _slug_for_capture(c)
             arcname = f"{slug}__{c.id}.json"  # keep UUID suffix for uniqueness
             zf.writestr(arcname, json.dumps(view, ensure_ascii=False, indent=2))
-
     buf.seek(0)
     resp = HttpResponse(buf.read(), content_type="application/zip")
     resp["Content-Disposition"] = f'attachment; filename="{label}-views.zip"'

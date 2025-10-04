@@ -1,5 +1,7 @@
 from django.contrib import admin
+
 from .models import AnalysisRun
+
 
 @admin.register(AnalysisRun)
 class AnalysisRunAdmin(admin.ModelAdmin):

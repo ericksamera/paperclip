@@ -1,25 +1,32 @@
 # services/server/captures/xref.py
 from __future__ import annotations
-from typing import Dict, Any, Optional, List
-from django.conf import settings
-from urllib.parse import quote
-import requests, json
-from pathlib import Path
 
-from paperclip.utils import norm_doi  # central DOI normalization
+import json
+from contextlib import suppress
+from pathlib import Path
+from typing import Any
+from urllib.parse import quote
+
+import requests
+from django.conf import settings
+
 from paperclip.conf import ENRICH_TIMEOUT, USER_AGENT
+from paperclip.utils import norm_doi  # central DOI normalization
 
 # NOTE: compute cache dir at access time (reads settings dynamically, easy to override in tests)
 _CACHE_DIR: Path = getattr(settings, "DATA_DIR", Path(".")) / "cache" / "crossref"
+
 
 def _cache_path(doi: str) -> Path:
     key = quote(norm_doi(doi), safe="")
     return _CACHE_DIR / f"{key}.json"
 
+
 # ---------- in-memory cache ----------
 _CACHE_MEM: dict[str, dict] = {}
 
-def _cache_get(doi: str) -> Optional[dict]:
+
+def _cache_get(doi: str) -> dict | None:
     key = norm_doi(doi)
     if not key:
         return None
@@ -35,27 +42,25 @@ def _cache_get(doi: str) -> Optional[dict]:
             return None
     return None
 
+
 def _cache_put(doi: str, csl: dict) -> None:
     key = norm_doi(doi)
     if not key:
         return
     _CACHE_MEM[key] = csl
-    try:
+    with suppress(Exception):
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         _cache_path(key).write_text(json.dumps(csl, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
+
 
 # ---------- Crossref ----------
-def _fetch_csl_for_doi(doi: str) -> Optional[Dict[str, Any]]:
+def _fetch_csl_for_doi(doi: str) -> dict[str, Any] | None:
     doi = norm_doi(doi)
     if not doi:
         return None
-
     cached = _cache_get(doi)
     if cached:
         return cached
-
     try:
         url = f"https://api.crossref.org/v1/works/{doi}/transform/application/vnd.citationstyles.csl+json"
         r = requests.get(
@@ -71,9 +76,10 @@ def _fetch_csl_for_doi(doi: str) -> Optional[Dict[str, Any]]:
         return None
     return None
 
+
 # ---------- helpers to format CSL ----------
-def _family_given_list(csl: Dict[str, Any]) -> List[Dict[str, str]]:
-    out: List[Dict[str, str]] = []
+def _family_given_list(csl: dict[str, Any]) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
     for a in csl.get("author", []) or []:
         fam = (a.get("family") or "").strip()
         giv = (a.get("given") or "").strip()
@@ -81,8 +87,9 @@ def _family_given_list(csl: Dict[str, Any]) -> List[Dict[str, str]]:
             out.append({"family": fam, "given": giv})
     return out
 
-def _year_from_csl(csl: Dict[str, Any]) -> Optional[str]:
-    parts = (((csl.get("issued") or {}).get("date-parts") or []) or [])
+
+def _year_from_csl(csl: dict[str, Any]) -> str | None:
+    parts = ((csl.get("issued") or {}).get("date-parts") or []) or []
     if parts and parts[0]:
         y = parts[0][0]
         try:
@@ -91,11 +98,13 @@ def _year_from_csl(csl: Dict[str, Any]) -> Optional[str]:
             return None
     return None
 
+
 def _name_abbrev(fam: str, giv: str) -> str:
     initial = (giv[0].upper() + ".") if giv else ""
     return f"{fam}, {initial}".strip().rstrip(",")
 
-def _apa_from_csl(csl: Dict[str, Any], doi: str) -> str:
+
+def _apa_from_csl(csl: dict[str, Any], doi: str) -> str:
     names = _family_given_list(csl)
     if names:
         if len(names) == 1:
@@ -109,71 +118,94 @@ def _apa_from_csl(csl: Dict[str, Any], doi: str) -> str:
             authors = f"{a} et al."
     else:
         authors = ""
-
     year = _year_from_csl(csl) or ""
-    title = (csl.get("title") or [""])[0] if isinstance(csl.get("title"), list) else (csl.get("title") or "")
-    journal = (csl.get("container-title") or [""])[0] if isinstance(csl.get("container-title"), list) else (csl.get("container-title") or "")
-    volume = csl.get("volume") or ""
-    issue = csl.get("issue") or ""
-    pages = csl.get("page") or ""
-    doi_url = doi if doi.lower().startswith("http") else f"https://doi.org/{doi}"
+    raw_title = csl.get("title")
+    title = (raw_title or [""])[0] if isinstance(raw_title, list) else (raw_title or "")
+    raw_ct = csl.get("container-title")
+    journal = (raw_ct or [""])[0] if isinstance(raw_ct, list) else (raw_ct or "")
+    volume = str(csl.get("volume") or "")
+    issue = str(csl.get("issue") or "")
+    pages = str(csl.get("page") or "")
+    doi_url = f"https://doi.org/{quote(doi)}" if doi else ""
+    parts: list[str] = []
+    if authors:
+        parts.append(f"{authors}.")
+    if year:
+        parts.append(f"({year}).")
+    if title:
+        parts.append(f"{title}.")
+    if journal:
+        parts.append(journal)
+    tail_bits: list[str] = []
+    if volume:
+        tail_bits.append(volume)
+    if issue:
+        tail_bits.append(f"({issue})")
+    if pages:
+        tail_bits.append(pages)
+    tail_text = ", ".join(b for b in tail_bits if b)
+    if tail_text:
+        parts.append(f"{tail_text}.")
+    if doi_url:
+        parts.append(doi_url)
+    return " ".join(p for p in parts if p).strip()
 
-    tail = []
-    if journal: tail.append(journal)
-    if volume: tail.append(volume + (f"({issue})" if issue else ""))
-    if pages: tail.append(pages)
-    tail_text = ", ".join([t for t in tail if t])
-
-    parts = []
-    if authors: parts.append(authors)
-    if year: parts.append(f"({year}).")
-    if title: parts.append(f"{title}.")
-    if tail_text: parts.append(f"{tail_text}.")
-    parts.append(doi_url)
-    return " ".join([p for p in parts if p]).strip()
 
 # ---------- public enrichers ----------
-def enrich_reference_via_crossref(ref) -> Optional[Dict[str, Any]]:
+def enrich_reference_via_crossref(ref: Any) -> dict[str, Any] | None:
     doi = norm_doi(getattr(ref, "doi", "") or "")
     if not doi:
         return None
     csl = _fetch_csl_for_doi(doi)
     if not csl:
         return None
-
-    title = (csl.get("title") or [""])[0] if isinstance(csl.get("title"), list) else (csl.get("title") or "")
+    raw_title = csl.get("title")
+    title = (raw_title or [""])[0] if isinstance(raw_title, list) else (raw_title or "")
     year = _year_from_csl(csl) or ""
-    journal = (csl.get("container-title") or [""])[0] if isinstance(csl.get("container-title"), list) else (csl.get("container-title") or "")
-    authors = [f"{a.get('family','')}, {a.get('given','')}".strip().rstrip(",") for a in _family_given_list(csl)]
+    raw_ct = csl.get("container-title")
+    journal = (raw_ct or [""])[0] if isinstance(raw_ct, list) else (raw_ct or "")
+    authors = [
+        f"{a.get('family','')}, {a.get('given','')}".strip().rstrip(",")
+        for a in _family_given_list(csl)
+    ]
     apa = _apa_from_csl(csl, doi)
-
-    updates = {}
-    if title and not ref.title: updates["title"] = title
-    if year and not ref.issued_year: updates["issued_year"] = year
-    if journal and not ref.container_title: updates["container_title"] = journal
-    if authors and not ref.authors: updates["authors"] = authors
-    if apa and not ref.apa: updates["apa"] = apa
-    if not ref.csl: updates["csl"] = csl
+    updates: dict[str, Any] = {}
+    if title and not getattr(ref, "title", None):
+        updates["title"] = title
+    if year and not getattr(ref, "issued_year", None):
+        updates["issued_year"] = year
+    if journal and not getattr(ref, "container_title", None):
+        updates["container_title"] = journal
+    if authors and not getattr(ref, "authors", None):
+        updates["authors"] = authors
+    if apa and not getattr(ref, "apa", None):
+        updates["apa"] = apa
+    if not getattr(ref, "csl", None):
+        updates["csl"] = csl
     return updates or None
 
-def enrich_capture_via_crossref(cap) -> Optional[Dict[str, Any]]:
-    doi = norm_doi(getattr(cap, "doi", "") or "")
+
+def enrich_capture_via_crossref(cap: Any) -> dict[str, Any] | None:
+    doi = norm_doi(getattr(cap, "doi", "") or (getattr(cap, "meta", {}) or {}).get("doi") or "")
     if not doi:
         return None
     csl = _fetch_csl_for_doi(doi)
     if not csl:
         return None
-
-    updates = {}
-    title = (csl.get("title") or [""])[0] if isinstance(csl.get("title"), list) else (csl.get("title") or "")
-    if title and not cap.title: updates["title"] = title
+    raw_title = csl.get("title")
+    title = (raw_title or [""])[0] if isinstance(raw_title, list) else (raw_title or "")
+    updates: dict[str, Any] = {}
+    if title and not getattr(cap, "title", None):
+        updates["title"] = title
     year = _year_from_csl(csl) or ""
-    if year and not cap.year: updates["year"] = year
-    journal = (csl.get("container-title") or [""])[0] if isinstance(csl.get("container-title"), list) else (csl.get("container-title") or "")
-    meta = cap.meta or {}
+    if year and not getattr(cap, "year", None):
+        updates["year"] = year
+    raw_ct = csl.get("container-title")
+    journal = (raw_ct or [""])[0] if isinstance(raw_ct, list) else (raw_ct or "")
+    meta: dict[str, Any] = getattr(cap, "meta", {}) or {}
     if journal and not meta.get("container_title"):
         meta = {**meta, "container_title": journal}
         updates["meta"] = meta
-    if not cap.csl:
+    if not getattr(cap, "csl", None):
         updates["csl"] = csl
     return updates or None

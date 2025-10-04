@@ -1,14 +1,17 @@
-# services/server/captures/views/common.py
+# mypy: ignore-errors
 from __future__ import annotations
-from typing import Any, Dict, Iterable, List
+
+from collections.abc import Iterable
+from contextlib import suppress
+from typing import Any
 from urllib.parse import urlparse
 
-from django.db.models import Count
 from django.core.cache import cache
+from django.db.models import Count  # NOTE: avoid importing QuerySet to dodge mypy internal bug
 
 from captures.models import Capture, Collection
-from paperclip.journals import get_short_journal_name
 from captures.reduced_view import read_reduced_view
+from paperclip.journals import get_short_journal_name
 
 
 def _site_label(url: str) -> str:
@@ -16,11 +19,10 @@ def _site_label(url: str) -> str:
     Prefer host persisted on the Capture.site field when present (set at ingest),
     otherwise derive from URL.
     """
-    try:
+    with suppress(Exception):
         host = urlparse(url).hostname or ""
         return host.replace("www.", "") if host else ""
-    except Exception:
-        return ""
+    return ""
 
 
 def _family_from_name(s: str) -> str:
@@ -34,8 +36,8 @@ def _family_from_name(s: str) -> str:
     return parts[-1] if parts else s
 
 
-def _author_list(meta: dict, csl: dict) -> List[str]:
-    names: List[str] = []
+def _author_list(meta: dict, csl: dict) -> list[str]:
+    names: list[str] = []
     if isinstance(meta, dict) and isinstance(meta.get("authors"), list):
         for a in meta["authors"]:
             if isinstance(a, str) and a.strip():
@@ -67,7 +69,8 @@ def _authors_intext(meta: dict, csl: dict) -> str:
 
 
 def _journal_full(meta: dict, csl: dict) -> str:
-    meta = meta or {}; csl = csl or {}
+    meta = meta or {}
+    csl = csl or {}
     return (
         meta.get("container_title")
         or meta.get("container-title")
@@ -81,7 +84,9 @@ def _journal_full(meta: dict, csl: dict) -> str:
 def _doi_url(doi: str | None) -> str | None:
     if not doi:
         return None
-    return doi if doi.startswith("http://") or doi.startswith("https://") else f"https://doi.org/{doi}"
+    return (
+        doi if doi.startswith("http://") or doi.startswith("https://") else f"https://doi.org/{doi}"
+    )
 
 
 # ---------- Pull abstract from reduced view (with preview fallback) ----------
@@ -89,50 +94,48 @@ def _abstract_from_view(c: Capture, preview_max_paras: int = 3) -> str:
     """
     Prefer the 'abstract' we persist in the reduced view; fall back to a short
     preview constructed from the first few 'abstract_or_body' paragraphs.
-
     Reads via read_reduced_view(...) which tolerates historical filenames
     ('view.json', 'server_output_reduced.json', 'parsed.json').
     """
-    try:
-        view = read_reduced_view(str(c.id)) or {}
-        sections = view.get("sections") or {}
-        if not isinstance(sections, dict):
-            return ""
-        abs_txt = sections.get("abstract")
-        if isinstance(abs_txt, str) and abs_txt.strip():
-            return abs_txt.strip()
-
-        paras = sections.get("abstract_or_body")
-        if isinstance(paras, list) and paras:
-            # join a short preview
-            return " ".join([str(p) for p in paras[:preview_max_paras] if p]).strip()
-    except Exception:
-        pass
+    view = read_reduced_view(str(c.id)) or {}
+    sections = view.get("sections") or {}
+    if not isinstance(sections, dict):
+        return ""
+    abs_txt = sections.get("abstract")
+    if isinstance(abs_txt, str) and abs_txt.strip():
+        return abs_txt.strip()
+    paras = sections.get("abstract_or_body")
+    if isinstance(paras, list) and paras:
+        # join a short preview
+        return " ".join([str(p) for p in paras[:preview_max_paras] if p]).strip()
     return ""
 
 
-def _row(c: Capture) -> Dict[str, Any]:
+def _row(c: Capture) -> dict[str, Any]:
     meta = c.meta or {}
     csl = c.csl or {}
-
-    title = (c.title or meta.get("title") or csl.get("title") or c.url or "").strip() or "(Untitled)"
+    title = (
+        c.title or meta.get("title") or csl.get("title") or c.url or ""
+    ).strip() or "(Untitled)"
     authors_intext = _authors_intext(meta, csl)
     j_full = _journal_full(meta, csl)
     j_short = get_short_journal_name(j_full, csl)
     doi = (c.doi or meta.get("doi") or csl.get("DOI") or "").strip()
     keywords = meta.get("keywords") or []
-
     # Prefer reduced view abstract; fall back to meta/csl
-    abstract = _abstract_from_view(c) or (meta.get("abstract") or (csl.get("abstract") if isinstance(csl, dict) else "") or "")
-
+    abstract = _abstract_from_view(c) or (
+        meta.get("abstract") or (csl.get("abstract") if isinstance(csl, dict) else "") or ""
+    )
     try:
         refs_count = c.references.count()
     except Exception:
         refs_count = 0
-
     # Prefer normalized host field if present; else derive from URL
-    site_lbl = (c.site or "").replace("www.", "") if (getattr(c, "site", "") or "") else _site_label(c.url or "")
-
+    site_lbl = (
+        (c.site or "").replace("www.", "")
+        if (getattr(c, "site", "") or "")
+        else _site_label(c.url or "")
+    )
     return {
         "id": str(c.id),
         "title": title,
@@ -151,7 +154,9 @@ def _row(c: Capture) -> Dict[str, Any]:
     }
 
 
-def _apply_filters(qs: Iterable[Capture], *, year: str, journal: str, site: str, col: str) -> List[Capture]:
+def _apply_filters(
+    qs: Iterable[Capture], *, year: str, journal: str, site: str, col: str
+) -> list[Capture]:
     """
     Stable, case-insensitive filtering over year / journal / site / collection.
     Normalizes journal & site query params to lowercase before comparing.
@@ -160,67 +165,77 @@ def _apply_filters(qs: Iterable[Capture], *, year: str, journal: str, site: str,
     j_key = (journal or "").strip().lower()
     s_key = (site or "").strip().lower()
     y_key = (year or "").strip()
-
-    out: List[Capture] = []
+    out: list[Capture] = []
     for c in qs:
-        meta = c.meta or {}; csl = c.csl or {}
-
+        meta = c.meta or {}
+        csl = c.csl or {}
         # Year: match persisted or common meta fallbacks used by _row
         year_val = str(c.year or meta.get("year") or meta.get("publication_year") or "")
         year_ok = (not y_key) or (year_val == y_key)
-
         # Journal
         j = _journal_full(meta, csl).lower()
         journal_ok = (not j_key) or (j == j_key)
-
         # Site: prefer normalized persisted host, then fallback to deriving from URL
         site_src = (c.site or "").replace("www.", "") or _site_label(c.url or "")
         site_ok = (not s_key) or (site_src.lower() == s_key)
-
         # Collection
         col_ok = True
         if col:
             col_ok = c.collections.filter(id=col).exists()
-
         if year_ok and journal_ok and site_ok and col_ok:
             out.append(c)
     return out
 
 
-def _build_facets(all_caps: Iterable[Capture]) -> Dict[str, Any]:
+def _build_facets(all_caps: Iterable[Capture]) -> dict[str, Any]:
     """
     Build years/journals/sites facets with a short TTL cache.
     Auto-invalidated by captures.app on save/delete.
+
+    NOTE: Keep the type as Iterable[Capture] and avoid importing/using QuerySet
+    in annotations or isinstance checks to work around a mypy 1.11.x internal error.
+    We still opportunistically call `.only(...)` when available.
     """
     KEY = "facets:all"
     cached = cache.get(KEY)
     if cached:
         return cached
 
-    years: Dict[str, int] = {}
-    journals: Dict[str, int] = {}
-    sites: Dict[str, int] = {}
+    years: dict[str, int] = {}
+    journals: dict[str, int] = {}
+    sites: dict[str, int] = {}
 
-    # Iterate with only fields we actually need (cheap on SQLite)
-    for c in all_caps.only("year", "url", "meta", "csl", "site"):
+    # Iterate with only fields we actually need (cheap on SQLite) if supported.
+    qs_iter: Iterable[Capture] = all_caps
+    try:
+        # Avoid mypy analysis of QuerySet by duck-typing for `.only`
+        only = getattr(all_caps, "only", None)
+        if callable(only):
+            qs_iter = only("year", "url", "meta", "csl", "site")  # type: ignore[misc,call-arg]
+    except Exception:
+        qs_iter = all_caps
+
+    for c in qs_iter:
         if c.year:
             key = str(c.year)
             years[key] = years.get(key, 0) + 1
-
         j = _journal_full(c.meta or {}, c.csl or {})
         if j:
             journals[j] = journals.get(j, 0) + 1
-
         # Prefer normalized host field
         site = (c.site or "").replace("www.", "") if (c.site or "") else _site_label(c.url or "")
         if site:
             sites[site] = sites.get(site, 0) + 1
 
-    yr_sorted = sorted(years.items(), key=lambda kv: int(kv[0]), reverse=True)  # type: ignore[index]
-    max_count = (max(years.values()) if years else 1)
-    years_hist = [{"label": y, "count": n, "pct": int(round(n * 100 / max_count))} for y, n in yr_sorted]
+    yr_sorted = sorted(
+        ((str(y), n) for y, n in years.items()),
+        key=lambda kv: int(kv[0]),
+        reverse=True,
+    )
+    max_count = max(years.values()) if years else 1
+    years_hist = [{"label": y, "count": n, "pct": round(n * 100 / max_count)} for y, n in yr_sorted]
 
-    def sort_desc(d: Dict[str, int]) -> List[tuple[str, int]]:
+    def sort_desc(d: dict[str, int]) -> list[tuple[str, int]]:
         return sorted(d.items(), key=lambda kv: (-kv[1], kv[0]))
 
     out = {"years": years_hist, "journals": sort_desc(journals), "sites": sort_desc(sites)}
@@ -228,6 +243,6 @@ def _build_facets(all_caps: Iterable[Capture]) -> Dict[str, Any]:
     return out
 
 
-def _collections_with_counts() -> List[Dict[str, Any]]:
+def _collections_with_counts() -> list[dict[str, Any]]:
     cols = Collection.objects.annotate(count=Count("captures")).order_by("name")
     return [{"id": c.id, "name": c.name, "count": c.count, "parent": c.parent_id} for c in cols]

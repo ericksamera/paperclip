@@ -386,7 +386,7 @@ export function initSelection() {
   if (_wired) return;
   _wired = true;
 
-  
+
   try { window.__pcESMSelectionReady = true; } catch(_) {}
 normalizeAll();
   syncFromDOM();

@@ -1,5 +1,7 @@
 from django.contrib import admin
-from .models import Capture, Reference, Collection
+
+from .models import Capture, Collection, Reference
+
 
 @admin.register(Capture)
 class CaptureAdmin(admin.ModelAdmin):
@@ -8,11 +10,13 @@ class CaptureAdmin(admin.ModelAdmin):
     list_filter = ("year",)
     ordering = ("-created_at",)
 
+
 @admin.register(Reference)
 class ReferenceAdmin(admin.ModelAdmin):
     list_display = ("id", "capture", "title", "doi", "issued_year")
     search_fields = ("title", "raw", "doi")
     list_filter = ("issued_year",)
+
 
 @admin.register(Collection)
 class CollectionAdmin(admin.ModelAdmin):

@@ -1,34 +1,41 @@
 # services/server/analysis/topics.py
 from __future__ import annotations
-import math, os, json, hashlib
-from pathlib import Path
-from collections import Counter, defaultdict
-from typing import Any, Dict, List, Tuple
 
-from .text import tokenize, STOP
+import hashlib
+import json
+import math
+import os
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Any
+
+from .text import STOP, tokenize
 
 # ======================================================================================
 # Utilities
 # ======================================================================================
 
+
 def _clean_ngram(term: str) -> bool:
     """
     True if the term should be kept. Filters any ngram that contains a stop token.
     """
-    if not term: 
+    if not term:
         return False
     parts = term.lower().split()
     if any(p in STOP for p in parts):
         return False
     # filter super-short unigrams that are mostly noise
-    if len(parts) == 1 and len(parts[0]) <= 2:
-        return False
-    return True
+    return not (len(parts) == 1 and len(parts[0]) <= 2)
 
 
-def _ctfidf_top_terms_sklearn(texts: List[str], labels: List[int], k: int = 12,
-                              max_features: int = 20000,
-                              ngram_range: Tuple[int, int] = (1, 3)) -> Dict[int, List[str]]:
+def _ctfidf_top_terms_sklearn(
+    texts: list[str],
+    labels: list[int],
+    k: int = 12,
+    max_features: int = 20000,
+    ngram_range: tuple[int, int] = (1, 3),
+) -> dict[int, list[str]]:
     """
     BERTopic-style c-TF-IDF approximation:
       1) Aggregate documents per cluster into a single 'class document'
@@ -37,42 +44,41 @@ def _ctfidf_top_terms_sklearn(texts: List[str], labels: List[int], k: int = 12,
     Returns: cluster_id -> [top terms]
     """
     try:
-        from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore
+        from sklearn.feature_extraction.text import TfidfVectorizer
     except Exception:
         # very small fallback: unigram tf across cluster (not ideal)
-        by_cluster: Dict[int, Counter[str]] = defaultdict(Counter)
+        by_cluster: dict[int, Counter[str]] = defaultdict(Counter)
         for i, c in enumerate(labels):
             by_cluster[int(c)].update(tokenize(texts[i]))
-        out: Dict[int, List[str]] = {}
+        result: dict[int, list[str]] = {}
         for cid, tf in by_cluster.items():
-            tops = [w for w, _ in tf.most_common(k*2) if _clean_ngram(w)][:k]
-            out[cid] = tops
-        return out
+            tops = [w for w, _ in tf.most_common(k * 2) if _clean_ngram(w)][:k]
+            result[cid] = tops
+        return result
 
-    classes = sorted(set(int(l) for l in labels))
+    classes = sorted({int(lbl) for lbl in labels})
     # aggregate docs per class
-    class_docs: List[str] = []
+    class_docs: list[str] = []
     for cid in classes:
         buf = []
-        for i, l in enumerate(labels):
-            if int(l) == cid:
+        for i, lbl in enumerate(labels):
+            if int(lbl) == cid:
                 buf.append(texts[i])
         class_docs.append("\n".join(buf) if buf else "")
 
-    vec = TfidfVectorizer(stop_words="english",
-                          ngram_range=ngram_range,
-                          max_features=max_features,
-                          min_df=1)
+    vec = TfidfVectorizer(
+        stop_words="english", ngram_range=ngram_range, max_features=max_features, min_df=1
+    )
     X = vec.fit_transform(class_docs)  # shape (n_classes, vocab)
     terms = vec.get_feature_names_out()
-    out: Dict[int, List[str]] = {}
+    out: dict[int, list[str]] = {}
 
     for row_idx, cid in enumerate(classes):
         row = X.getrow(row_idx)
         cols = row.nonzero()[1]
         scores = [(terms[j], float(row[0, j])) for j in cols]
         scores.sort(key=lambda kv: kv[1], reverse=True)
-        kept: List[str] = []
+        kept: list[str] = []
         for t, _ in scores:
             if _clean_ngram(t):
                 kept.append(t)
@@ -86,38 +92,44 @@ def _ctfidf_top_terms_sklearn(texts: List[str], labels: List[int], k: int = 12,
 # Topic discovery methods
 # ======================================================================================
 
-def _fallback_topics(texts: List[str]) -> tuple[List[int], List[Dict[str, Any]], Dict[str, List[str]]]:
+
+def _fallback_topics(
+    texts: list[str],
+) -> tuple[list[int], list[dict[str, Any]], dict[str, list[str]]]:
     n = len(texts)
     if n <= 1:
-        return [0]*n, [{"cluster": 0, "top_terms": [], "size": n}], {str(i): [] for i in range(n)}
-    k = min(6, max(2, int(round(math.sqrt(n)))))
+        return [0] * n, [{"cluster": 0, "top_terms": [], "size": n}], {str(i): [] for i in range(n)}
+    k = min(6, max(2, round(math.sqrt(n))))
     labels = [i % k for i in range(n)]
     ctf = _ctfidf_top_terms_sklearn(texts, labels, k=12)
-    topics: List[Dict[str, Any]] = [{"cluster": i, "top_terms": ctf.get(i, []), "size": labels.count(i)} for i in range(k)]
+    topics: list[dict[str, Any]] = [
+        {"cluster": i, "top_terms": ctf.get(i, []), "size": labels.count(i)} for i in range(k)
+    ]
     doc_terms = {str(i): tokenize(texts[i])[:10] for i in range(n)}
     return labels, topics, doc_terms
 
 
-def _kmeans_topics(texts: List[str], k: int | None) -> tuple[List[int], List[Dict[str, Any]], Dict[str, List[str]]]:
+def _kmeans_topics(
+    texts: list[str], k: int | None
+) -> tuple[list[int], list[dict[str, Any]], dict[str, list[str]]]:
     """
-    TF-IDF (1–3 grams) + MiniBatchKMeans with deterministic random_state.
+    TF-IDF (1-3 grams) + MiniBatchKMeans with deterministic random_state.
     Yields phrase-y top terms via c-TF-IDF and per-doc tooltips via TF-IDF row tops.
     """
     try:
-        from sklearn.cluster import MiniBatchKMeans  # type: ignore
-        from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore
+        from sklearn.cluster import MiniBatchKMeans
+        from sklearn.feature_extraction.text import TfidfVectorizer
     except Exception:
         return _fallback_topics(texts)
 
     min_df = 2 if len(texts) >= 8 else 1
-    vec = TfidfVectorizer(stop_words="english",
-                          max_features=20000,
-                          ngram_range=(1, 3),
-                          min_df=min_df)
+    vec = TfidfVectorizer(
+        stop_words="english", max_features=20000, ngram_range=(1, 3), min_df=min_df
+    )
     X = vec.fit_transform(texts)
 
     if k is None:
-        k = max(2, min(12, int(round(math.sqrt(max(len(texts), 2))))))
+        k = max(2, min(12, round(math.sqrt(max(len(texts), 2)))))
 
     km = MiniBatchKMeans(n_clusters=k, random_state=42, n_init="auto")
     labels_arr = km.fit_predict(X)
@@ -126,21 +138,23 @@ def _kmeans_topics(texts: List[str], k: int | None) -> tuple[List[int], List[Dic
     # Top-terms per cluster using c-TF-IDF (phrase-aware)
     ctf = _ctfidf_top_terms_sklearn(texts, labels, k=12)
 
-    topics: List[Dict[str, Any]] = []
+    topics: list[dict[str, Any]] = []
     for i in range(k):
-        topics.append({"cluster": i, "top_terms": ctf.get(i, []), "size": int((labels_arr == i).sum())})
+        topics.append(
+            {"cluster": i, "top_terms": ctf.get(i, []), "size": int((labels_arr == i).sum())}
+        )
 
     # Doc-level top terms for tooltips (phrase-aware)
     terms = vec.get_feature_names_out()
     row = X.tocoo()
-    rows: Dict[int, List[Tuple[int, float]]] = defaultdict(list)
-    for r, c, v in zip(row.row, row.col, row.data):
+    rows: dict[int, list[tuple[int, float]]] = defaultdict(list)
+    for r, c, v in zip(row.row, row.col, row.data, strict=False):
         rows[int(r)].append((int(c), float(v)))
 
-    doc_terms: Dict[str, List[str]] = {}
+    doc_terms: dict[str, list[str]] = {}
     for i in range(X.shape[0]):
         pairs = sorted(rows.get(i, []), key=lambda p: p[1], reverse=True)
-        words: List[str] = []
+        words: list[str] = []
         for c, _ in pairs:
             t = terms[c]
             if _clean_ngram(t):
@@ -152,14 +166,16 @@ def _kmeans_topics(texts: List[str], k: int | None) -> tuple[List[int], List[Dic
     return labels, topics, doc_terms
 
 
-def _embed_hdbscan_topics(texts: List[str]) -> tuple[List[int], List[Dict[str, Any]], Dict[str, List[str]]]:
+def _embed_hdbscan_topics(
+    texts: list[str],
+) -> tuple[list[int], list[dict[str, Any]], dict[str, list[str]]]:
     """
     Optional: sentence-transformers embeddings + HDBSCAN (no k to pick).
     Falls back to _fallback_topics() if libs missing.
     """
     try:
-        from sentence_transformers import SentenceTransformer  # type: ignore
-        import hdbscan  # type: ignore
+        import hdbscan
+        from sentence_transformers import SentenceTransformer
     except Exception:
         return _fallback_topics(texts)
 
@@ -169,32 +185,48 @@ def _embed_hdbscan_topics(texts: List[str]) -> tuple[List[int], List[Dict[str, A
     except Exception:
         return _fallback_topics(texts)
 
-    embs = model.encode(texts, show_progress_bar=False, convert_to_numpy=True, normalize_embeddings=True)
+    embs = model.encode(
+        texts, show_progress_bar=False, convert_to_numpy=True, normalize_embeddings=True
+    )
     if len(texts) <= 2:
-        return [0]*len(texts), [{"cluster":0,"top_terms":[],"size":len(texts)}], {str(i): tokenize(t)[:10] for i, t in enumerate(texts)}
+        return (
+            [0] * len(texts),
+            [{"cluster": 0, "top_terms": [], "size": len(texts)}],
+            {str(i): tokenize(t)[:10] for i, t in enumerate(texts)},
+        )
 
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=max(2, len(texts)//20 or 2), min_samples=1, metric="euclidean")
+    clusterer = hdbscan.HDBSCAN(
+        min_cluster_size=max(2, len(texts) // 20 or 2), min_samples=1, metric="euclidean"
+    )
     raw = clusterer.fit_predict(embs).tolist()
 
     uniq = sorted({(0 if L < 0 else L) for L in raw})
-    remap = {old:i for i, old in enumerate(uniq)}
+    remap = {old: i for i, old in enumerate(uniq)}
     labels = [remap.get((0 if L < 0 else L), 0) for L in raw]
 
     # Phrase-aware c-TF-IDF tops
     ctf = _ctfidf_top_terms_sklearn(texts, labels, k=12)
     k = len(uniq)
-    topics: List[Dict[str, Any]] = [{"cluster": i, "top_terms": ctf.get(i, []), "size": labels.count(i)} for i in range(k)]
+    topics: list[dict[str, Any]] = [
+        {"cluster": i, "top_terms": ctf.get(i, []), "size": labels.count(i)} for i in range(k)
+    ]
     doc_terms = {str(i): tokenize(texts[i])[:10] for i in range(len(texts))}
     return labels, topics, doc_terms
 
 
-def select_topics(texts: List[str], *, prefer_embeddings: bool | None = None, k: int | None = None
-                  ) -> tuple[List[int], List[Dict[str, Any]], Dict[str, List[str]], str]:
+def select_topics(
+    texts: list[str], *, prefer_embeddings: bool | None = None, k: int | None = None
+) -> tuple[list[int], list[dict[str, Any]], dict[str, list[str]], str]:
     """
-    Returns (labels, topics, doc_terms, mode_used) where mode_used ∈ {"embed", "kmeans", "fallback"}.
+    Returns (labels, topics, doc_terms, mode_used) where
+    mode_used ∈ {"embed", "kmeans", "fallback"}.
     """
     if prefer_embeddings is None:
-        prefer_embeddings = os.environ.get("PAPERCLIP_USE_EMBED", "0").lower() in {"1","true","yes"}
+        prefer_embeddings = os.environ.get("PAPERCLIP_USE_EMBED", "0").lower() in {
+            "1",
+            "true",
+            "yes",
+        }
 
     if prefer_embeddings:
         labels, topics, doc_terms = _embed_hdbscan_topics(texts)
@@ -215,7 +247,8 @@ def select_topics(texts: List[str], *, prefer_embeddings: bool | None = None, k:
 # LLM topic labeling (with persistent cache)
 # ======================================================================================
 
-def _short_label_from_terms(terms: List[str]) -> str:
+
+def _short_label_from_terms(terms: list[str]) -> str:
     if not terms:
         return ""
     phrases = [t for t in terms if " " in t][:2]
@@ -223,21 +256,25 @@ def _short_label_from_terms(terms: List[str]) -> str:
     parts = phrases + singles
     if not parts:
         parts = terms[:3]
+
     def tc(w: str) -> str:
         return w if (len(w) <= 4 and w.isupper()) else (w.title())
+
     return " ".join(tc(p) for p in " · ".join(parts).split())
 
 
-def _cluster_cache_key(terms: List[str], sample_texts: List[str]) -> str:
+def _cluster_cache_key(terms: list[str], sample_texts: list[str]) -> str:
     h = hashlib.sha1()
     for t in terms[:12]:
-        h.update(t.encode("utf-8")); h.update(b"|")
+        h.update(t.encode("utf-8"))
+        h.update(b"|")
     for s in sample_texts[:3]:
-        h.update(s[:2000].encode("utf-8", "ignore")); h.update(b"|")
+        h.update(s[:2000].encode("utf-8", "ignore"))
+        h.update(b"|")
     return h.hexdigest()
 
 
-def _try_openai_label(cluster_docs: List[str]) -> Tuple[str, str] | None:
+def _try_openai_label(cluster_docs: list[str]) -> tuple[str, str] | None:
     """
     Returns (label, one_liner) or None on error or if API not configured.
     """
@@ -249,32 +286,38 @@ def _try_openai_label(cluster_docs: List[str]) -> Tuple[str, str] | None:
     prompt = (
         "You label clusters of scientific papers.\n"
         "Given a sample of paragraphs from ONE cluster, return:\n"
-        "1) A concise 3–7 word label; 2) One-sentence description.\n"
+        "1) A concise 3-7 word label; 2) One-sentence description.\n"
         "Avoid generic words (study, paper). Mention the organism/method if salient.\n\n"
         "=== Sample ===\n" + "\n\n---\n\n".join(cluster_docs[:6])
     )
     try:
         try:
-            from openai import OpenAI  # type: ignore
+            from openai import OpenAI
+
             client = OpenAI(api_key=api_key)
             resp = client.chat.completions.create(
                 model=model,
-                messages=[{"role":"system","content":"Write concise, specific topic labels."},
-                          {"role":"user","content":prompt}],
+                messages=[
+                    {"role": "system", "content": "Write concise, specific topic labels."},
+                    {"role": "user", "content": prompt},
+                ],
                 temperature=0.2,
             )
             text = (resp.choices[0].message.content or "").strip()
         except Exception:
-            import openai  # type: ignore
+            import openai
+
             openai.api_key = api_key
             resp = openai.ChatCompletion.create(
                 model=model,
-                messages=[{"role":"system","content":"Write concise, specific topic labels."},
-                          {"role":"user","content":prompt}],
+                messages=[
+                    {"role": "system", "content": "Write concise, specific topic labels."},
+                    {"role": "user", "content": prompt},
+                ],
                 temperature=0.2,
             )
             text = resp["choices"][0]["message"]["content"].strip()
-        lines = [l.strip(" -*") for l in text.splitlines() if l.strip()]
+        lines = [line.strip(" -*") for line in text.splitlines() if line.strip()]
         if not lines:
             return None
         label = lines[0]
@@ -285,25 +328,25 @@ def _try_openai_label(cluster_docs: List[str]) -> Tuple[str, str] | None:
 
 
 def label_topics_if_configured(
-    topics: List[Dict[str, Any]],
-    texts: List[str],
-    labels: List[int],
+    topics: list[dict[str, Any]],
+    texts: list[str],
+    labels: list[int],
     cache_dir: Path | None = None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Enrich topic dicts with 'label' and optional 'desc' using OpenAI when configured.
     Labels are cached in JSON at {cache_dir}/topic_label_cache.json.
     Cache key = SHA1(top_terms + snippets of sample docs).
     """
     # Build cluster -> sample docs
-    cluster_docs: Dict[int, List[str]] = defaultdict(list)
+    cluster_docs: dict[int, list[str]] = defaultdict(list)
     for i, c in enumerate(labels):
         if len(cluster_docs[int(c)]) < 8:  # cap to keep prompt light
             cluster_docs[int(c)].append(texts[i])
 
     # Load cache
     cache_path = None
-    cache: Dict[str, Dict[str, str]] = {}
+    cache: dict[str, dict[str, str]] = {}
     if cache_dir:
         cache_path = Path(cache_dir) / "topic_label_cache.json"
         try:
@@ -312,7 +355,7 @@ def label_topics_if_configured(
         except Exception:
             cache = {}
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     dirty = False
 
     for t in topics:
@@ -328,7 +371,7 @@ def label_topics_if_configured(
             cached = cache.get(key)
             if cached and cached.get("label"):
                 label = cached["label"]
-                desc  = cached.get("desc", "")
+                desc = cached.get("desc", "")
             else:
                 got = _try_openai_label(sample)
                 if got:

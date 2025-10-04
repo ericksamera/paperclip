@@ -2,29 +2,35 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Tuple
+
 from bs4 import BeautifulSoup, Tag
 
 from . import register, register_meta
 from .base import (
-    heading_text, paras_between, collect_paragraphs_subtree, dedupe_keep_order,
-    collect_paras_excluding, dedupe_section_nodes
+    collect_paras_excluding,
+    dedupe_keep_order,
+    dedupe_section_nodes,
+    heading_text,
+    paras_between,
 )
 
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[^\s\"'<>),;]+", re.I)
 
-# -------------------------- tiny utils --------------------------
 
-def norm_space(s: Optional[str]) -> str:
+# -------------------------- tiny utils --------------------------
+def norm_space(s: str | None) -> str:
     return re.compile(r"\s+").sub(" ", s).strip() if s else ""
+
 
 def normalize_dash(s: str) -> str:
     s = s.replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-")
     s = re.compile(r"\s*-\s*").sub("-", s)
     return s.strip(" -\t")
 
-def take_text(node: Optional[Tag]) -> str:
+
+def take_text(node: Tag | None) -> str:
     return norm_space(node.get_text(" ", strip=True)) if node is not None else ""
+
 
 def is_icon_i(tag: Tag) -> bool:
     if not isinstance(tag, Tag) or tag.name != "i":
@@ -32,7 +38,8 @@ def is_icon_i(tag: Tag) -> bool:
     classes = tag.get("class") or []
     return any("icon" in (c or "") for c in classes)
 
-def clean_doi(raw: Optional[str]) -> Optional[str]:
+
+def clean_doi(raw: str | None) -> str | None:
     if not raw:
         return None
     x = raw.strip()
@@ -42,16 +49,15 @@ def clean_doi(raw: Optional[str]) -> Optional[str]:
     x = x.lower()
     return x or None
 
-# -------------------------- LI → reference dict --------------------------
 
-def extract_doi(li: Tag) -> Optional[str]:
+# -------------------------- LI → reference dict --------------------------
+def extract_doi(li: Tag) -> str | None:
     # 1) hidden span
     doi_span = li.find("span", class_=lambda c: bool(c and "data-doi" in c))
     if doi_span:
         d = clean_doi(take_text(doi_span))
         if d:
             return d
-
     # 2) DOI-looking <a class="accessionId"> text or href
     acc = li.find("a", class_=lambda c: bool(c and "accessionId" in c))
     if acc:
@@ -59,23 +65,25 @@ def extract_doi(li: Tag) -> Optional[str]:
         m = DOI_RE.search(txt) or DOI_RE.search(acc.get("href") or "")
         if m:
             return clean_doi(m.group(0))
-
     # 3) any DOI-looking token in the LI
     raw = li.get_text(" ", strip=True)
     m = DOI_RE.search(raw)
     return clean_doi(m.group(0)) if m else None
 
-def extract_pages(li: Tag) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+
+def extract_pages(li: Tag) -> tuple[str | None, str | None, str | None]:
     p_first = take_text(li.find("span", class_="pageFirst")) or None
     p_last = take_text(li.find("span", class_="pageLast")) or None
+    pages: str | None
     if p_first and p_last:
         pages = f"{normalize_dash(p_first)}-{normalize_dash(p_last)}"
     else:
         pages = normalize_dash(p_first or p_last or "") or None
     return (p_first, p_last, pages)
 
-def parse_author_list(li: Tag) -> List[str]:
-    out: List[str] = []
+
+def parse_author_list(li: Tag) -> list[str]:
+    out: list[str] = []
     for a in li.find_all("span", class_="author"):
         txt = take_text(a)
         if txt:
@@ -89,7 +97,8 @@ def parse_author_list(li: Tag) -> List[str]:
             uniq.append(a)
     return uniq
 
-def extract_title_and_type(li: Tag) -> Tuple[Optional[str], Optional[str], Optional[Tag]]:
+
+def extract_title_and_type(li: Tag) -> tuple[str | None, str | None, Tag | None]:
     """
     Returns (title, type, title_tag), where type ∈ {'article', 'chapter', 'book', None}.
     Prefers Wiley's explicit spans when present.
@@ -97,7 +106,6 @@ def extract_title_and_type(li: Tag) -> Tuple[Optional[str], Optional[str], Optio
     t_article = li.find("span", class_="articleTitle")
     t_chapter = li.find("span", class_="chapterTitle")
     t_book = li.find("span", class_="bookTitle")
-
     if t_article:
         return take_text(t_article), "article", t_article
     if t_chapter and t_book:
@@ -106,10 +114,12 @@ def extract_title_and_type(li: Tag) -> Tuple[Optional[str], Optional[str], Optio
         return take_text(t_book), "book", t_book
     return None, None, None
 
-def extract_container_after_title(li: Tag, title_tag: Optional[Tag]) -> Optional[str]:
+
+def extract_container_after_title(li: Tag, title_tag: Tag | None) -> str | None:
     """
-    Wiley often italicizes genus/species inside the title (<i>…</i>), then puts the journal/book name
-    as an italicized sibling *after* the title node. We must skip <i> tags *inside* the title.
+    Wiley often italicizes genus/species inside the title (<i>...</i>), then puts
+    the journal/book name as an italicized sibling *after* the title node.
+    We must skip <i> tags *inside* the title.
     """
     if title_tag:
         for sib in title_tag.next_siblings:
@@ -125,7 +135,6 @@ def extract_container_after_title(li: Tag, title_tag: Optional[Tag]) -> Optional
                     txt = take_text(i)
                     if txt:
                         return txt
-
     # Fallback: first non-icon <i> anywhere in the LI that is not contained by the title node
     for i_tag in li.find_all("i"):
         if is_icon_i(i_tag):
@@ -137,52 +146,58 @@ def extract_container_after_title(li: Tag, title_tag: Optional[Tag]) -> Optional
             return txt
     return None
 
-def parse_one_li(li: Tag) -> Optional[Dict[str, object]]:
+
+def parse_one_li(li: Tag) -> dict[str, object] | None:
     raw = norm_space(li.get_text(" ", strip=True))
     if not raw:
         return None
-
     authors = parse_author_list(li)
     year_txt = take_text(li.find("span", class_="pubYear"))
     year = int(year_txt) if year_txt.isdigit() else None
-
     title, rtype, title_tag = extract_title_and_type(li)
     container = extract_container_after_title(li, title_tag)
-
-    vol = take_text(li.find("span", class_="vol")) or None
-    issue = take_text(li.find("span", class_="issue")) or None
+    vol: str | None = take_text(li.find("span", class_="vol")) or None
+    issue: str | None = take_text(li.find("span", class_="issue")) or None
     p_first, p_last, pages = extract_pages(li)
-
     doi = extract_doi(li)
     url = f"https://doi.org/{doi}" if doi else None
-
-    # For chapter entries, “container” is the book title
+    # For chapter entries, "container" is the book title
     if rtype == "chapter":
         book_title = take_text(li.find("span", class_="bookTitle"))
         container = book_title or container
-
-    ref: Dict[str, object] = {"raw": raw}
-    if authors: ref["authors"] = authors
-    if year is not None: ref["year"] = year
-    if title: ref["title"] = title
-    if container: ref["container_title"] = container
-    if vol: ref["volume"] = vol
-    if issue: ref["issue"] = issue
-    if p_first: ref["page_first"] = p_first
-    if p_last: ref["page_last"] = p_last
-    if pages: ref["pages"] = pages
-    if doi: ref["doi"] = doi
-    if url: ref["url"] = url
-    if rtype: ref["type"] = rtype
-
+    ref: dict[str, object] = {"raw": raw}
+    if authors:
+        ref["authors"] = authors
+    if year is not None:
+        ref["year"] = year
+    if title:
+        ref["title"] = title
+    if container:
+        ref["container_title"] = container
+    if vol:
+        ref["volume"] = vol
+    if issue:
+        ref["issue"] = issue
+    if p_first:
+        ref["page_first"] = p_first
+    if p_last:
+        ref["page_last"] = p_last
+    if pages:
+        ref["pages"] = pages
+    if doi:
+        ref["doi"] = doi
+    if url:
+        ref["url"] = url
+    if rtype:
+        ref["type"] = rtype
     return ref
 
-# -------------------------- selectors & references parser --------------------------
 
-def _select_reference_items(soup: BeautifulSoup) -> List[Tag]:
+# -------------------------- selectors & references parser --------------------------
+def _select_reference_items(soup: BeautifulSoup) -> list[Tag]:
     """
     Find the <li> elements holding references across Wiley templates, including the
-    “pane-pcw-references” variant and the classic article references section.
+    "pane-pcw-references" variant and the classic article references section.
     """
     # Explicit references sections
     sections = soup.select(
@@ -195,7 +210,6 @@ def _select_reference_items(soup: BeautifulSoup) -> List[Tag]:
         items = sec.select("li[data-bib-id]")
         if items:
             return items
-
     # Other Wiley templates & safe fallbacks
     for sel in [
         "div#pane-pcw-references ul.rlist.separator li",
@@ -210,41 +224,46 @@ def _select_reference_items(soup: BeautifulSoup) -> List[Tag]:
         items = soup.select(sel)
         if items:
             return items
-
     # Last resort: anything that looks like a ref item
     return soup.select("li[data-bib-id]")
 
-def parse_wiley(_url: str, dom_html: str) -> List[Dict[str, object]]:
+
+def parse_wiley(_url: str, dom_html: str) -> list[dict[str, object]]:
     soup = BeautifulSoup(dom_html or "", "html.parser")
-    out: List[Dict[str, object]] = []
+    out: list[dict[str, object]] = []
     for li in _select_reference_items(soup):
         ref = parse_one_li(li)
         if ref:
             out.append(ref)
     return out
 
-# -------------------------- Wiley: abstract / keywords / sections --------------------------
 
+# -------------------------- Wiley: abstract / keywords / sections --------------------------
 # NOTE: include "abbreviations" in NONCONTENT to avoid polluting sections with the list/table.
 _NONCONTENT_RX = re.compile(
-    r"\b(references?|acknowledg|conflict of interest|funding|ethics|data availability|author contributions?|abbreviations?)\b",
+    r"\b(references?|acknowledg|conflict of interest|funding|ethics|data availability|"
+    r"author contributions?|abbreviations?)\b",
     re.I,
 )
 
-def _txt(s: Optional[str]) -> str:
+
+def _txt(s: str | None) -> str:
     return re.sub(r"\s+", " ", (s or "").replace("\xa0", " ")).strip()
+
 
 def _looks_like_keywords_host(tag: Tag) -> bool:
     if not isinstance(tag, Tag):
         return False
     cid = (tag.get("id") or "").lower()
-    cls = " ".join((tag.get("class") or [])).lower()
+    cls = " ".join(tag.get("class") or []).lower()
     return ("keyword" in cid) or ("keyword" in cls) or ("subject" in cls)
+
 
 def _find_main_wrapper(soup: BeautifulSoup) -> Tag:
     """
-    Prefer the wrapper that contains ALL body sections. Wiley has multiple shells; in the “metis” layout
-    the body is under <section class="article-section article-section__full">.
+    Prefer the wrapper that contains ALL body sections.
+    Wiley has multiple shells; in the "metis" layout the body is under
+    <section class="article-section article-section__full">.
     """
     return (
         soup.select_one("section.article-section__full")
@@ -253,9 +272,10 @@ def _find_main_wrapper(soup: BeautifulSoup) -> Tag:
         or soup
     )
 
-def _extract_wiley_abstract(soup: BeautifulSoup) -> Optional[str]:
+
+def _extract_wiley_abstract(soup: BeautifulSoup) -> str | None:
     """
-    Robustly extract Abstract across classic and “metis” variants.
+    Robustly extract Abstract across classic and "metis" variants.
     """
     # 1) Any explicit abstract host (section/div) with 'abstract' in class or id
     for host in soup.select(
@@ -267,8 +287,7 @@ def _extract_wiley_abstract(soup: BeautifulSoup) -> Optional[str]:
         paras = [p for p in paras if p]
         if paras:
             return " ".join(paras)
-
-    # 2) Heading “Abstract” (fallback)
+    # 2) Heading "Abstract" (fallback)
     for h in soup.find_all(["h2", "h3", "h4"]):
         title = heading_text(h)
         if re.fullmatch(r"\s*abstract\s*", title or "", re.I):
@@ -284,10 +303,11 @@ def _extract_wiley_abstract(soup: BeautifulSoup) -> Optional[str]:
                 return " ".join(paras)
     return None
 
-def _extract_wiley_keywords(soup: BeautifulSoup) -> List[str]:
+
+def _extract_wiley_keywords(soup: BeautifulSoup) -> list[str]:
     # Prefer structured blocks labeled as keywords/subjects
     for host in soup.find_all(_looks_like_keywords_host):
-        items: List[str] = []
+        items: list[str] = []
         for el in host.select("a, li, span"):
             t = _txt(el.get_text(" ", strip=True))
             if t:
@@ -296,8 +316,7 @@ def _extract_wiley_keywords(soup: BeautifulSoup) -> List[str]:
         items = [t for t in items if t]
         if items:
             return dedupe_keep_order(items)
-
-    # Fallback inline “Keywords: …”
+    # Fallback inline "Keywords: ..."
     m = soup.find(string=re.compile(r"^\s*Keywords?\s*:", re.I))
     if isinstance(m, str):
         tail = re.sub(r"^\s*Keywords?\s*:\s*", "", m, flags=re.I)
@@ -306,8 +325,8 @@ def _extract_wiley_keywords(soup: BeautifulSoup) -> List[str]:
             return dedupe_keep_order(parts)
     return []
 
-# -------------------------- nested subsection helpers --------------------------
 
+# -------------------------- nested subsection helpers --------------------------
 def _is_subsection_container(tag: Tag) -> bool:
     """
     Heuristics to decide if `tag` is a subsection wrapper under a Wiley section.
@@ -316,22 +335,30 @@ def _is_subsection_container(tag: Tag) -> bool:
     """
     if not isinstance(tag, Tag):
         return False
-    cls = " ".join((tag.get("class") or [])).lower()
-    if any(k in cls for k in [
-        "article-section__sub-content",     # classic
-        "sub-content", "subcontent",        # variants
-        "subsection", "section__sub",       # generic
-        "accordion", "expand", "collaps",   # accordions/expanders
-        "toggle", "disclosure", "tabs"      # misc UI
-    ]):
+    cls = " ".join(tag.get("class") or []).lower()
+    if any(
+        k in cls
+        for k in [
+            "article-section__sub-content",  # classic
+            "sub-content",
+            "subcontent",  # variants
+            "subsection",
+            "section__sub",  # generic
+            "accordion",
+            "expand",
+            "collaps",  # accordions/expanders
+            "toggle",
+            "disclosure",
+            "tabs",  # misc UI
+        ]
+    ):
         return True
     if tag.name in {"details"}:
         return True
     # As a last hint, treat blocks that clearly own a subsection heading as containers.
     # (We *don't* use recursive=False here, headings might sit one level down.)
-    if tag.find(["h3", "h4", "h5", "h6"]):
-        return True
-    return False
+    return bool(tag.find(["h3", "h4", "h5", "h6"]))
+
 
 def _has_subsection_ancestor(el: Tag, root: Tag) -> bool:
     """
@@ -344,7 +371,8 @@ def _has_subsection_ancestor(el: Tag, root: Tag) -> bool:
         cur = cur.parent
     return False
 
-def _collect_paras_for_section(root: Tag) -> List[str]:
+
+def _collect_paras_for_section(root: Tag) -> list[str]:
     """
     Collect <p>/<li> that belong to this section, skipping anything inside subsection containers.
     If nothing is found and there are no subsection containers at all, fall back to subtree text.
@@ -352,7 +380,7 @@ def _collect_paras_for_section(root: Tag) -> List[str]:
     return collect_paras_excluding(root, _is_subsection_container)
 
 
-def _parse_subsection_block(block: Tag) -> Optional[Dict[str, object]]:
+def _parse_subsection_block(block: Tag) -> dict[str, object] | None:
     """
     Parse a subsection container into {title, paragraphs, children?}.
     """
@@ -362,28 +390,34 @@ def _parse_subsection_block(block: Tag) -> Optional[Dict[str, object]]:
     if not title or _NONCONTENT_RX.search(title):
         # Even without a title, we might still have paragraphs; keep it only if we get text
         title = title or ""
-
     paras = _collect_paras_for_section(block)
-
     # Recurse: immediate child subsection containers
-    kids: List[Dict[str, object]] = []
+    kids: list[dict[str, object]] = []
     for child in block.find_all(True, recursive=False):
         if _is_subsection_container(child):
-            node = _parse_subsection_block(child)
-            if node and (node.get("title") or node.get("paragraphs") or node.get("children")):
-                kids.append(node)
-    node: Dict[str, object] = {}
+            child_node = _parse_subsection_block(child)
+            if child_node and (
+                child_node.get("title")
+                or child_node.get("paragraphs")
+                or child_node.get("children")
+            ):
+                kids.append(child_node)
+    node_dict: dict[str, object] = {}
     if title:
-        node["title"] = title
+        node_dict["title"] = title
     if paras:
-        node["paragraphs"] = paras
+        node_dict["paragraphs"] = paras
     if kids:
-        node["children"] = kids
-    return node if (node.get("title") or node.get("paragraphs") or node.get("children")) else None
+        node_dict["children"] = kids
+    return (
+        node_dict
+        if (node_dict.get("title") or node_dict.get("paragraphs") or node_dict.get("children"))
+        else None
+    )
+
 
 # -------------------------- sections extractors --------------------------
-
-def _extract_wiley_sections_structured(wrapper: Tag) -> List[Dict[str, object]]:
+def _extract_wiley_sections_structured(wrapper: Tag) -> list[dict[str, object]]:
     """
     Primary path: structured pages with <section class="article-section__content"> blocks.
     """
@@ -391,27 +425,28 @@ def _extract_wiley_sections_structured(wrapper: Tag) -> List[Dict[str, object]]:
     if not top_secs:
         # Some pages use <div class="article-section__content">
         top_secs = [
-            d for d in wrapper.select("div.article-section__content")
+            d
+            for d in wrapper.select("div.article-section__content")
             if not (d.find_parent("section", class_=re.compile(r"article-section__abstract", re.I)))
         ]
-
-    out: List[Dict[str, object]] = []
+    out: list[dict[str, object]] = []
     for sec in top_secs:
         # Section title (h2 usually)
         h = sec.find(["h2", "h3", "h4"])
         title = heading_text(h)
-        if not title or re.fullmatch(r"\s*abstract\s*", title, re.I) or _NONCONTENT_RX.search(title):
+        if (
+            not title
+            or re.fullmatch(r"\s*abstract\s*", title, re.I)
+            or _NONCONTENT_RX.search(title)
+        ):
             continue
-
-        node: Dict[str, object] = {"title": title}
-
+        node: dict[str, object] = {"title": title}
         # Paragraphs that belong to THIS section (exclude nested subsection containers)
         paras = _collect_paras_for_section(sec)
         if paras:
             node["paragraphs"] = paras
-
         # Children: immediate subsection containers under this section
-        children: List[Dict[str, object]] = []
+        children: list[dict[str, object]] = []
         for child in sec.find_all(True, recursive=False):
             if _is_subsection_container(child):
                 kid = _parse_subsection_block(child)
@@ -419,50 +454,56 @@ def _extract_wiley_sections_structured(wrapper: Tag) -> List[Dict[str, object]]:
                     children.append(kid)
         if children:
             node["children"] = children
-
         if node.get("title") or node.get("paragraphs") or node.get("children"):
             out.append(node)
-
     return dedupe_section_nodes(out)
 
-def _extract_wiley_sections_heading_runs(wrapper: Tag) -> List[Dict[str, object]]:
+
+def _extract_wiley_sections_heading_runs(wrapper: Tag) -> list[dict[str, object]]:
     """
     Fallback: segment by runs of H2.article-section__title, respecting nested subsections.
     """
-    out: List[Dict[str, object]] = []
+    out: list[dict[str, object]] = []
     headings = wrapper.select("h2.article-section__title, h2[class*='article-section__title' i]")
     if not headings:
         return out
 
-    def next_h2(node: Tag) -> Optional[Tag]:
+    def next_h2(node: Tag) -> Tag | None:
         cur = node.next_sibling
         while cur:
-            if isinstance(cur, Tag) and cur.name == "h2" and ("article-section__title" in " ".join(cur.get("class") or []).lower()):
+            if (
+                isinstance(cur, Tag)
+                and cur.name == "h2"
+                and ("article-section__title" in " ".join(cur.get("class") or []).lower())
+            ):
                 return cur
             cur = cur.next_sibling
         return None
 
     for h in headings:
         title = heading_text(h)
-        if not title or re.fullmatch(r"\s*abstract\s*", title, re.I) or _NONCONTENT_RX.search(title):
+        if (
+            not title
+            or re.fullmatch(r"\s*abstract\s*", title, re.I)
+            or _NONCONTENT_RX.search(title)
+        ):
             continue
-
         end = next_h2(h)
-        container = BeautifulSoup("<div></div>", "html.parser").div  # temp container
+        # Build a guaranteed-Tag container (avoid Optional[Tag] from .div)
+        _soup_tmp = BeautifulSoup("", "html.parser")
+        container: Tag = _soup_tmp.new_tag("div")
         cur = h.next_sibling
         while cur and cur is not end:
             if isinstance(cur, Tag):
                 container.append(cur.extract())
             cur = h.next_sibling  # after extract, h.next_sibling updates
-
-        node: Dict[str, object] = {"title": title}
+        node: dict[str, object] = {"title": title}
         # Paragraphs for this H2 block, excluding nested subsection containers
         paras = _collect_paras_for_section(container)
         if paras:
             node["paragraphs"] = paras
-
         # Children: immediate subsection containers within this H2 block
-        children: List[Dict[str, object]] = []
+        children: list[dict[str, object]] = []
         for child in container.find_all(True, recursive=False):
             if _is_subsection_container(child):
                 kid = _parse_subsection_block(child)
@@ -470,33 +511,29 @@ def _extract_wiley_sections_heading_runs(wrapper: Tag) -> List[Dict[str, object]
                     children.append(kid)
         if children:
             node["children"] = children
-
         if node.get("title") or node.get("paragraphs") or node.get("children"):
             out.append(node)
-
     return dedupe_section_nodes(out)
 
 
-def _extract_wiley_sections(soup: BeautifulSoup) -> List[Dict[str, object]]:
+def _extract_wiley_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
     """
     Return a list of sections with possible children. Prefer structured blocks; fall back to
     heading-run segmentation. Both paths respect nested subsections (accordions/details).
     """
     wrapper = _find_main_wrapper(soup)
-
     # 1) Try structured content blocks first
     secs = _extract_wiley_sections_structured(wrapper)
     if secs:
         return secs
-
     # 2) Fallback to heading-run segmentation
     secs = _extract_wiley_sections_heading_runs(wrapper)
     if secs:
         return secs
-
     return []
 
-def extract_wiley_meta(_url: str, dom_html: str) -> Dict[str, object]:
+
+def extract_wiley_meta(_url: str, dom_html: str) -> dict[str, object]:
     """
     Return {"abstract": str|None, "keywords": [str], "sections": [ {title, paragraphs, children?} ]}
     so robust_parse() can populate the reduced view and your UI can build crumbs.
@@ -507,12 +544,17 @@ def extract_wiley_meta(_url: str, dom_html: str) -> Dict[str, object]:
     sections = _extract_wiley_sections(soup)
     return {"abstract": abstract, "keywords": keywords, "sections": sections}
 
+
 # -------------------------- registrations --------------------------
-
 # References (host + common proxy)
-register(r"(?:^|\.)onlinelibrary\.wiley\.com$", parse_wiley, where="host", name="Wiley Online Library")
-register(r"onlinelibrary[-\.]wiley",           parse_wiley, where="url",  name="Wiley (proxy)")
-
+register(
+    r"(?:^|\.)onlinelibrary\.wiley\.com$", parse_wiley, where="host", name="Wiley Online Library"
+)
+register(r"onlinelibrary[-\.]wiley", parse_wiley, where="url", name="Wiley (proxy)")
 # Meta/sections (host + common proxy)
-register_meta(r"(?:^|\.)onlinelibrary\.wiley\.com$", extract_wiley_meta, where="host", name="Wiley meta")
-register_meta(r"onlinelibrary[-\.]wiley",             extract_wiley_meta, where="url",  name="Wiley meta (proxy)")
+register_meta(
+    r"(?:^|\.)onlinelibrary\.wiley\.com$", extract_wiley_meta, where="host", name="Wiley meta"
+)
+register_meta(
+    r"onlinelibrary[-\.]wiley", extract_wiley_meta, where="url", name="Wiley meta (proxy)"
+)

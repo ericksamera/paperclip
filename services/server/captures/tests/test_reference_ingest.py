@@ -1,6 +1,8 @@
 # services/server/captures/tests/test_reference_ingest.py
 from __future__ import annotations
-import json, tempfile
+
+import json
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,7 +10,6 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from captures.models import Capture
-
 
 PMC_PAGE = """<!doctype html>
 <html>
@@ -36,7 +37,6 @@ PMC_PAGE = """<!doctype html>
 </body>
 </html>
 """
-
 GENERIC_PAGE = """<!doctype html>
 <html>
 <head>
@@ -60,7 +60,7 @@ class ReferenceIngestTests(TestCase):
         tmp = tempfile.TemporaryDirectory()
         root = Path(tmp.name)
         arts = root / "artifacts"
-        ana  = root / "analysis"
+        ana = root / "analysis"
         arts.mkdir(parents=True, exist_ok=True)
         ana.mkdir(parents=True, exist_ok=True)
         return tmp, arts, ana
@@ -74,20 +74,19 @@ class ReferenceIngestTests(TestCase):
             payload = {
                 "source_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC999999/",
                 "dom_html": PMC_PAGE,
-                "extraction": { "meta": {}, "content_html": "<p>Hi</p>", "references": [] },
+                "extraction": {"meta": {}, "content_html": "<p>Hi</p>", "references": []},
                 "rendered": {},
-                "client": {"ext": "chrome", "v": "0.1.0"}
+                "client": {"ext": "chrome", "v": "0.1.0"},
             }
-            with patch("captures.artifacts.build_server_parsed", return_value={"id":"stubbed"}):
-                resp = client.post("/api/captures/", data=json.dumps(payload), content_type="application/json")
+            with patch("captures.artifacts.build_server_parsed", return_value={"id": "stubbed"}):
+                resp = client.post(
+                    "/api/captures/", data=json.dumps(payload), content_type="application/json"
+                )
                 self.assertEqual(resp.status_code, 201, resp.content)
-
                 cap_id = resp.json()["capture_id"]
                 cap = Capture.objects.get(pk=cap_id)
-
                 # 3 from PMC snippet
                 self.assertEqual(cap.references.count(), 3)
-
                 # view.json includes the references list
                 cap_dir = artifacts_dir / str(cap_id)
                 view = json.loads((cap_dir / "view.json").read_text("utf-8"))
@@ -102,20 +101,19 @@ class ReferenceIngestTests(TestCase):
             payload = {
                 "source_url": "https://example.org/article/abc",
                 "dom_html": GENERIC_PAGE,
-                "extraction": { "meta": {}, "content_html": "<p>Hi</p>", "references": [] },
+                "extraction": {"meta": {}, "content_html": "<p>Hi</p>", "references": []},
                 "rendered": {},
-                "client": {"ext": "chrome", "v": "0.1.0"}
+                "client": {"ext": "chrome", "v": "0.1.0"},
             }
-            with patch("captures.artifacts.build_server_parsed", return_value={"id":"stubbed"}):
-                resp = client.post("/api/captures/", data=json.dumps(payload), content_type="application/json")
+            with patch("captures.artifacts.build_server_parsed", return_value={"id": "stubbed"}):
+                resp = client.post(
+                    "/api/captures/", data=json.dumps(payload), content_type="application/json"
+                )
                 self.assertEqual(resp.status_code, 201, resp.content)
-
                 cap_id = resp.json()["capture_id"]
                 cap = Capture.objects.get(pk=cap_id)
-
                 # 2 from generic snippet
                 self.assertEqual(cap.references.count(), 2)
-
                 cap_dir = artifacts_dir / str(cap_id)
                 view = json.loads((cap_dir / "view.json").read_text("utf-8"))
                 self.assertEqual(len(view.get("references") or []), 2)
