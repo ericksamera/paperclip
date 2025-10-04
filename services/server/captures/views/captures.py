@@ -17,20 +17,43 @@ from .common import _author_list, _authors_intext, _journal_full
 
 
 def _first_m_last_from_parts(given: str, family: str) -> str:
-    """Return 'First M Last' from given/family; includes middle initials if present."""
+    """
+    Return 'First M Last' from given/family; includes middle initials if present.
+
+    Rules:
+      - If the entire `given` is initials (e.g., "A.T." or "A. T."), collapse spaces: "A.T."
+      - If `given` contains a regular first name plus dotted initials (e.g., "Wendy K. W."),
+        keep a space between the first name and the initials block, while collapsing spaces
+        INSIDE the initials block: "Wendy K.W."
+      - If there are extra middle names without dots (e.g., "John Allen Paul"), render
+        as "John A. Paul".
+    """
     given = (given or "").strip()
     family = (family or "").strip()
     if not (given or family):
         return ""
-    # If given already looks like initials (e.g., "A.T."), keep it as-is.
-    if re.search(r"[A-Za-z]\.", given):
-        giv_fmt = re.sub(r"\s+", "", given)
-    else:
-        parts = re.split(r"\s+", given) if given else []
-        first = parts[0] if parts else ""
-        mids = parts[1:]
-        mid_inits = [m[0].upper() + "." for m in mids if m and m[0].isalpha()]
-        giv_fmt = " ".join([p for p in [first, *mid_inits] if p])
+
+    # 1) Pure-initials 'given' (e.g., "A. T." / "A.T." / "M.E.")
+    comp = given.replace(" ", "")
+    if re.fullmatch(r"(?:[A-Za-z]\.){1,4}", comp):
+        giv_fmt = comp  # collapse spaces between dotted initials only
+        return (giv_fmt + (" " + family if family else "")).strip()
+
+    # 2) Mixed: first name + dotted initials somewhere in the rest (e.g., "Wendy K. W.")
+    if "." in given and " " in given:
+        parts = re.split(r"\s+", given)
+        first = parts[0]
+        tail = "".join(parts[1:])  # collapse spaces between tokens -> "K.W." (if they were "K. W.")
+        giv_fmt = first + (" " + tail if tail else "")
+        return (giv_fmt + (" " + family if family else "")).strip()
+
+    # 3) No dots: turn middle names into initials
+    parts = re.split(r"\s+", given) if given else []
+    first = parts[0] if parts else ""
+    mids = parts[1:]
+    mid_inits = [m[0].upper() + "." for m in mids if m and m[0].isalpha()]
+    giv_fmt = " ".join([p for p in [first, *mid_inits] if p])
+
     return (giv_fmt + (" " + family if family else "")).strip()
 
 
@@ -72,7 +95,8 @@ def _authors_line(meta: dict, csl: dict) -> str:
                         names.append((giv, fam))
                     else:
                         names.append((s, ""))
-    # Format
+
+    # Format with improved spacing/initials handling
     formatted = [_first_m_last_from_parts(g, f) for (g, f) in names if (g or f)]
     # De-dup while keeping order (case-insensitive)
     seen = set()
@@ -128,7 +152,7 @@ def capture_view(request, pk):
             "abs": abs_text,
             "sections": sections,
             "authors": _author_list(meta, csl),  # still available if needed anywhere else
-            "authors_line": authors_line,  # NEW: 'First M Last, ...'
+            "authors_line": authors_line,  # 'First M Last, ...' with correct spacing
         },
     )
 

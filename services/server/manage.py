@@ -3,6 +3,14 @@
 import os
 import sys
 
+# Load .env before Django touches settings
+try:
+    from paperclip.env import load_env as _pc_load_env
+
+    _pc_load_env()
+except Exception:
+    pass
+
 
 def main() -> None:
     """Run administrative tasks."""

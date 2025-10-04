@@ -316,12 +316,95 @@ def _parse_pmc_section(sec: Tag) -> dict[str, object] | None:
     return None
 
 
+def _headless_leadin_paragraphs(soup: BeautifulSoup) -> list[str]:
+    """
+    Collect narrative paragraphs that appear *before* the first real content section.
+    Skips Abstract/Keywords/figure/caption/table blocks. Returns a clean list of strings.
+    """
+    from bs4 import Tag
+
+    def _txt(s: str | None) -> str:
+        return re.sub(r"\s+", " ", (s or "").replace("\xa0", " ")).strip()
+
+    # Find the article wrapper that contains the body content.
+    root = (
+        soup.select_one("section.body.main-article-body")
+        or soup.select_one("section#main-article-body")
+        or soup.find("article")
+        or soup.find("main")
+        or soup.body
+        or soup
+    )
+
+    # Where does the first content section start?
+    first_sec = None
+    # A "content section" is a <section> that has a heading and isn't non-content/abstract.
+    for sec in root.find_all("section"):
+        h = sec.find(["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)) or sec.find(
+            ["h2", "h3", "h4"]
+        )
+        title = heading_text(h) if h else ""
+        if not title:
+            continue
+        if re.fullmatch(r"\s*abstract\s*", title or "", re.I):
+            continue
+        if _NONCONTENT_RX.search(title or ""):
+            continue
+        first_sec = sec
+        break
+
+    # Walk nodes in document order until first_sec, picking only paragraphs that are NOT
+    # inside obvious non-content hosts (figures, tables, footnotes, keyword groups, etc.).
+    out: list[str] = []
+    stop_node = first_sec
+    for el in root.descendants:
+        if el is stop_node:
+            break
+        if not isinstance(el, Tag):
+            continue
+        # Skip containers that are clearly non-content or part of the abstract/keywords
+        if el.find_parent(
+            [
+                "figure",
+                "figcaption",
+                "table",
+                "thead",
+                "tbody",
+                "footer",
+                "aside",
+            ]
+        ):
+            continue
+        cls = " ".join(el.get("class") or []).lower()
+        if any(k in cls for k in ("kwd", "keyword", "ref-list", "references", "back", "footnote")):
+            continue
+        # Accept only paragraph/list text for the lead-in
+        if el.name == "p":
+            t = _txt(el.get_text(" ", strip=True))
+            if t and len(t) > 40:  # avoid tiny crumbs like “Open in a new tab”
+                out.append(t)
+        elif el.name in ("ul", "ol"):
+            for li in el.find_all("li", recursive=False):
+                t = _txt(li.get_text(" ", strip=True))
+                if t and len(t) > 2:
+                    out.append(t)
+    # De-dup consecutive repeats; keep it short
+    seen = set()
+    uniq: list[str] = []
+    for p in out:
+        if p not in seen:
+            seen.add(p)
+            uniq.append(p)
+    return uniq[:6]
+
+
 def _extract_pmc_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
     """
     Build a section tree from PMC body. Robust to:
       - lowercased ids like id="sec1", id="sec2", ...
       - top-level H3/H4 headings accidentally used at top-level (e.g., "sec5" with <h3>)
       - presence of Abstract/References blocks among siblings
+      - **headless** articles (adds a synthetic 'Introduction' before the first section)
     """
     # Locate the main document wrapper
     wrapper = (
@@ -333,24 +416,20 @@ def _extract_pmc_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
     )
     top_secs: list[Tag] = []
     # Preferred: top-level <section> elements (direct children) with some heading
-    # (PMC usually nests H2s at top-level, but some pages use H3/H4 for top blocks).
     for s in wrapper.find_all("section", recursive=False):
         h = s.find(["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)) or s.find(
             ["h2", "h3", "h4"]
         )
         if h:
             top_secs.append(s)
-    # Fallback: Any <section id="sec..."> in the document (case-insensitive), keeping only
-    # those NOT nested under another "sec..." section (i.e., synthetic top-levels).
+    # Fallback: any <section id="sec..."> that's not nested under another such section
     if not top_secs:
         for s in wrapper.find_all("section", id=re.compile(r"^sec", re.I)):
-            # Must have SOME heading to be meaningful
             h = s.find(["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)) or s.find(
                 ["h2", "h3", "h4"]
             )
             if not h:
                 continue
-            # Exclude subsections nested under another "sec..." section
             parent = s.find_parent("section")
             keep = True
             while parent and parent is not wrapper:
@@ -360,12 +439,24 @@ def _extract_pmc_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
                 parent = parent.find_parent("section")
             if keep:
                 top_secs.append(s)
+
     # Parse each top-level section into a node
     nodes: list[dict[str, object]] = []
     for sec in top_secs:
         node = _parse_pmc_section(sec)
         if node:
             nodes.append(node)
+
+    # If there is **no explicit Introduction** section, synthesize one from lead-in paragraphs.
+    has_intro = any(
+        isinstance(n.get("title"), str) and str(n["title"]).strip().lower() == "introduction"
+        for n in nodes
+    )
+    if not has_intro:
+        leadin = _headless_leadin_paragraphs(soup)
+        if leadin:
+            nodes.insert(0, {"title": "Introduction", "paragraphs": leadin})
+
     # Normalized de-duplication
     return dedupe_section_nodes(nodes)
 

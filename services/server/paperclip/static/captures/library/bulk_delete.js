@@ -97,9 +97,9 @@ export function initBulkDelete() {
       if (window.PCState) window.PCState.pendingDelete = null;
     };
 
-    toast(`Deleted ${ids.length} item(s) — Undo`, {
+    toast(`Deleted ${ids.length} item(s).`, {
       actionText: "Undo",
-      duration: 5000,
+      duration: 3000,
       onAction: cancel,
     });
 

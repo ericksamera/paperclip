@@ -39,20 +39,55 @@ body {
   --btn-bg: color-mix(in oklab, var(--panel) 92%, var(--fg) 8%);
   --btn-bd: var(--line);
   --btn-fg: var(--fg);
-  border:1px solid var(--btn-bd);
+  border: 1px solid var(--btn-bd);
   background: var(--btn-bg);
   color: var(--btn-fg);
-  padding:6px 10px; border-radius:8px; cursor:pointer; text-decoration:none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
   box-shadow: var(--shadow);
 }
-.btn:hover { filter: brightness(1.04) }
-.btn:disabled { opacity:.55; cursor:default }
-.btn--subtle { --btn-bg: color-mix(in oklab, var(--panel-strong) 92%, var(--fg) 8%); }
-.btn--primary { --btn-bg: var(--accent); --btn-bd: color-mix(in oklab, var(--accent) 65%, var(--line) 35%); --btn-fg:#fff; }
-.btn--danger  { --btn-bg: color-mix(in oklab, var(--danger) 75%, var(--panel) 25%); --btn-bd: color-mix(in oklab, var(--danger) 65%, var(--line) 35%); --btn-fg:#fff; }
-:root[data-theme="light"] .btn { --btn-bg: color-mix(in oklab, var(--panel) 96%, var(--fg) 4%); }
-:root[data-theme="light"] .btn--subtle { --btn-bg: color-mix(in oklab, var(--panel) 98%, var(--accent) 2%); }
-:root[data-theme="light"] .btn--danger  { --btn-bg: color-mix(in oklab, var(--danger) 92%, var(--panel) 8%); --btn-fg:#fff; }
+.btn:hover { filter: brightness(1.04); }
+.btn:disabled { opacity: .55; cursor: default; }
+
+/* Subtle/secondary */
+.btn--subtle {
+  --btn-bg: color-mix(in oklab, var(--panel-strong) 92%, var(--fg) 8%);
+}
+
+/* PRIMARY — hard-set readable contrast in both themes */
+.btn--primary {
+  background: var(--accent) !important;
+  border-color: color-mix(in oklab, var(--accent) 65%, var(--line) 35%) !important;
+  color: #fff !important;
+}
+.btn--primary:hover { filter: brightness(1.06); }
+
+/* Danger */
+.btn--danger  {
+  background: color-mix(in oklab, var(--danger) 75%, var(--panel) 25%) !important;
+  border-color: color-mix(in oklab, var(--danger) 65%, var(--line) 35%) !important;
+  color: #fff !important;
+}
+.btn--danger:hover { filter: brightness(1.06); }
+
+/* Light theme overrides */
+:root[data-theme="light"] .btn {
+  --btn-bg: color-mix(in oklab, var(--panel) 96%, var(--fg) 4%);
+}
+:root[data-theme="light"] .btn--subtle {
+  --btn-bg: color-mix(in oklab, var(--panel) 98%, var(--accent) 2%);
+}
+/* Ensure primary stays vivid in Light theme as well */
+:root[data-theme="light"] .btn--primary {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+:root[data-theme="light"] .btn--danger  {
+  background: color-mix(in oklab, var(--danger) 92%, var(--panel) 8%) !important;
+  color: #fff !important;
+}
 
 /* Theme switch pill */
 .theme-switch { display:inline-flex; align-items:center; gap:0; margin-left:10px; border:1px solid var(--line); border-radius:999px; background: color-mix(in oklab, var(--panel-strong) 88%, var(--fg) 6%); box-shadow: var(--shadow) }

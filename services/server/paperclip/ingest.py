@@ -10,7 +10,7 @@ from captures.models import Capture, Reference
 from captures.reduced_view import CANONICAL_REDUCED_BASENAME, build_reduced_view
 from captures.site_parsers import dedupe_references, extract_references
 from paperclip.artifacts import write_json_artifact, write_text_artifact
-from paperclip.conf import AUTO_ENRICH
+from paperclip.conf import AUTO_ENRICH, ENRICH_ON_CAPTURE
 from paperclip.utils import norm_doi
 
 
@@ -64,6 +64,7 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
     content_html: str = extraction.get("content_html") or ""
     src_url: str = payload.get("source_url") or ""
     src_host = _host(src_url)
+
     # 1) Create the Capture row (cheap)
     with transaction.atomic():
         cap = Capture.objects.create(
@@ -73,11 +74,13 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
             meta=meta_in,
             csl=csl_in or {},
         )
-    # 2) Persist verbatim artifacts
+
+    # 2) Persist verbatim artifacts (page/content snapshots)
     if dom_html:
         write_text_artifact(str(cap.id), "page.html", dom_html)
     if content_html:
         write_text_artifact(str(cap.id), "content.html", content_html)
+
     # 3) Head/meta + preview/sections (fast path)
     bridge = _robust_parse(url=src_url, content_html=content_html, dom_html=dom_html)
     meta_updates = bridge.get("meta_updates") or {}
@@ -95,14 +98,30 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
         passthrough = {k: v for k, v in meta_updates.items() if k not in BLOCKED_META_KEYS}
         if passthrough:
             cap.meta = {**(cap.meta or {}), **passthrough}
-        # Update normalized host if needed
         if not cap.site:
             cap.site = _host(cap.url or "") or ""
         cap.save(update_fields=["title", "doi", "year", "meta", "site"])
+
+    # 3.5) NEW: Synchronous Crossref standardization for the *main capture* (if DOI present).
+    # This ensures artifacts/CSL/journal short names, exports, etc. have normalized data right away.
+    if ENRICH_ON_CAPTURE and norm_doi(cap.doi or (cap.meta or {}).get("doi")):
+        try:
+            from captures.xref import enrich_capture_via_crossref
+
+            upd = enrich_capture_via_crossref(cap)
+        except Exception:
+            upd = None
+        if upd:
+            # Merge returned updates into the model.
+            for k, v in upd.items():
+                setattr(cap, k, v)
+            cap.save(update_fields=list(upd.keys()))
+
     # 4) Client-provided references
     for r in extraction.get("references") or []:
         Reference.objects.create(**_ref_kwargs(r, capture=cap, csl_ok=True))
-    # 5) Site-level references (dedup against client)
+
+    # 5) Site-level references (dedup against any client-provided)
     site_refs = dedupe_references(extract_references(cap.url, dom_html))
     with transaction.atomic():
         existing_qs = Reference.objects.filter(capture=cap)
@@ -117,9 +136,11 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
             to_create.append(Reference(**_ref_kwargs(r, capture=cap, csl_ok=False)))
         if to_create:
             Reference.objects.bulk_create(to_create, batch_size=200)
-    # 6) Write canonical artifacts ONLY (no legacy doc.json/view.json)
+
+    # 6) Write canonical artifacts using the (possibly enriched) capture data
     server_parsed = _build_server_parsed(cap, extraction)
     write_json_artifact(str(cap.id), "server_parsed.json", server_parsed)
+
     reduced = build_reduced_view(
         content=bridge.get("content_sections") or {},
         meta=server_parsed.get("metadata") or (cap.meta or {}),
@@ -136,14 +157,19 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
         title=(server_parsed.get("title") or cap.title or ""),
     )
     write_json_artifact(str(cap.id), CANONICAL_REDUCED_BASENAME, reduced)
-    # NEW: re-index so FTS picks up reduced view & keywords
+
+    # 7) Re-index FTS so search picks up abstract/keywords/reduced text immediately
     from captures.search import upsert_capture as _upsert
 
     _upsert(cap)
+
+    # 8) Optionally queue async enrichment for references (heavy) via Celery
     from paperclip.jobs import submit_enrichment
 
     if AUTO_ENRICH:
         submit_enrichment(str(cap.id))
+
+    # Tiny summary payload for the extension
     first_three = list(Reference.objects.filter(capture=cap).order_by("id")[:3])
     first_three_simple = [{"apa": r.apa, "doi": r.doi} for r in first_three]
     summary = {

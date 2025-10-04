@@ -5,6 +5,15 @@ import importlib
 import os
 from pathlib import Path
 
+# --- .env bootstrap (must be FIRST so env vars affect settings) ---
+try:
+    from .env import load_env as _pc_load_env
+
+    _pc_load_env()
+except Exception:
+    pass
+# ------------------------------------------------------------------
+
 
 def _app_available(mod: str) -> bool:
     try:

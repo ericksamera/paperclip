@@ -61,14 +61,14 @@ function reorderTable(order) {
       cells[td.getAttribute("data-col")] = td;
     });
 
+    // Always keep the gear column (if present) as the last cell
+    const gear = tr.querySelector(".pc-col-gear");
+    if (gear && gear.parentElement === tr) tr.appendChild(gear);
+
     // Re-append known columns in saved order
     for (const key of finalOrder) {
       if (cells[key]) tr.appendChild(cells[key]);
     }
-
-    // Always keep the gear column (if present) as the last cell
-    const gear = tr.querySelector(".pc-col-gear");
-    if (gear && gear.parentElement === tr) tr.appendChild(gear);
   }
 
   if (theadRow) applyToRow(theadRow);

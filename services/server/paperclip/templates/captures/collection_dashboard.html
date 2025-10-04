@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% load static %}
+
 {% block title %}Dashboard · {{ collection.name }} · Paperclip{% endblock %}
+
 {% block content %}
+
+{# Ask card — single source of truth via the partial #}
+{% include "collections/_ask_card.html" with collection=collection %}
 
 <div class="panel" style="margin:10px">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
@@ -56,15 +61,15 @@
   <div id="pc-graph-host" style="margin-top:10px;display:none">
     <iframe id="pc-graph-iframe" src="{% url 'analysis_graph_embed' %}"
             style="width:100%;height:70vh;border:0;background:#0f141a"></iframe>
-    <div class="muted" style="margin-top:6px">Note: currently shows the latest global graph run. Per‑collection subgraph is a short follow‑up (see “Next steps”).</div>
+    <div class="muted" style="margin-top:6px">Note: currently shows the latest global graph run. Per-collection subgraph is a short follow-up (see “Next steps”).</div>
   </div>
 </div>
 
-<!-- Chart.js from CDN; matches your pattern of CDN‑loading D3 in /analysis/graph -->
+<!-- Assets -->
+<script type="module" src="{% static 'captures/library/collection_ask.js' %}"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <link rel="stylesheet" href="{% static 'captures/collection_dashboard.css' %}?v=2">
 <script>
   window.PCDASH = Object.freeze({ collectionId: {{ collection.id }} });
 </script>
-<script src="{% static 'captures/collection_dashboard.js' %}?v=2" type="module"></script>
 {% endblock %}

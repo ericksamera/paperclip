@@ -17,7 +17,7 @@ from .collections import (
     collection_download_views,
     collection_rename,
 )
-from .dashboard import (  # NEW
+from .dashboard import (  # existing dashboard & JSON
     collection_dashboard,
     collection_summary_json,
 )
@@ -28,6 +28,9 @@ from .dedup import (
     dedup_scan_view,
 )
 from .library import LibraryView, library_page
+
+# NEW: Q&A Workspace view
+from .qaw import collection_qaw
 
 __all__ = [
     "LibraryView",
@@ -43,6 +46,7 @@ __all__ = [
     "collection_dashboard",
     "collection_delete",
     "collection_download_views",
+    "collection_qaw",  # NEW
     "collection_rename",
     "collection_summary_json",
     "dedup_ignore",

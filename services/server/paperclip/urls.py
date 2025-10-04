@@ -11,7 +11,11 @@ from paperclip.debug import clear_cache, wipe_all
 
 router = DefaultRouter()
 router.register(r"captures", CaptureViewSet, basename="api-captures")
+
 urlpatterns = [
+    # (kept) optional QA app include
+    path("", include("paperclip.qa.urls")),
+    # Home → Library
     path("", RedirectView.as_view(pattern_name="library", permanent=False), name="root"),
     # Library UI
     path("library/", cap_views.LibraryView.as_view(), name="library"),
@@ -27,7 +31,7 @@ urlpatterns = [
         cap_views.collection_download_views,
         name="collection_download_views",
     ),
-    # NEW: per-collection dashboard + summary API
+    # (kept) Dashboard + summary API
     path(
         "collections/<int:pk>/dashboard/",
         cap_views.collection_dashboard,
@@ -38,10 +42,11 @@ urlpatterns = [
         cap_views.collection_summary_json,
         name="collection_summary_json",
     ),
+    # NEW: Q&A Workspace (wireframe)
+    path("collections/<int:pk>/qaw/", cap_views.collection_qaw, name="collection_qaw"),
     # Dedup UI
     path("dedup/", cap_views.dedup_review, name="dedup_review"),
     path("dedup/scan/", cap_views.dedup_scan_view, name="dedup_scan"),
-    path("dedup/merge/", cap_views.dedup_merge, name="dedup_merge"),
     path("dedup/ignore/", cap_views.dedup_ignore, name="dedup_ignore"),
     # Bulk + export
     path("captures/bulk-delete/", cap_views.capture_bulk_delete, name="capture_bulk_delete"),
@@ -52,15 +57,11 @@ urlpatterns = [
     path("captures/<uuid:pk>/delete/", cap_views.capture_delete, name="capture_delete"),
     path("captures/<uuid:pk>/open/", cap_views.capture_open, name="capture_open"),
     path(
-        "captures/<uuid:pk>/enrich-refs/",
-        cap_views.capture_enrich_refs,
-        name="capture_enrich_refs",
+        "captures/<uuid:pk>/enrich-refs/", cap_views.capture_enrich_refs, name="capture_enrich_refs"
     ),
     # Artifacts
     path(
-        "captures/<uuid:pk>/artifact/<str:basename>/",
-        cap_views.capture_artifact,
-        name="artifact",
+        "captures/<uuid:pk>/artifact/<str:basename>/", cap_views.capture_artifact, name="artifact"
     ),
     # Analysis (Graph)
     path("runs/", analysis_views.RunsListView.as_view(), name="analysis_runs"),
