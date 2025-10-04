@@ -7,7 +7,7 @@ from captures.keywords import split_keywords
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"[ \t\r\f\v]+")
-_NBSP = "\u00A0"
+_NBSP = "\u00a0"
 
 
 def _strip_tags(s: str) -> str:
