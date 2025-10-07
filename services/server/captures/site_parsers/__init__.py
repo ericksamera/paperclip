@@ -106,6 +106,12 @@ def _ensure_default_rules() -> None:
     """
     if _REGISTRY:
         return
+    
+    with suppress(Exception):
+        from .bmc import parse_bmc
+        register(r"(?:^|\.)biomedcentral\.com$", parse_bmc, where="host", name="BMC references")
+        register(r"biomedcentral[-\.]", parse_bmc, where="url", name="BMC references (proxy)")
+
     with suppress(Exception):
         from .pmc import parse_pmc
 
@@ -172,6 +178,12 @@ def _ensure_default_meta_rules() -> None:
     """
     if _REG_META:
         return
+    
+    with suppress(Exception):
+        from .bmc import extract_bmc_meta
+        register_meta(r"(?:^|\.)biomedcentral\.com$", extract_bmc_meta, where="host", name="BMC meta")
+        register_meta(r"biomedcentral[-\.]", extract_bmc_meta, where="url", name="BMC meta (proxy)")
+
     with suppress(Exception):
         from .sciencedirect import extract_sciencedirect_meta
 
@@ -336,4 +348,5 @@ from . import (  # noqa: E402,F401
     pmc,
     sciencedirect,
     wiley,
+    bmc,
 )

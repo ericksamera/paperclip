@@ -48,6 +48,7 @@ urlpatterns = [
     path("dedup/", cap_views.dedup_review, name="dedup_review"),
     path("dedup/scan/", cap_views.dedup_scan_view, name="dedup_scan"),
     path("dedup/ignore/", cap_views.dedup_ignore, name="dedup_ignore"),
+    path("dedup/merge/",  cap_views.dedup_merge, name="dedup_merge"),
     # Bulk + export
     path("captures/bulk-delete/", cap_views.capture_bulk_delete, name="capture_bulk_delete"),
     path("captures/export/", cap_views.capture_export, name="capture_export"),

@@ -2,14 +2,15 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
 from typing import cast
+from collections.abc import Iterator
+from urllib.parse import unquote
 
 from bs4 import BeautifulSoup, Tag
 
 from . import register, register_meta
 from .base import (
-    DOI_RE,
+    DOI_RE,            # r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+"
     YEAR_RE,
     augment_from_raw,
     collapse_spaces,
@@ -19,7 +20,7 @@ from .base import (
     heading_text,
 )
 
-# -------------------------- small helpers --------------------------
+# -------------------------- helpers --------------------------
 _NONCONTENT_RX = re.compile(
     r"\b("
     r"references?|literature\s+cited|acknowledg(?:e)?ments?|back\s*acknowledgements?|"
@@ -27,62 +28,49 @@ _NONCONTENT_RX = re.compile(
     r"author(?:s)?\s+contributions?|footnotes?|supplementary(?:\s+material|\s+information)?)\b",
     re.I,
 )
-# containers we should not treat as narrative body
+
 _EXCLUDE_PARENTS_RX = re.compile(
     r"\b(abstract|kwd-group|article-metadata|fig|figure|caption|table|footnote|"
     r"ref-list|backacknowledgements|backreferences|boxed|sidebar)\b",
     re.I,
 )
 
-
 def _txt(x: str | None) -> str:
     return collapse_spaces(x)
-
 
 def _has_class(el: Tag, *classes: str) -> bool:
     cls = " ".join(el.get("class") or []).lower()
     return any(c.lower() in cls for c in classes)
 
-
 def _is_h2_section_title(h: Tag) -> bool:
     return (
         isinstance(h, Tag)
-        and h.name
-        and h.name.lower() == "h2"
+        and (h.name or "").lower() == "h2"
         and _has_class(h, "section-title", "js-splitscreen-section-title")
     )
-
 
 def _is_hx_section_title(h: Tag) -> bool:
     return (
         isinstance(h, Tag)
-        and h.name
-        and h.name.lower() in ("h2", "h3", "h4")
+        and (h.name or "").lower() in ("h2", "h3", "h4")
         and (_has_class(h, "section-title") or _has_class(h, "js-splitscreen-section-title"))
     )
-
 
 def _is_abstract_h2(h: Tag) -> bool:
     return (
         isinstance(h, Tag)
-        and h.name
-        and h.name.lower() == "h2"
-        and (
-            _has_class(h, "abstract-title")
-            or bool(re.search(r"\babstract\b", heading_text(h), re.I))
-        )
+        and (h.name or "").lower() == "h2"
+        and (_has_class(h, "abstract-title") or re.search(r"\babstract\b", heading_text(h), re.I))
     )
-
 
 def _next_sibling_heading(start: Tag, names: tuple[str, ...]) -> Tag | None:
     cur = start.next_sibling
     names = tuple(n.lower() for n in names)
     while cur:
-        if isinstance(cur, Tag) and cur.name and cur.name.lower() in names:
+        if isinstance(cur, Tag) and (cur.name or "").lower() in names:
             return cur
         cur = cur.next_sibling
     return None
-
 
 def _iter_between(start: Tag, end: Tag | None) -> Iterator[object]:
     cur = start.next_sibling
@@ -90,34 +78,29 @@ def _iter_between(start: Tag, end: Tag | None) -> Iterator[object]:
         yield cur
         cur = cur.next_sibling
 
-
 def _collect_paragraphs_between(a: Tag, b: Tag | None) -> list[str]:
-    """Lightweight collector: <p> and list <li> text between two sibling anchors."""
     out: list[str] = []
     for node in _iter_between(a, b):
         if not isinstance(node, Tag):
             continue
-        if node.name.lower() == "p":
+        if (node.name or "").lower() == "p":
             t = _txt(node.get_text(" ", strip=True))
             if t:
                 out.append(t)
-        elif node.name.lower() in ("ul", "ol"):
+        elif (node.name or "").lower() in ("ul", "ol"):
             for li in node.find_all("li", recursive=False):
                 t = _txt(li.get_text(" ", strip=True))
                 if t:
                     out.append(t)
     return out
 
-
 # -------------------------- Abstract --------------------------
 def _extract_abstract(soup: BeautifulSoup) -> str | None:
-    # (A) Explicit abstract container near <h2 class="abstract-title">Abstract</h2>
     for host in soup.select("section.abstract, div.abstract"):
         paras = [p.get_text(" ", strip=True) for p in host.find_all("p")]
         paras = [_txt(p) for p in paras if p]
         if paras:
             return " ".join(paras)
-    # (B) Fallback: paragraphs after an abstract H2 up to next H2
     head = soup.find(_is_abstract_h2)
     if head:
         nxt = _next_sibling_heading(head, ("h2",))
@@ -126,10 +109,8 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
             return " ".join(paras)
     return None
 
-
 # -------------------------- Keywords --------------------------
 def _extract_keywords(soup: BeautifulSoup) -> list[str]:
-    # OUP exposes keywords under .kwd-group with <a class="kwd-part|kwd-main"> (sometimes <span>)
     items: list[str] = []
     for a in soup.select(
         ".kwd-group a.kwd-part, .kwd-group span.kwd-part, "
@@ -138,7 +119,6 @@ def _extract_keywords(soup: BeautifulSoup) -> list[str]:
         t = _txt(a.get_text(" ", strip=True))
         if t:
             items.append(t)
-    # Fallback: inline "Keywords:" text
     if not items:
         el = soup.find(string=re.compile(r"^\s*Keywords?\s*:", re.I))
         if isinstance(el, str):
@@ -148,58 +128,41 @@ def _extract_keywords(soup: BeautifulSoup) -> list[str]:
     items = [x for x in items if x and len(x) > 1]
     return dedupe_keep_order(items)
 
+# -------------------------- Sections --------------------------
+def _article_root(soup: BeautifulSoup) -> Tag:
+    return soup.select_one("[data-widgetname='ArticleFulltext']") or soup
 
-# -------------------------- Headless lead-in (no H2 "Introduction") --------------------------
 def _first_content_h2(soup: BeautifulSoup) -> Tag | None:
     for h in soup.find_all("h2"):
         if _is_h2_section_title(h) and not re.search(r"\babstract\b", heading_text(h), re.I):
             return h
     return None
 
-
-def _article_root(soup: BeautifulSoup) -> Tag:
-    # Typical wrapper for OUP/Silverchair full text
-    return soup.select_one("[data-widgetname='ArticleFulltext']") or soup
-
-
 def _extract_headless_leadin(soup: BeautifulSoup) -> list[str]:
-    """
-    Collect body paragraphs that appear after the Abstract and before the first H2 section-title.
-    Excludes figure/table/caption/metadata regions.
-    """
     root = _article_root(soup)
     first_h2 = _first_content_h2(soup)
     seen_abstract = False
     leadin: list[str] = []
-    # Mark abstract block nodes so we know when we've passed it
     abstract_host = soup.select_one("section.abstract, div.abstract")
     abstract_h2 = soup.find(_is_abstract_h2)
-    # Iterate DOM in document order inside the article root
     for el in root.descendants:
         if not isinstance(el, Tag):
             continue
-        # Have we entered/seen the abstract region?
         if el is abstract_host or el is abstract_h2:
             seen_abstract = True
             continue
-        # Stop at the first H2 section heading
         if first_h2 is not None and el is first_h2:
             break
-        # Only collect once we're past abstract
         if not seen_abstract:
             continue
-        # We want narrative body paragraphs, typically <p class="chapter-para">
-        if el.name and el.name.lower() == "p":
-            # Skip if inside excluded containers (figures, captions, footnotes, etc.)
+        if (el.name or "").lower() == "p":
             if el.find_parent(["figure", "figcaption", "table", "thead", "tbody"]):
                 continue
             if el.find_parent(class_=_EXCLUDE_PARENTS_RX):
                 continue
             t = _txt(el.get_text(" ", strip=True))
-            # Avoid very short junk lines
             if t and len(t) > 40:
                 leadin.append(t)
-    # de-dup but preserve order
     uniq, seen = [], set()
     for p in leadin:
         if p not in seen:
@@ -207,22 +170,8 @@ def _extract_headless_leadin(soup: BeautifulSoup) -> list[str]:
             uniq.append(p)
     return uniq
 
-
-# -------------------------- Sections (H2 with optional H3/H4 children) --------------------------
 def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
-    """
-    Oxford Academic body structure is typically flat headings:
-      <h2 class="section-title ...">Materials and Methods</h2>
-      <h3 class="section-title ...">Subhead</h3>
-      <p class="chapter-para">...</p>
-      ...
-    We gather H2 sections and nest immediate H3/H4 blocks as children.
-    Also merges any headless lead-in paragraphs into the 'Introduction' section if present,
-    else creates a synthetic 'Introduction' block at the top.
-    """
-    # Lead-in paragraphs (if any)
     leadin_paras = _extract_headless_leadin(soup)
-    # All H2 that represent real content sections (exclude abstract & backmatter)
     h2s = [h for h in soup.find_all("h2") if _is_h2_section_title(h)]
     h2s = [h for h in h2s if not re.search(r"\babstract\b", heading_text(h), re.I)]
     out: list[dict[str, object]] = []
@@ -231,20 +180,16 @@ def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
         if not title or _NONCONTENT_RX.search(title):
             continue
         h2_end = h2s[i + 1] if i + 1 < len(h2s) else None
-        # Find immediate H3/H4 children between this H2 and the next H2
         child_heads: list[Tag] = []
         for node in _iter_between(h2, h2_end):
             if (
                 isinstance(node, Tag)
-                and node.name
-                and node.name.lower() in ("h3", "h4")
+                and (node.name or "").lower() in ("h3", "h4")
                 and _is_hx_section_title(node)
             ):
                 child_heads.append(node)
-        # Top-level paragraphs BEFORE the first child, or entire block if no children
         first_child = child_heads[0] if child_heads else None
         parent_paras = _collect_paragraphs_between(h2, first_child or h2_end)
-        # Children with their paragraphs (until next child or end)
         children: list[dict[str, object]] = []
         for j, ch in enumerate(child_heads):
             ch_title = heading_text(ch)
@@ -261,7 +206,6 @@ def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
             sec["children"] = children
         if sec.get("paragraphs") or sec.get("children"):
             out.append(sec)
-    # ----- Merge or create Introduction from headless lead-in -----
     if leadin_paras:
         intro_idx = next(
             (
@@ -279,10 +223,64 @@ def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
             out.insert(0, {"title": "Introduction", "paragraphs": leadin_paras})
     return dedupe_section_nodes(out)
 
+# -------------------------- References: identifiers & clean text --------------------------
+# We intentionally EXTRACT identifiers BEFORE removing the "citation-links" UI box.
 
-# -------------------------- References --------------------------
+_DOI_HINT_SEL = (
+    # explicit doi/crossref blocks and common anchors
+    "a.link-doi, .crossref-doi a, a[href*='doi.org'], a[href*='dx.doi.org'], "
+    "a[href*='/doi/10.'], a[href*='10.']"
+)
+
+def _find_doi_in_attrs(tag: Tag) -> str | None:
+    # scan any attr that might contain a DOI-ish string (href, data-targetid, data-doi)
+    for attr in ("href", "data-targetid", "data-doi", "data-dx-doi", "title"):
+        v = tag.get(attr)
+        if not v:
+            continue
+        s = unquote(v)
+        m = DOI_RE.search(s)
+        if m:
+            return m.group(0)
+    return None
+
+def _extract_doi_anywhere(container: Tag) -> str | None:
+    # 1) scan helpful anchors first
+    for a in container.select(_DOI_HINT_SEL):
+        doi = _find_doi_in_attrs(a)
+        if doi:
+            return doi
+        # sometimes the text itself is "10.xxxx/..." (rare)
+        m = DOI_RE.search(a.get_text(" ", strip=True) or "")
+        if m:
+            return m.group(0)
+    # 2) Silverchair exposes a percent-encoded DOI in the OpenURL holder
+    for span in container.select(".inst-open-url-holders, [data-targetid]"):
+        doi = _find_doi_in_attrs(span)
+        if doi:
+            return doi
+    # 3) last resort: any DOI-looking token in the container text
+    m = DOI_RE.search(container.get_text(" ", strip=True))
+    return m.group(0) if m else None
+
+def _extract_pmid(container: Tag) -> str | None:
+    for a in container.select("a[href*='ncbi.nlm.nih.gov/pubmed/'], a.link-pub-id"):
+        href = a.get("href") or ""
+        m = re.search(r"/pubmed/(\d+)", href)
+        if m:
+            return m.group(1)
+    return None
+
+def _extract_pmcid(container: Tag) -> str | None:
+    for a in container.select("a[href*='ncbi.nlm.nih.gov/pmc/articles/PMC']"):
+        href = a.get("href") or ""
+        m = re.search(r"/pmc/articles/(PMC\d+)", href, re.I)
+        if m:
+            return m.group(1).upper()
+    return None
+
 def _strip_ref_noise(tag: Tag) -> None:
-    """Remove link toolboxes / extras so raw text reads clean."""
+    # remove UI chrome AFTER we've harvested ids
     for sel in [
         ".citation-links",
         ".crossref-doi",
@@ -294,73 +292,69 @@ def _strip_ref_noise(tag: Tag) -> None:
         for t in tag.select(sel):
             t.decompose()
 
-
-def _extract_doi_from(tag: Tag) -> str | None:
-    # Prefer DOI anchors
-    for a in tag.select("a.link-doi, a[href*='doi.org/']"):
-        href = a.get("href") or ""
-        text = _txt(a.get_text(" ", strip=True))
-        for cand in (text, href):
-            m = DOI_RE.search(cand or "")
-            if m:
-                return m.group(0)
-    # Fallback: regex anywhere in the tag text
-    m = DOI_RE.search(tag.get_text(" ", strip=True))
-    return m.group(0) if m else None
-
-
-def _extract_pmid_from(tag: Tag) -> str | None:
-    for a in tag.select("a[href*='ncbi.nlm.nih.gov/pubmed/'], a.link-pub-id"):
-        href = a.get("href") or ""
-        m = re.search(r"/pubmed/(\d+)", href)
-        if m:
-            return m.group(1)
-    return None
-
-
 def parse_oup(_url: str, dom_html: str) -> list[dict[str, object]]:
     """
-    Extract references from Oxford Academic pages.
-    Supports:
-      • Split-view blocks used by OUP/Silverchair:
-        <h2 class="backreferences-title">Literature Cited</h2>
-        <div class="ref-list js-splitview-ref-list">
-           <div class="js-splitview-ref-item">
-             <div class="ref-content"><div class="mixed-citation"> ... </div></div>
-           </div>
-      • Traditional <ol/ul class="references"><li>...</li></ol> structures.
+    Extract references from Oxford Academic (Silverchair) pages, including:
+      • split-view ref list (.ref-list .ref-content)
+      • classic <ol/ul class="references"> forms
+
+    Adds: rec['doi'] (normalized), rec['links']['doi'], and PubMed/PMCID when present.
     """
     soup = BeautifulSoup(dom_html or "", "html.parser")
     out: list[dict[str, object]] = []
+
     # Preferred: split-view style
     ref_nodes = soup.select(".ref-list .ref-content")
     if not ref_nodes:
         ref_nodes = soup.select(".ref-list .mixed-citation, .ref-list .ref")
+
     for node in ref_nodes:
         if not isinstance(node, Tag):
             continue
+
+        # ----- 1) Harvest identifiers BEFORE stripping link boxes -----
+        doi = _extract_doi_anywhere(node)
+        pmid = _extract_pmid(node)
+        pmcid = _extract_pmcid(node)
+
+        # ----- 2) Clean UI chrome and get raw text -----
         _strip_ref_noise(node)
         raw = _txt(node.get_text(" ", strip=True))
         if not raw:
             continue
-        ref_base: dict[str, str] = {"raw": raw}
-        doi = _extract_doi_from(node)
+
+        rec: dict[str, object] = {"raw": raw}
         if doi:
-            ref_base["doi"] = doi
-        pmid = _extract_pmid_from(node)
+            rec["doi"] = doi
         if pmid:
-            ref_base["pmid"] = pmid
+            rec["pmid"] = pmid
+        if pmcid:
+            rec["pmcid"] = pmcid
+
+        # Optional year (if exposed via a tagged <div class="year">)
         y_el = node.find(class_=re.compile(r"\byear\b", re.I))
         if y_el:
             y_txt = _txt(y_el.get_text(" ", strip=True))
             m = YEAR_RE.search(y_txt) if y_txt else None
             if m:
-                ref_base["year"] = m.group(0)
-        out.append(augment_from_raw(ref_base))
+                rec["year"] = m.group(0)
 
-    # Fallback: list-based selectors
+        # Friendly links map
+        links: dict[str, str] = {}
+        if rec.get("doi"):
+            links["doi"] = f"https://doi.org/{rec['doi']}"
+        if pmid:
+            links["pubmed"] = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+        if pmcid:
+            links["pmc"] = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
+        if links:
+            rec["links"] = links
+
+        out.append(augment_from_raw(rec))
+
+    # Fallback: list-based references (rare on OUP)
     if not out:
-        selectors = [
+        for sel in [
             "ol.references li",
             "ul.references li",
             "section#references li",
@@ -368,18 +362,39 @@ def parse_oup(_url: str, dom_html: str) -> list[dict[str, object]]:
             "li[id^='ref']",
             "li[id^='B']",
             "li[id^='R']",
-        ]
-        for sel in selectors:
+        ]:
             items = soup.select(sel)
             for li in items:
                 if not li.get_text(strip=True):
                     continue
-                li_base = extract_from_li(li)  # type: dict[str, str]
-                out.append(augment_from_raw(li_base))
+                # Try to capture DOI first
+                doi = _extract_doi_anywhere(li)
+                pmid = _extract_pmid(li)
+                pmcid = _extract_pmcid(li)
+                # Clean chrome then text
+                _strip_ref_noise(li)
+                base = extract_from_li(li)  # includes 'raw'
+                rec = augment_from_raw(base)
+                if doi:
+                    rec["doi"] = doi
+                if pmid:
+                    rec["pmid"] = pmid
+                if pmcid:
+                    rec["pmcid"] = pmcid
+                links: dict[str, str] = {}
+                if doi:
+                    links["doi"] = f"https://doi.org/{doi}"
+                if pmid:
+                    links["pubmed"] = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                if pmcid:
+                    links["pmc"] = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
+                if links:
+                    rec["links"] = links
+                out.append(rec)
             if out:
                 break
-    return out
 
+    return out
 
 # -------------------------- public entry (meta/sections) --------------------------
 def extract_oup_meta(_url: str, dom_html: str) -> dict[str, object]:
@@ -389,11 +404,25 @@ def extract_oup_meta(_url: str, dom_html: str) -> dict[str, object]:
     sections = _extract_sections(soup)
     return {"abstract": abstract, "keywords": keywords, "sections": sections}
 
-
 # -------------------------- registrations --------------------------
 # Meta
 register_meta(r"(?:^|\.)academic\.oup\.com$", extract_oup_meta, where="host", name="OUP meta")
 register_meta(r"oup\.com/", extract_oup_meta, where="url", name="OUP meta (path)")
+
 # References
 register(r"(?:^|\.)academic\.oup\.com$", parse_oup, where="host", name="OUP references")
 register(r"oup\.com/", parse_oup, where="url", name="OUP references (path)")
+
+# Proxy-friendly routes (e.g., academic-oup-com.ezproxy.*, doi-org/ dx.doi.org via proxy hops)
+register_meta(
+    r"academic[-\.]oup[-\.]com|oup[-\.]com",
+    extract_oup_meta,
+    where="url",
+    name="OUP meta (proxy)",
+)
+register(
+    r"academic[-\.]oup[-\.]com|oup[-\.]com",
+    parse_oup,
+    where="url",
+    name="OUP references (proxy)",
+)

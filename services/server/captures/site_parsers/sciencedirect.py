@@ -27,6 +27,11 @@ _NONCONTENT_RX = re.compile(
     re.I,
 )
 
+# Noise lines commonly embedded in figure/table widgets on SD pages
+_HEADLESS_NOISE_RX = re.compile(
+    r"(?:download:? (?:full[- ]size|high[- ]res) image|open in new tab|view (?:large|figure))",
+    re.I,
+)
 
 def _has_direct_heading(sec: Tag, levels: Iterable[str]) -> Tag | None:
     """Return the direct child heading tag (h2/h3/h4) if present."""
@@ -36,14 +41,12 @@ def _has_direct_heading(sec: Tag, levels: Iterable[str]) -> Tag | None:
             return h
     return None
 
-
 def _good_title(h: Tag | None) -> str:
     if not h:
         return ""
     t = heading_text(h)
     # Tiny guard: SD sometimes repeats empty headings for anchors
     return collapse_spaces(t)
-
 
 def _parse_sd_section(sec: Tag, seen_ids: set[str]) -> dict[str, object] | None:
     sid = (sec.get("id") or "").strip()
@@ -88,7 +91,6 @@ def _parse_sd_section(sec: Tag, seen_ids: set[str]) -> dict[str, object] | None:
         node["children"] = deduped
     return node
 
-
 def _find_top_sections(soup: BeautifulSoup) -> list[Tag]:
     """
     ScienceDirect wraps the article body in <section id="secXXXX"> blocks.
@@ -115,8 +117,8 @@ def _find_top_sections(soup: BeautifulSoup) -> list[Tag]:
         if _NONCONTENT_RX.search(_good_title(h) or ""):
             continue
         tops.append(s)
-        # If we accidentally grabbed nested sections (e.g., a <section><h2>...</h2>
-        # <section><h2>...</h2>...), keep only those that are not inside another top candidate.
+    # If we accidentally grabbed nested sections (e.g., <section><h2>…</h2><section>…),
+    # keep only those that are not inside another top candidate.
     top_set = set(tops)
     really_top: list[Tag] = []
     for s in tops:
@@ -131,10 +133,10 @@ def _find_top_sections(soup: BeautifulSoup) -> list[Tag]:
             really_top.append(s)
     return really_top
 
-
 def _extract_sd_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
     """
     Build a clean section tree for SD pages without duplicating children.
+    If no titled sections exist (headless variant), synthesize a single 'Introduction'.
     """
     out: list[dict[str, object]] = []
     seen_ids: set[str] = set()
@@ -145,8 +147,26 @@ def _extract_sd_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
         # Keep nodes that have either title or some text/children
         if node.get("title") or node.get("paragraphs") or node.get("children"):
             out.append(node)
-    return out
+    if out:
+        return out
 
+    # ------- HEADLESS FALLBACK (no <h2>/<h3> titles) -------
+    # Many Elsevier/Silverlight builds render the main narrative under <div id="body" class="Body ...">
+    host = (
+        soup.select_one("div#body.Body")
+        or soup.select_one("div.Body#body")
+        or soup.select_one("div.Body")
+        or soup.select_one("div#body")
+    )
+    if host:
+        # Collect paragraphs across the subtree; drop obvious UI/figure-download lines
+        paras = [
+            t for t in (collect_paragraphs_subtree(host) or []) if t and not _HEADLESS_NOISE_RX.search(t)
+        ]
+        # Be conservative: require a few lines so we don't create empty shells
+        if paras[:3]:
+            return [{"title": "Introduction", "paragraphs": paras}]
+    return []
 
 # ======================================================================================
 # Meta: abstract, keywords, sections
@@ -177,7 +197,6 @@ def _extract_abstract(soup: BeautifulSoup) -> str:
             if t:
                 return t
     return ""
-
 
 def _extract_keywords(soup: BeautifulSoup) -> list[str]:
     kws: list[str] = []
@@ -210,14 +229,12 @@ def _extract_keywords(soup: BeautifulSoup) -> list[str]:
             break
     return dedupe_keep_order(kws)
 
-
 def extract_sciencedirect_meta(_url: str, dom_html: str) -> dict[str, object]:
     soup = BeautifulSoup(dom_html or "", "html.parser")
     abstract = _extract_abstract(soup)
     keywords = _extract_keywords(soup)
     sections = _extract_sd_sections(soup)
     return {"abstract": abstract, "keywords": keywords, "sections": sections}
-
 
 # ======================================================================================
 # References
@@ -247,7 +264,6 @@ def parse_sciencedirect(_url: str, dom_html: str) -> list[dict[str, object]]:
         if out:
             break
     return out
-
 
 # ======================================================================================
 # Registration
