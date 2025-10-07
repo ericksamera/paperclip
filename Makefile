@@ -25,6 +25,8 @@ lint:
 	ruff check .
 
 typecheck:
-	@echo "mypy disabled temporarily"
+	# mypy uses mypy.ini (plugin points at paperclip.settings_typecheck)
+	# Keep scope tight while we iterate.
+	mypy --config-file mypy.ini services packages
 
 ci: lint typecheck

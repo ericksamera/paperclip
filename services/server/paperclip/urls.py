@@ -51,7 +51,9 @@ urlpatterns = [
     path("dedup/merge/",  cap_views.dedup_merge, name="dedup_merge"),
     # Bulk + export
     path("captures/bulk-delete/", cap_views.capture_bulk_delete, name="capture_bulk_delete"),
-    path("captures/export/", cap_views.capture_export, name="capture_export"),
+    path("captures/export/",        cap_views.capture_export,        name="capture_export"),        # CSV (existing)
+    path("captures/export.bib",     cap_views.library_export_bibtex, name="capture_export_bibtex"), # NEW
+    path("captures/export.ris",     cap_views.library_export_ris,    name="capture_export_ris"),    # NEW (optional)
     # Detail / actions
     path("captures/<uuid:pk>/", cap_views.capture_view, name="capture_detail"),
     path("captures/<uuid:pk>/view/", cap_views.capture_view, name="capture_view"),

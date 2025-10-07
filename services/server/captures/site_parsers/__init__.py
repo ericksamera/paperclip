@@ -169,7 +169,11 @@ def _ensure_default_rules() -> None:
 
         register(r"(?:^|\.)nature\.com$", parse_nature, where="host", name="Nature references")
         register(r"nature\.com/", parse_nature, where="url", name="Nature references (path)")
+    with suppress(Exception):
+        from .mdpi import parse_mdpi
 
+        register(r"(?:^|\.)mdpi\.com$", parse_mdpi, where="host", name="MDPI references")
+        register(r"mdpi\.com/", parse_mdpi, where="url", name="MDPI references (path)")
 
 def _ensure_default_meta_rules() -> None:
     """
@@ -223,7 +227,6 @@ def _ensure_default_meta_rules() -> None:
             where="url",
             name="PMC meta (path)",
         )
-    # NEW: Frontiers meta
     with suppress(Exception):
         from .frontiers import extract_frontiers_meta
 
@@ -236,7 +239,6 @@ def _ensure_default_meta_rules() -> None:
         register_meta(
             r"frontiersin[-\.]", extract_frontiers_meta, where="url", name="Frontiers meta (proxy)"
         )
-    # NEW: PLOS meta
     with suppress(Exception):
         from .plos import extract_plos_meta
 
@@ -247,7 +249,6 @@ def _ensure_default_meta_rules() -> None:
             where="url",
             name="PLOS meta (path)",
         )
-    # NEW: OUP meta
     with suppress(Exception):
         from .oup import extract_oup_meta
 
@@ -255,7 +256,6 @@ def _ensure_default_meta_rules() -> None:
             r"(?:^|\.)academic\.oup\.com$", extract_oup_meta, where="host", name="OUP meta"
         )
         register_meta(r"oup\.com/", extract_oup_meta, where="url", name="OUP meta (path)")
-    # NEW: Nature meta
     with suppress(Exception):
         from .nature import extract_nature_meta
 
@@ -263,7 +263,11 @@ def _ensure_default_meta_rules() -> None:
             r"(?:^|\.)nature\.com$", extract_nature_meta, where="host", name="Nature meta"
         )
         register_meta(r"nature\.com/", extract_nature_meta, where="url", name="Nature meta (path)")
+    with suppress(Exception):
+        from .mdpi import extract_mdpi_meta
 
+        register_meta(r"(?:^|\.)mdpi\.com$", extract_mdpi_meta, where="host", name="MDPI meta")
+        register_meta(r"mdpi\.com/", extract_mdpi_meta, where="url", name="MDPI meta (path)")
 
 def extract_references(url: str | None, dom_html: str) -> list[dict[str, object]]:
     """
@@ -342,6 +346,7 @@ def dedupe_references(refs: list[dict[str, object]]) -> list[dict[str, object]]:
 # Import built-ins so they call register() at import time
 from . import (  # noqa: E402,F401
     frontiers,
+    mdpi,
     nature,
     oup,
     plos,

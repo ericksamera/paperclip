@@ -75,10 +75,14 @@
     {% else %}
       <a class="btn" href="{% url 'collection_download_views' 'all' %}">Download views</a>
     {% endif %}
+
     <a class="btn" href="{% url 'dedup_review' %}">Dedup review</a>
     <a class="btn" href="{% url 'capture_export' %}?{{ current_params.urlencode }}">Export CSV</a>
+    <a class="btn" href="{% url 'capture_export_bibtex' %}?{{ current_params.urlencode }}">Export BibTeX</a>
+    {# Optional: uncomment if you added RIS #}
+    {# <a class="btn" href="{% url 'capture_export_ris' %}?{{ current_params.urlencode }}">Export RIS</a> #}
 
-    <button id="z-toggle-left" class="btn" type="button" title="Toggle sidebar">Sidebar ⇆</button>
+    <button id="z-toggle-left"  class="btn" type="button" title="Toggle sidebar">Sidebar ⇆</button>
     <button id="z-toggle-right" class="btn" type="button" title="Toggle info panel">Info ⇆</button>
   </div>
 </div>
