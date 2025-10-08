@@ -1,6 +1,8 @@
 # services/server/captures/views/common.py
 from __future__ import annotations
 
+import re
+
 from collections.abc import Iterable
 from contextlib import suppress
 from typing import Any, Mapping, TypedDict, cast
@@ -281,27 +283,69 @@ def _apply_filters(
 ) -> list[Capture]:
     """
     Stable, case-insensitive filtering over year / journal / site / collection.
-    Normalizes journal & site query params to lowercase before comparing.
-    Prefers the persisted Capture.site host for site filtering.
+    Supports:
+      - year exact: "2018"
+      - closed range: "2010-2020" or "2010:2020"
+      - open high:  ">=2015" or "2015+"
+      - open low:   "<=2012"
     """
+    def _parse_year_range(expr: str) -> tuple[int | None, int | None] | None:
+        expr = (expr or "").strip()
+        if not expr:
+            return None
+        m = re.match(r"^\s*(\d{4})\s*[-:]\s*(\d{4})\s*$", expr)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            return (min(a, b), max(a, b))
+        m = re.match(r"^\s*>=?\s*(\d{4})\s*$", expr) or re.match(r"^\s*(\d{4})\+\s*$", expr)
+        if m:
+            return (int(m.group(1)), None)
+        m = re.match(r"^\s*<=?\s*(\d{4})\s*$", expr)
+        if m:
+            return (None, int(m.group(1)))
+        m = re.match(r"^\s*(\d{4})\s*$", expr)
+        if m:
+            y = int(m.group(1))
+            return (y, y)
+        return None
+
     j_key = (journal or "").strip().lower()
     s_key = (site or "").strip().lower()
-    y_key = (year or "").strip()
+    yr_key = (year or "").strip()
+    yr_span = _parse_year_range(yr_key)
 
     out: list[Capture] = []
     for c in qs:
         meta = c.meta or {}
         csl = c.csl or {}
-        # Year: match persisted or common meta fallbacks used by _row
-        year_val = str(c.year or meta.get("year") or meta.get("publication_year") or "")
-        year_ok = (not y_key) or (year_val == y_key)
-        # Journal
+        # ---- YEAR ----
+        yraw = c.year or meta.get("year") or meta.get("publication_year")
+        try:
+            yval = int(str(yraw)) if (yraw is not None and str(yraw).strip()) else None
+        except Exception:
+            yval = None
+        if yr_span is None:
+            year_ok = True
+        else:
+            lo, hi = yr_span
+            if yval is None:
+                year_ok = False
+            elif lo is not None and yval < lo:
+                year_ok = False
+            elif hi is not None and yval > hi:
+                year_ok = False
+            else:
+                year_ok = True
+
+        # ---- JOURNAL ----
         j = _journal_full(meta, csl).lower()
         journal_ok = (not j_key) or (j == j_key)
-        # Site
+
+        # ---- SITE ----
         site_src = (c.site or "").replace("www.", "") or _site_label(c.url or "")
         site_ok = (not s_key) or (site_src.lower() == s_key)
-        # Collection (via safe helper to satisfy Pylance)
+
+        # ---- COLLECTION ----
         col_ok = True if not col else _in_collection(c, col)
 
         if year_ok and journal_ok and site_ok and col_ok:

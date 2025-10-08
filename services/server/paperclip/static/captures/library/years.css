@@ -1,0 +1,114 @@
+/* services/server/paperclip/static/captures/library/years.css */
+
+.pc-years {
+  --pc-years-h: 88px;
+  --pc-years-gap: 2px;
+  --pc-years-bar-radius: 3px;
+
+  padding: 8px 8px 10px 8px;
+  border-radius: 10px;
+  background: var(--pc-surface, #f7f8fb);
+  border: 1px solid var(--pc-border, #e5e7eb);
+}
+
+.pc-years-chart {
+  position: relative;
+  height: var(--pc-years-h);
+  display: grid;
+  grid-auto-flow: column;
+  align-items: end;
+  gap: var(--pc-years-gap);
+  margin-bottom: 10px;
+}
+
+.pc-years-bar {
+  background: linear-gradient(180deg, #18a8ff 0%, #2dc78e 100%);
+  border-radius: var(--pc-years-bar-radius);
+  min-width: 3px;
+}
+
+.pc-years-bar.in-range {
+  box-shadow: 0 0 0 2px rgba(24, 168, 255, 0.25) inset;
+}
+
+.pc-years-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 8px;
+  user-select: none;
+}
+
+.pc-years-slider {
+  position: relative;
+  height: 22px;
+  margin-bottom: 8px;
+}
+
+/* Dual-slider overlay trick: lower range ignores pointer events,
+   upper thumb captures interactions */
+.pc-years-slider input[type="range"] {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  width: 100%;
+  -webkit-appearance: none;
+  background: transparent;
+  pointer-events: none;
+  height: 22px;
+  margin: 0;
+}
+
+.pc-years-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px; height: 14px;
+  background: #0ea5e9;
+  border-radius: 999px;
+  border: 2px solid white;
+  box-shadow: 0 0 0 1px #0ea5e9;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.pc-years-slider input[type="range"]::-moz-range-thumb {
+  width: 14px; height: 14px;
+  background: #0ea5e9;
+  border: 2px solid white;
+  border-radius: 999px;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.pc-years-controls {
+  display: grid;
+  grid-template-columns: 1fr min-content 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.pc-years-controls input[type="number"] {
+  width: 100%;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--pc-border, #e5e7eb);
+  border-radius: 8px;
+  background: white;
+}
+
+.pc-years-controls .sep {
+  color: #94a3b8;
+  padding: 0 2px;
+}
+
+.pc-years-controls .btn {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--pc-border, #e5e7eb);
+  background: #f8fafc;
+  cursor: pointer;
+}
+.pc-years-controls .btn--primary {
+  border-color: #0ea5e9;
+  background: #0ea5e9;
+  color: white;
+}

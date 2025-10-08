@@ -1,7 +1,9 @@
 // services/server/paperclip/static/captures/library/index.js
 // Single entry for Library UI: rows/selection, bulk actions, search/paging,
 // collections + DnD + context menus, panels/columns, details panel, hover prefetch,
-// and collapsible left-rail groups.
+// collapsible left-rail groups, and the Years histogram widget.
+//
+// NOTE: CSS is linked in the template; do not import CSS from JS in plain-browser ESM.
 
 import "./events.js";
 import { initSelection } from "./selection.js";
@@ -12,23 +14,24 @@ import { initDetailsPanel } from "./details_panel.js";
 import { initPanelsAndColumns } from "./columns_panels.js";
 import { initHoverPrefetch } from "./hover_prefetch.js";
 import { initGroups } from "./groups.js";
+import { initYearsWidget } from "./years_hist.js";
 
 (function boot() {
   const shell = document.getElementById("z-shell");
   if (!shell) return;
 
-  // Left rail: wire collapsible groups first so it feels snappy on load.
+  // Left rail first (snappier)
   initGroups();
+  initYearsWidget();
 
   // Core behaviors
   initSelection();
   initBulkDelete();
   initSearchAndPaging();
-  initCollectionsAndContextMenus(); // dnd + context menus
-  initPanelsAndColumns();           // column prefs + splitters
+  initCollectionsAndContextMenus();
+  initPanelsAndColumns();
   initDetailsPanel();
   initHoverPrefetch();
 
-  // Ensure first batch of rows is hydrated for keyboard/selection after initial render.
   ensureInitialRows();
 })();
