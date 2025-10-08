@@ -7,8 +7,8 @@ from typing import Any, Mapping
 from django.db import connection as _default_connection
 
 from captures.keywords import split_keywords
-from captures.reduced_view import read_reduced_view
-from captures.types import CSL  # ← typed CSL for helpers
+from captures.text_assembly import assemble_body_text
+from captures.types import CSL
 
 _FTS = "capture_fts"
 
@@ -25,24 +25,14 @@ def _no_debug_cursor(conn):
             conn.use_debug_cursor = prev
 
 
-# --------------------------------------------------------------------------------------
-# Tiny helpers
-# --------------------------------------------------------------------------------------
 def _sql_literal(s: str) -> str:
     """SQLite single-quoted string literal (escape single quotes)."""
     return "'" + (s or "").replace("'", "''") + "'"
 
 
-# --------------------------------------------------------------------------------------
-# FTS setup & maintenance (NO PARAMS PASSED TO .execute)
-# --------------------------------------------------------------------------------------
 def ensure_fts(conn=None) -> None:
     """
     Create the SQLite FTS5 table if it doesn't exist.
-    Notes:
-    - Uses IF NOT EXISTS so we don't need to SELECT/peek or call fetchone()
-      (which breaks the dummy cursor in EnsureFtsGuardTests).
-    - Avoids parameter binding to keep Django's DEBUG query formatter happy.
     """
     conn = conn or _default_connection
     if getattr(conn, "vendor", "") != "sqlite":
@@ -66,7 +56,6 @@ def reindex_all() -> None:
     """Drop all FTS rows and repopulate from captures."""
     ensure_fts()
     from django.db import connection as conn
-
     from captures.models import Capture
 
     with _no_debug_cursor(conn), conn.cursor() as c:
@@ -86,8 +75,7 @@ def delete_capture(capture_id: str) -> None:
 def upsert_capture(capture) -> None:
     """
     Insert/replace a row for a capture.
-    NOTE: SQLite FTS5 does not support UPSERT. We emulate it with DELETE + INSERT.
-    We also avoid parameterized queries to prevent Django DEBUG formatting issues.
+    NOTE: SQLite FTS5 does not support UPSERT. Emulate with DELETE + INSERT.
     """
     ensure_fts()
     from django.db import connection as conn
@@ -107,81 +95,24 @@ def upsert_capture(capture) -> None:
         c.execute(f"INSERT INTO {_FTS}(pk,title,body,url,doi) VALUES ({values})")
 
 
-# --------------------------------------------------------------------------------------
-# Row builders
-# --------------------------------------------------------------------------------------
-def _flatten_sections_text(nodes) -> list[str]:
-    out: list[str] = []
-    if not isinstance(nodes, list):
-        return out
-
-    def walk(n):
-        if not isinstance(n, dict):
-            return
-        for p in n.get("paragraphs") or []:
-            if p:
-                out.append(str(p))
-        for ch in n.get("children") or []:
-            walk(ch)
-
-    for n in nodes:
-        walk(n)
-    return out
-
-
-def _body_text_from_view(capture_id: str) -> str:
-    try:
-        view = read_reduced_view(capture_id) or {}
-        sec = (view.get("sections") or {}).get("abstract_or_body")
-
-        if isinstance(sec, list):
-            parts = [str(x).strip() for x in sec if x]
-            return " ".join(p for p in parts if p)
-        if isinstance(sec, str):
-            return sec.strip() or ""
-        return ""
-    except Exception:
-        return ""
-
-
-def _body_text_from_meta(meta: Mapping[str, Any], csl: CSL | Mapping[str, Any]) -> str:
-    """
-    Assemble a lightweight body text from meta & CSL blobs for FTS:
-      • meta.abstract or csl.abstract
-      • meta.sections paragraphs
-    """
-    bits: list[str] = []
-    if meta.get("abstract"):
-        bits.append(str(meta.get("abstract")))
-    else:
-        csl_map: Mapping[str, Any] = csl if isinstance(csl, Mapping) else {}
-        if csl_map.get("abstract"):
-            bits.append(str(csl_map.get("abstract")))
-    bits.extend(_flatten_sections_text(meta.get("sections") or []))
-    return " ".join(bits)
-
-
 def _build_row(c) -> tuple[str, str, str, str, str]:
-    meta = c.meta or {}
-    csl = c.csl or {}
-    # Build the "body" = abstract + section paragraphs + reduced view text + keywords
-    body_parts: list[str] = []
-    body_parts.append(_body_text_from_meta(meta, csl))
-    body_from_view = _body_text_from_view(str(c.id))
-    if body_from_view:
-        body_parts.append(body_from_view)
+    meta: Mapping[str, Any] = c.meta or {}
+    csl: CSL | Mapping[str, Any] = c.csl or {}
+
+    # Build the "body" = meta/csl + reduced-view preview + keywords
     kw = meta.get("keywords") or []
     if isinstance(kw, str):
         kw = split_keywords(kw)
-    if isinstance(kw, list) and kw:
-        body_parts.extend([str(k) for k in kw if k])
-    body = " ".join([b for b in body_parts if b])
+
+    body = assemble_body_text(
+        capture_id=str(c.id),
+        meta=meta,
+        csl=csl,
+        keywords=kw if isinstance(kw, (list, tuple)) else [],
+    )
     return (str(c.id), (c.title or ""), body, (c.url or ""), (c.doi or ""))
 
 
-# --------------------------------------------------------------------------------------
-# Querying
-# --------------------------------------------------------------------------------------
 def _fts_sanitize_query(q: str) -> str:
     """
     Make user text safe for the FTS query grammar.
@@ -232,7 +163,6 @@ def search_ids(q: str, limit: int = 2000) -> list[str]:
             c.execute(sql)
             return [row[0] for row in c.fetchall()]
 
-    # Try sanitized, then literal fallback, then alnum-only
     try:
         return _exec(_fts_sanitize_query(q))
     except Exception:

@@ -1,9 +1,8 @@
 // services/server/paperclip/static/captures/library/index.js
-// Entry: wire up events bridge, selection, paging, context menus, bulk delete,
-// details panel, panels/columns, and hover prefetch for details links.
+// Single entry for Library UI: rows/selection, toolbar/panels, details panel,
+// search + infinite scroll, context menus, bulk delete, and hover prefetch.
 
 import "./events.js";
-
 import { initSelection } from "./selection.js";
 import { initBulkDelete } from "./bulk_delete.js";
 import { initSearchAndPaging, ensureInitialRows } from "./search_paging.js";

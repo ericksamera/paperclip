@@ -467,7 +467,7 @@ def run(out_dir: Path, k: int | None = None) -> dict[str, Any]:
                 {"source": f"T{a}", "target": f"T{b}", "weight": max(1, round(j * 10))}
             )
     # --- 10.5) SANITIZE: drop any edges pointing to missing nodes (all sets)
-    from .run_pipeline import sanitize_graph as _sg  # self-import safe; function is in this module
+    from .graph_utils import sanitize_graph as _sg
 
     def _clean(arr: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _sg(nodes, arr)[1]
