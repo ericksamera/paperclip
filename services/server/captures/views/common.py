@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import suppress
-from typing import Any, TypedDict
+from typing import Any, Mapping, TypedDict, cast
 from urllib.parse import urlparse
 
 from django.core.cache import cache
@@ -12,6 +12,7 @@ from django.db.models import Count
 from captures.models import Capture, Collection
 from captures.reduced_view import read_reduced_view
 from captures.keywords import split_keywords
+from captures.types import CSL  # typed CSL view
 from paperclip.journals import get_short_journal_name
 
 
@@ -79,21 +80,53 @@ def _family_from_name(s: str) -> str:
     return parts[-1] if parts else s
 
 
-def _author_list(meta: dict, csl: dict) -> list[str]:
+def _norm_str_or_first(v: Any) -> str:
+    """
+    Normalize a meta/CSL field into a clean str.
+    Accepts str | list[str] | Any; returns '' for falsy values.
+    """
+    if isinstance(v, list):
+        # prefer first non-empty string, else first item stringified
+        for s in v:
+            if isinstance(s, str) and s.strip():
+                return s.strip()
+        return str(v[0]).strip() if v else ""
+    return ("" if v is None else str(v)).strip()
+
+
+def _author_list(meta: Mapping[str, Any], csl: CSL | Mapping[str, Any]) -> list[str]:
+    """
+    Return ["Given Family", ...] using CSL authors when present; fallback to meta.authors.
+    """
     names: list[str] = []
-    if isinstance(meta, dict) and isinstance(meta.get("authors"), list):
+
+    # Prefer CSL
+    try:
+        csl_auth = (csl or {}).get("author")  # type: ignore[index]
+    except Exception:
+        csl_auth = None
+    if isinstance(csl_auth, list):
+        for a in csl_auth:
+            if isinstance(a, dict):
+                fam = (a.get("family") or a.get("last") or "").strip()
+                giv = (a.get("given") or a.get("first") or "").strip()
+                full = " ".join([t for t in (giv, fam) if t]).strip()
+                if full:
+                    names.append(full)
+
+    # Fallback: meta.authors (strings or dicts)
+    if not names and isinstance(meta, Mapping) and isinstance(meta.get("authors"), list):
         for a in meta["authors"]:
             if isinstance(a, str) and a.strip():
                 names.append(a.strip())
             elif isinstance(a, dict):
                 fam = (a.get("family") or a.get("last") or "").strip()
                 giv = (a.get("given") or a.get("first") or "").strip()
-                names.append(" ".join([t for t in (giv, fam) if t]))
-    if isinstance(csl, dict) and isinstance(csl.get("author"), list):
-        for a in csl["author"]:
-            fam = (a.get("family") or a.get("last") or "").strip()
-            giv = (a.get("given") or a.get("first") or "").strip()
-            names.append(" ".join([t for t in (giv, fam) if t]))
+                full = " ".join([t for t in (giv, fam) if t]).strip()
+                if full:
+                    names.append(full)
+
+    # De-dup while keeping order
     seen, out = set(), []
     for n in names:
         key = n.lower()
@@ -103,7 +136,7 @@ def _author_list(meta: dict, csl: dict) -> list[str]:
     return out
 
 
-def _authors_intext(meta: dict, csl: dict) -> str:
+def _authors_intext(meta: Mapping[str, Any], csl: CSL | Mapping[str, Any]) -> str:
     raw = _author_list(meta or {}, csl or {})
     if not raw:
         return ""
@@ -111,15 +144,18 @@ def _authors_intext(meta: dict, csl: dict) -> str:
     return fam if len(raw) == 1 else f"{fam} et al."
 
 
-def _journal_full(meta: dict, csl: dict) -> str:
-    meta = meta or {}
-    csl = csl or {}
+def _journal_full(meta: Mapping[str, Any], csl: CSL | Mapping[str, Any]) -> str:
+    """
+    Resolve the "container title" robustly from meta or CSL.
+    Always returns a string to satisfy Pylance/mypy.
+    """
+    csl_map: Mapping[str, Any] = csl if isinstance(csl, Mapping) else {}
     return (
-        meta.get("container_title")
-        or meta.get("container-title")
-        or meta.get("journal")
-        or csl.get("container-title")
-        or csl.get("container_title")
+        _norm_str_or_first(meta.get("container_title"))
+        or _norm_str_or_first(meta.get("container-title"))
+        or _norm_str_or_first(meta.get("journal"))
+        or _norm_str_or_first(csl_map.get("container-title"))
+        or _norm_str_or_first(csl_map.get("container_title"))
         or ""
     )
 
@@ -128,6 +164,30 @@ def _doi_url(doi: str | None) -> str | None:
     if not doi:
         return None
     return doi if doi.startswith("http://") or doi.startswith("https://") else f"https://doi.org/{doi}"
+
+
+# ---------- references helpers (Pylance-safe) ----------
+def _ref_count(c: Capture) -> int:
+    """
+    Return count of related references without touching the dynamic attribute
+    at type-check time (keeps Pylance quiet).
+    """
+    mgr = cast(Any, getattr(c, "references", None))
+    try:
+        return int(mgr.count())
+    except Exception:
+        return 0
+
+
+def _references_ordered(c: Capture):
+    """
+    Return an iterable for templates: references ordered by id, or [].
+    """
+    mgr = cast(Any, getattr(c, "references", None))
+    try:
+        return mgr.all().order_by("id")
+    except Exception:
+        return []
 
 
 # ---------- Abstract (reduced view preferred) ----------
@@ -172,10 +232,7 @@ def _row(c: Capture) -> LibraryRow:
         meta.get("abstract") or (csl.get("abstract") if isinstance(csl, dict) else "") or ""
     )
 
-    try:
-        refs_count = c.references.count()  # dynamic related manager (safe at runtime)
-    except Exception:
-        refs_count = 0
+    refs_count = _ref_count(c)
 
     # Prefer normalized host field if present; else derive from URL
     site_lbl = ((c.site or "").replace("www.", "")) if (getattr(c, "site", "") or "") else _site_label(c.url or "")
@@ -315,6 +372,8 @@ __all__ = [
     "_authors_intext",
     "_journal_full",
     "_doi_url",
+    "_ref_count",
+    "_references_ordered",
     "_abstract_from_view",
     "_row",
     "_apply_filters",

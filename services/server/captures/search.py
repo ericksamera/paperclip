@@ -1,13 +1,14 @@
-# services/server/captures/search.py
 from __future__ import annotations
 
 import re
 from contextlib import contextmanager, suppress
+from typing import Any, Mapping
 
 from django.db import connection as _default_connection
 
 from captures.keywords import split_keywords
 from captures.reduced_view import read_reduced_view
+from captures.types import CSL  # ← typed CSL for helpers
 
 _FTS = "capture_fts"
 
@@ -143,12 +144,19 @@ def _body_text_from_view(capture_id: str) -> str:
         return ""
 
 
-def _body_text_from_meta(meta: dict, csl: dict) -> str:
-    bits = []
+def _body_text_from_meta(meta: Mapping[str, Any], csl: CSL | Mapping[str, Any]) -> str:
+    """
+    Assemble a lightweight body text from meta & CSL blobs for FTS:
+      • meta.abstract or csl.abstract
+      • meta.sections paragraphs
+    """
+    bits: list[str] = []
     if meta.get("abstract"):
         bits.append(str(meta.get("abstract")))
-    elif csl and csl.get("abstract"):
-        bits.append(str(csl.get("abstract")))
+    else:
+        csl_map: Mapping[str, Any] = csl if isinstance(csl, Mapping) else {}
+        if csl_map.get("abstract"):
+            bits.append(str(csl_map.get("abstract")))
     bits.extend(_flatten_sections_text(meta.get("sections") or []))
     return " ".join(bits)
 

@@ -1,3 +1,4 @@
+# services/server/captures/views/collections.py
 from __future__ import annotations
 
 import io
@@ -5,6 +6,7 @@ import json
 import re
 import unicodedata
 import zipfile
+from typing import Any, Mapping
 
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -13,6 +15,7 @@ from django.views.decorators.http import require_POST
 
 from captures.models import Capture, Collection
 from captures.reduced_view import read_reduced_view
+from captures.types import CSL
 from paperclip.journals import get_short_journal_name
 
 from .common import _author_list, _family_from_name, _journal_full
@@ -33,8 +36,8 @@ def _slug_for_capture(c: Capture) -> str:
     {year}_{first-author-family-name}_{journal-short-name}
     Fallbacks: year='na', author='anon', journal='journal'
     """
-    meta = c.meta or {}
-    csl = c.csl or {}
+    meta: Mapping[str, Any] = c.meta or {}
+    csl: CSL | Mapping[str, Any] = c.csl or {}
     year = (c.year or meta.get("year") or meta.get("publication_year") or "").strip() or "na"
     authors = _author_list(meta, csl)
     fam = _family_from_name(authors[0]) if authors else ""

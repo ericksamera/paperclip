@@ -6,7 +6,7 @@ import re
 import unicodedata
 from datetime import datetime
 from io import StringIO
-from typing import Any
+from typing import Any, Mapping
 
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
@@ -14,6 +14,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from captures.models import Capture
 from captures.reduced_view import read_reduced_view
 from captures.xref import enrich_reference_via_crossref
+from captures.types import CSL
 from paperclip.artifacts import artifact_path
 from paperclip.utils import norm_doi
 
@@ -61,23 +62,27 @@ def _first_m_last_from_parts(given: str, family: str) -> str:
     return (giv_fmt + (" " + family if family else "")).strip()
 
 
-def _authors_line(meta: dict, csl: dict) -> str:
+def _authors_line(meta: Mapping[str, Any], csl: CSL | Mapping[str, Any]) -> str:
     """
-    Build a single string 'First M Last, First Last, ...' preferring CSL authors
-    (family/given). Falls back to meta.authors which may be 'Family, Given' strings.
+    Build a single string 'First M Last, First Last, ...' preferring CSL authors.
     """
     names: list[tuple[str, str]] = []
 
-    # Prefer CSL
-    if isinstance(csl, dict) and isinstance(csl.get("author"), list) and csl["author"]:
-        for a in csl["author"]:
-            fam = (a.get("family") or a.get("last") or "").strip()
-            giv = (a.get("given") or a.get("first") or "").strip()
-            if fam or giv:
-                names.append((giv, fam))
+    # Prefer CSL authors
+    try:
+        csl_auth = (csl or {}).get("author")  # type: ignore[index]
+    except Exception:
+        csl_auth = None
+    if isinstance(csl_auth, list):
+        for a in csl_auth:
+            if isinstance(a, dict):
+                fam = (a.get("family") or a.get("last") or "").strip()
+                giv = (a.get("given") or a.get("first") or "").strip()
+                if fam or giv:
+                    names.append((giv, fam))
 
-    # Fallback: meta.authors (strings or dicts)
-    if not names and isinstance(meta, dict) and isinstance(meta.get("authors"), list):
+    # Fallback: meta.authors as before
+    if not names and isinstance(meta, Mapping) and isinstance(meta.get("authors"), list):
         for a in meta["authors"]:
             if isinstance(a, dict):
                 fam = (a.get("family") or a.get("last") or "").strip()
@@ -86,7 +91,7 @@ def _authors_line(meta: dict, csl: dict) -> str:
                     names.append((giv, fam))
             elif isinstance(a, str):
                 s = a.strip()
-                m = re.match(r"^\s*([^,]+),\s*(.+?)\s*$", s)  # "Family, Given"
+                m = re.match(r"^\s*([^,]+),\s*(.+?)\s*$", s)
                 if m:
                     fam = m.group(1).strip()
                     giv = m.group(2).strip()
@@ -101,7 +106,6 @@ def _authors_line(meta: dict, csl: dict) -> str:
                         names.append((s, ""))
 
     formatted = [_first_m_last_from_parts(g, f) for (g, f) in names if (g or f)]
-    # De-dup while keeping order (case-insensitive)
     seen: set[str] = set()
     uniq: list[str] = []
     for n in formatted:
@@ -129,11 +133,11 @@ def capture_view(request: HttpRequest, pk: str) -> HttpResponse:
     sections_blob = rv.get("sections") or {}
 
     # Abstract (prefer reduced-view abstract, then DB meta/csl)
-    csl = cap.csl if isinstance(cap.csl, dict) else {}
+    csl: CSL | Mapping[str, Any] = cap.csl if isinstance(cap.csl, dict) else {}
     abs_text = (
         (sections_blob.get("abstract") or "")
         or (cap.meta or {}).get("abstract")
-        or csl.get("abstract")
+        or (csl.get("abstract") if isinstance(csl, Mapping) else "")
         or ""
     )
 
@@ -209,12 +213,12 @@ def capture_export(_request: HttpRequest) -> HttpResponse:
     w.writerow(["id", "title", "authors_intext", "year", "journal_short", "doi", "url"])
     for c in Capture.objects.all().order_by("-created_at"):
         meta = c.meta or {}
-        csl = c.csl or {}
-        title = (c.title or meta.get("title") or csl.get("title") or c.url or "").strip() or "(Untitled)"
+        csl: CSL | Mapping[str, Any] = c.csl or {}
+        title = (c.title or meta.get("title") or (csl.get("title") if isinstance(csl, Mapping) else "") or c.url or "").strip() or "(Untitled)"
         authors = _authors_intext(meta, csl)
         j_full = _journal_full(meta, csl)
         j_short = j_full
-        doi = (c.doi or meta.get("doi") or csl.get("DOI") or "").strip()
+        doi = (c.doi or meta.get("doi") or (csl.get("DOI") if isinstance(csl, Mapping) else "") or "").strip()
         w.writerow([str(c.id), title, authors, c.year, j_short, doi, c.url or ""])
     resp = HttpResponse(buf.getvalue(), content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="paperclip_export.csv"'
@@ -298,16 +302,22 @@ def _bibtex_authors(c: Capture) -> str:
     Return a BibTeX author string "Family, Given and Family2, Given2 ..."
     Prefer CSL authors when present; fall back to meta/authors strings.
     """
-    csl = c.csl or {}
+    csl: CSL | Mapping[str, Any] = c.csl or {}
     meta = c.meta or {}
     items: list[str] = []
 
-    # CSL-JSON authors: [{'family':..., 'given':...}, ...]
-    for a in (csl.get("author") or []):
-        fam = (a.get("family") or "").strip()
-        giv = (a.get("given") or "").strip()
-        if fam or giv:
-            items.append(f"{fam}, {giv}".strip().rstrip(","))
+    # Prefer CSL-JSON authors: [{'family':..., 'given':...}, ...]
+    try:
+        csl_auth = (csl or {}).get("author")  # type: ignore[index]
+    except Exception:
+        csl_auth = None
+    if isinstance(csl_auth, list):
+        for a in csl_auth:
+            if isinstance(a, dict):
+                fam = (a.get("family") or a.get("last") or a.get("literal") or "").strip()
+                giv = (a.get("given") or a.get("first") or "").strip()
+                if fam or giv:
+                    items.append(f"{fam}, {giv}".strip().rstrip(","))
 
     # Fallback: project helper gives ["Given Family", ...]
     if not items:
@@ -344,32 +354,33 @@ def _bibtex_escape(s: str) -> str:
 
 def _bibtex_entry_for(c: Capture) -> str:
     meta = c.meta or {}
-    csl = c.csl or {}
+    csl: CSL | Mapping[str, Any] = c.csl or {}
 
     title = (
-        c.title or meta.get("title") or (csl.get("title") or "") or c.url or ""
+        c.title or meta.get("title") or ((csl.get("title") if isinstance(csl, Mapping) else "") or "") or c.url or ""
     ).strip() or "(Untitled)"
     journal = _journal_full(meta, csl)
-    doi = norm_doi(c.doi or meta.get("doi") or csl.get("DOI"))
+    doi = norm_doi(c.doi or meta.get("doi") or (csl.get("DOI") if isinstance(csl, Mapping) else ""))
     year = _year_of(c)
 
-    volume = str(csl.get("volume") or meta.get("volume") or "") or ""
-    issue = str(csl.get("issue") or meta.get("issue") or "") or ""
-    pages = str(csl.get("page") or meta.get("pages") or "") or ""
+    volume = str((csl.get("volume") if isinstance(csl, Mapping) else "") or meta.get("volume") or "") or ""
+    issue = str((csl.get("issue") if isinstance(csl, Mapping) else "") or meta.get("issue") or "") or ""
+    pages = str((csl.get("page") if isinstance(csl, Mapping) else "") or meta.get("pages") or "") or ""
     url = c.url or ""
 
     entry_type = "article" if journal else "misc"
 
     fam = ""
-    if _bibtex_authors(c):
-        fam = _bibtex_authors(c).split(" and ")[0].split(",", 1)[0]
+    authors_for_key = _bibtex_authors(c)
+    if authors_for_key:
+        fam = authors_for_key.split(" and ")[0].split(",", 1)[0]
     first_word = re.sub(r"[^A-Za-z0-9]+", "", title.split()[0]) if title.split() else "item"
     key = _ascii_slug(f"{fam or 'anon'}-{year or 'na'}-{first_word}")
 
     fields = []
     fields.append(f"title = {{{_bibtex_escape(title)}}}")
-    if _bibtex_authors(c):
-        fields.append(f"author = {{{_bibtex_escape(_bibtex_authors(c))}}}")
+    if authors_for_key:
+        fields.append(f"author = {{{_bibtex_escape(authors_for_key)}}}")
     if journal:
         fields.append(f"journal = {{{_bibtex_escape(journal)}}}")
     if year:
@@ -405,18 +416,18 @@ def library_export_bibtex(request: HttpRequest) -> HttpResponse:
     return resp
 
 
-# --- RIS export (optional) ---------------------------------------------------
+# --- RIS export ---------------------------------------------------------------
 def _ris_lines_for(c: Capture) -> list[str]:
     meta = c.meta or {}
-    csl = c.csl or {}
+    csl: CSL | Mapping[str, Any] = c.csl or {}
 
     journal = _journal_full(meta, csl)
     year = _year_of(c)
-    doi = norm_doi(c.doi or meta.get("doi") or csl.get("DOI"))
+    doi = norm_doi(c.doi or meta.get("doi") or (csl.get("DOI") if isinstance(csl, Mapping) else ""))
     url = c.url or ""
-    volume = str(csl.get("volume") or meta.get("volume") or "") or ""
-    issue = str(csl.get("issue") or meta.get("issue") or "") or ""
-    pages = str(csl.get("page") or meta.get("pages") or "") or ""
+    volume = str((csl.get("volume") if isinstance(csl, Mapping) else "") or meta.get("volume") or "") or ""
+    issue = str((csl.get("issue") if isinstance(csl, Mapping) else "") or meta.get("issue") or "") or ""
+    pages = str((csl.get("page") if isinstance(csl, Mapping) else "") or meta.get("pages") or "") or ""
     sp, ep = "", ""
     m = re.match(r"^\s*(\d+)\s*[-–—]\s*(\d+)\s*$", pages)
     if m:
@@ -428,7 +439,7 @@ def _ris_lines_for(c: Capture) -> list[str]:
         a = a.strip()
         if a:
             lines.append(f"AU  - {a}")
-    title = (c.title or meta.get("title") or (csl.get("title") or "") or c.url or "").strip()
+    title = (c.title or meta.get("title") or ((csl.get("title") if isinstance(csl, Mapping) else "") or "") or c.url or "").strip()
     if title:
         lines.append(f"TI  - {title}")
     if year:

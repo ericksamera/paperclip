@@ -4,10 +4,11 @@ from __future__ import annotations
 from collections import defaultdict
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 
 from captures.models import Capture
 from captures.reduced_view import read_reduced_view
+from captures.types import CSL  # ← typed CSL view
 from paperclip.utils import norm_doi
 
 
@@ -32,12 +33,14 @@ def collect_docs() -> list[Doc]:
         parts: list[str] = []
         if c.title:
             parts.append(str(c.title))
-        meta = c.meta if isinstance(c.meta, dict) else {}
-        csl = c.csl if isinstance(c.csl, dict) else {}
+        meta: Mapping[str, Any] = c.meta if isinstance(c.meta, dict) else {}
+        csl: CSL | Mapping[str, Any] = c.csl if isinstance(c.csl, dict) else {}
         if meta.get("abstract"):
             parts.append(str(meta["abstract"]))
-        elif csl.get("abstract"):
-            parts.append(str(csl["abstract"]))
+        else:
+            csl_map: Mapping[str, Any] = csl if isinstance(csl, Mapping) else {}
+            if csl_map.get("abstract"):
+                parts.append(str(csl_map["abstract"]))
         if paras:
             parts.append(" ".join(paras))
         kws = meta.get("keywords") or []
