@@ -1,4 +1,7 @@
 from __future__ import annotations
+import os
+import re
+from typing import Any, Dict, List, Mapping, Optional, Set, TypedDict
 
 """
 Journal short-name resolver.
@@ -14,10 +17,6 @@ Notes:
  - Timeouts and retmax are configurable via env vars (see constants below)
  - Safe to import when 'requests' isn't installed; network step is skipped
 """
-
-import os
-import re
-from typing import Any, Dict, List, Mapping, Optional, Set, TypedDict
 
 # --- Optional 'requests' import (keeps type-checkers happy offline) ----------
 try:  # pragma: no cover - trivial import guard

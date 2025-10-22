@@ -1,6 +1,22 @@
 # services/server/captures/site_parsers/oup.py
 from __future__ import annotations
 
+import re
+from urllib.parse import parse_qs, unquote, urlparse
+
+from bs4 import BeautifulSoup, Tag
+
+from . import register, register_meta
+from .base import (
+    augment_from_raw,
+    collapse_spaces,
+    collect_paragraphs_subtree,
+    dedupe_keep_order,
+    dedupe_section_nodes,
+    extract_from_li,
+    heading_text,
+)
+
 """
 Oxford Academic (OUP) parser
 ----------------------------
@@ -18,22 +34,6 @@ Public API
 
 This module registers itself for host + common proxy-like patterns.
 """
-
-import re
-from urllib.parse import parse_qs, unquote, urlparse
-
-from bs4 import BeautifulSoup, Tag
-
-from . import register, register_meta
-from .base import (
-    augment_from_raw,
-    collapse_spaces,
-    collect_paragraphs_subtree,
-    dedupe_keep_order,
-    dedupe_section_nodes,
-    extract_from_li,
-    heading_text,
-)
 
 # --------------------------------------------------------------------------------------
 # Patterns / heuristics

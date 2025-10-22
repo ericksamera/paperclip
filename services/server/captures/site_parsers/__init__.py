@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from typing import Any
 
 # Re-export the pure router (no side effects on import)
 from .router import (  # noqa: F401
@@ -36,26 +35,23 @@ def _ensure_default_rules() -> None:
     # Import modules that call register()/register_meta() at import-time.
     # Each block is shielded so one bad import doesn't break the rest.
     with suppress(Exception):
-        from .bmc import parse_bmc, extract_bmc_meta  # noqa: F401
+        from . import bmc as _bmc  # noqa: F401
     with suppress(Exception):
-        from .pmc import parse_pmc, extract_pmc_meta  # noqa: F401
+        from . import pmc as _pmc  # noqa: F401
     with suppress(Exception):
-        from .sciencedirect import (
-            parse_sciencedirect,
-            extract_sciencedirect_meta,
-        )  # noqa: F401
+        from . import sciencedirect as _sciencedirect  # noqa: F401
     with suppress(Exception):
-        from .wiley import parse_wiley, extract_wiley_meta  # noqa: F401
+        from . import wiley as _wiley  # noqa: F401
     with suppress(Exception):
-        from .frontiers import parse_frontiers, extract_frontiers_meta  # noqa: F401
+        from . import frontiers as _frontiers  # noqa: F401
     with suppress(Exception):
-        from .plos import parse_plos, extract_plos_meta  # noqa: F401
+        from . import plos as _plos  # noqa: F401
     with suppress(Exception):
-        from .oup import parse_oup, extract_oup_meta  # noqa: F401
+        from . import oup as _oup  # noqa: F401
     with suppress(Exception):
-        from .nature import parse_nature, extract_nature_meta  # noqa: F401
+        from . import nature as _nature  # noqa: F401
     with suppress(Exception):
-        from .mdpi import parse_mdpi, extract_mdpi_meta  # noqa: F401
+        from . import mdpi as _mdpi  # noqa: F401
 
 
 def _ensure_default_meta_rules() -> None:

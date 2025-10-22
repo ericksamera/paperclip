@@ -1,6 +1,25 @@
 # services/server/paperclip/ingest.py
 from __future__ import annotations
 
+from typing import Any, Mapping
+from urllib.parse import urlparse, urlunparse
+
+from django.conf import settings
+from django.db import transaction
+from django.db.models import Q
+
+from captures.models import Capture, Reference
+from captures.reduced_view import CANONICAL_REDUCED_BASENAME, build_reduced_view
+from captures.site_parsers import extract_references
+from paperclip.artifacts import (
+    artifact_path,
+    read_json_artifact,
+    write_json_artifact,
+    write_text_artifact,
+)
+from paperclip.jobs import submit_enrichment
+from paperclip.utils import norm_doi
+
 """
 Ingest pipeline with server-side duplicate guarding.
 
@@ -37,25 +56,6 @@ Notes
 - This module is drop-in and stays compatible with existing callers.
 - Black/Ruff clean (no unused imports, no bare excepts, etc.).
 """
-
-from typing import Any, Mapping
-from urllib.parse import urlparse, urlunparse
-
-from django.conf import settings
-from django.db import transaction
-from django.db.models import Q
-
-from captures.models import Capture, Reference
-from captures.reduced_view import CANONICAL_REDUCED_BASENAME, build_reduced_view
-from captures.site_parsers import extract_references
-from paperclip.artifacts import (
-    artifact_path,
-    read_json_artifact,
-    write_json_artifact,
-    write_text_artifact,
-)
-from paperclip.jobs import submit_enrichment
-from paperclip.utils import norm_doi
 
 
 # We import robust_parse + canonical builder lazily through helpers to keep import

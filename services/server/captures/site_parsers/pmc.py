@@ -1,23 +1,6 @@
 # services/server/captures/site_parsers/pmc.py
 from __future__ import annotations
 
-"""
-PubMed Central (PMC) parser
----------------------------
-
-Goals
-- Robustly extract abstract, keywords, and full-text sections across PMC HTML variants.
-- Harvest references and enrich with DOI / PMID / PMCID when available.
-- Ignore figure/caption/aside noise and inline 'Keywords:' inside the abstract.
-- Black/ruff friendly.
-
-Public API
-- extract_pmc_meta(url, dom_html) -> dict[str, object]
-- parse_pmc(url, dom_html) -> list[dict[str, object]]
-
-This module registers itself for host + common path patterns.
-"""
-
 import re
 from urllib.parse import unquote
 
@@ -34,6 +17,24 @@ from .base import (
     heading_text,
     split_keywords_block,
 )
+
+
+"""
+PubMed Central (PMC) parser
+---------------------------
+
+Goals
+- Robustly extract abstract, keywords, and full-text sections across PMC HTML variants.
+- Harvest references and enrich with DOI / PMID / PMCID when available.
+- Ignore figure/caption/aside noise and inline 'Keywords:' inside the abstract.
+- Black/ruff friendly.
+
+Public API
+- extract_pmc_meta(url, dom_html) -> dict[str, object]
+- parse_pmc(url, dom_html) -> list[dict[str, object]]
+
+This module registers itself for host + common path patterns.
+"""
 
 # ======================================================================================
 # Patterns / heuristics

@@ -1,5 +1,11 @@
 # services/server/paperclip/jobs.py
 from __future__ import annotations
+from importlib import import_module
+import inspect
+import logging
+import os
+import threading
+from typing import Any, Callable, Optional
 
 """
 Job helpers for Paperclip (dev-friendly, Black/Ruff clean).
@@ -20,13 +26,6 @@ This module is intentionally resilient to internal refactors:
 it "guesses" the right underlying functions by checking several likely
 modules and function names, and adapts to their accepted parameters.
 """
-
-from importlib import import_module
-import inspect
-import logging
-import os
-import threading
-from typing import Any, Callable, Optional
 
 log = logging.getLogger(__name__)
 

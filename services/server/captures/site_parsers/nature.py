@@ -1,16 +1,6 @@
 # services/server/captures/site_parsers/nature.py
 from __future__ import annotations
 
-"""
-Nature site parser: robust abstract/keywords/sections extraction + references.
-
-Public API:
-- extract_nature_meta(url, dom_html) -> dict[str, object]
-- parse_nature(url, dom_html) -> list[dict[str, object]]
-
-This module registers itself for both host and common proxy patterns.
-"""
-
 import re
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -26,6 +16,16 @@ from .base import (
     extract_from_li,
     heading_text,
 )
+
+"""
+Nature site parser: robust abstract/keywords/sections extraction + references.
+
+Public API:
+- extract_nature_meta(url, dom_html) -> dict[str, object]
+- parse_nature(url, dom_html) -> list[dict[str, object]]
+
+This module registers itself for both host and common proxy patterns.
+"""
 
 # -------------------------- small helpers --------------------------
 _NONCONTENT_RX = re.compile(
