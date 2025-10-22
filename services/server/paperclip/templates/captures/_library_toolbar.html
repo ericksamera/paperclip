@@ -73,12 +73,11 @@
     {% if selected.col %}
       <a class="btn" href="{% url 'collection_download_views' selected.col %}">Download views</a>
       <a class="btn" href="{% url 'capture_export_bibtex' %}?col={{ selected.col }}">Export BibTeX</a>
-      {# Optional: uncomment if you added RIS #}
-      {# <a class="btn" href="{% url 'capture_export_ris' %}?col={{ selected.col }}">Export RIS</a> #}
+      <a class="btn" href="{% url 'capture_export_ris' %}?col={{ selected.col }}">Export RIS</a>
     {% else %}
       <span class="btn" style="opacity:.5;pointer-events:none" title="Select a collection to export">Download views</span>
       <span class="btn" style="opacity:.5;pointer-events:none" title="Select a collection to export">Export BibTeX</span>
-      {# <span class="btn" style="opacity:.5;pointer-events:none" title="Select a collection to export">Export RIS</span> #}
+      <span class="btn" style="opacity:.5;pointer-events:none" title="Select a collection to export">Export RIS</span>
     {% endif %}
 
     <a class="btn" href="{% url 'dedup_review' %}">Dedup review</a>

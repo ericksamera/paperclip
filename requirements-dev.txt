@@ -1,0 +1,3 @@
+# Dev tooling used by CI
+black==24.10.0
+ruff==0.5.7

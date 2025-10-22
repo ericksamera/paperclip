@@ -1,5 +1,5 @@
 // services/server/paperclip/static/captures/library/events.js
-// Canonical, central event helpers for Library UI.
+// Canonical, central event helpers for the Library UI.
 
 export const EVENTS = Object.freeze({
   ROWS_CHANGED:  "pc:rows-changed",

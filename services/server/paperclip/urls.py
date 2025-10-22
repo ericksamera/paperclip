@@ -13,7 +13,7 @@ router = DefaultRouter()
 router.register(r"captures", CaptureViewSet, basename="api-captures")
 
 urlpatterns = [
-    # (kept) optional QA app include
+    # Optional QA app include (kept if present)
     path("", include("paperclip.qa.urls")),
     # Home → Library
     path(
@@ -45,7 +45,7 @@ urlpatterns = [
         cap_views.collection_download_views,
         name="collection_download_views",
     ),
-    # (kept) Dashboard + summary API
+    # Collection dashboard + summary API
     path(
         "collections/<int:pk>/dashboard/",
         cap_views.collection_dashboard,
@@ -56,7 +56,7 @@ urlpatterns = [
         cap_views.collection_summary_json,
         name="collection_summary_json",
     ),
-    # NEW: Q&A Workspace (wireframe)
+    # Q&A workspace
     path("collections/<int:pk>/qaw/", cap_views.collection_qaw, name="collection_qaw"),
     # Dedup UI
     path("dedup/", cap_views.dedup_review, name="dedup_review"),
@@ -76,11 +76,11 @@ urlpatterns = [
         "captures/export.bib",
         cap_views.library_export_bibtex,
         name="capture_export_bibtex",
-    ),  # NEW
+    ),  # BibTeX
     path(
         "captures/export.ris", cap_views.library_export_ris, name="capture_export_ris"
-    ),  # NEW (optional)
-    # Detail / actions
+    ),  # RIS
+    # Detail / actions on a single capture
     path("captures/<uuid:pk>/", cap_views.capture_view, name="capture_detail"),
     path("captures/<uuid:pk>/view/", cap_views.capture_view, name="capture_view"),
     path("captures/<uuid:pk>/delete/", cap_views.capture_delete, name="capture_delete"),
@@ -118,5 +118,6 @@ urlpatterns = [
     # Dev helpers
     path("debug/clear-cache/", clear_cache, name="debug_clear_cache"),
     path("debug/wipe-all/", wipe_all, name="debug_wipe_all"),
+    # Admin
     path("admin/", admin.site.urls),
 ]

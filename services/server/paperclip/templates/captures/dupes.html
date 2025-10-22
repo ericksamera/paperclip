@@ -1,76 +1,57 @@
 {% extends "base.html" %}
-{% block title %}Dedup Review · Paperclip{% endblock %}
+{% block title %}Near-duplicates · Paperclip{% endblock %}
 
 {% block content %}
 <div class="panel" style="margin:10px">
-  <div style="display:flex;gap:10px;align-items:center;justify-content:space-between">
-    <h2 style="margin:0">Dedup review</h2>
-    <div>
-      <form method="post" action="{% url 'dedup_scan' %}" style="display:inline-block">
-        {% csrf_token %}<button class="btn" type="submit">Re-scan</button>
-      </form>
-      {% if all_mode %}
-        <a class="btn" href="{% url 'dedup_review' %}">Hide ignored</a>
-      {% else %}
-        <a class="btn" href="{% url 'dedup_review' %}?all=1">Show all</a>
-      {% endif %}
-      <a class="btn" href="{% url 'library' %}">Back to library</a>
-    </div>
-  </div>
+  <h2 style="margin-top:0">Near-duplicates</h2>
+  <div class="muted" style="margin-top:-6px">Review and merge duplicate records.</div>
+
+  <form method="post" action="{% url 'dedup_scan_view' %}" style="margin-top:10px">
+    {% csrf_token %}
+    <button class="btn">Re-scan</button>
+    <a class="btn" href="{% url 'dedup_review' %}?all=1">Show all ({{ ignored_count }} ignored)</a>
+  </form>
 
   {% if not groups %}
-    <div class="empty" style="margin-top:10px">No duplicate groups to review{% if not all_mode and ignored_count %} ({{ ignored_count }} group(s) ignored){% endif %}.</div>
+    <div class="panel" style="margin-top:10px"><div class="empty">No duplicates found.</div></div>
   {% else %}
-    <div class="mt-3" style="display:flex;flex-direction:column;gap:12px">
+    <div class="panel" style="margin-top:10px">
       {% for g in groups %}
-        <div class="panel" style="background:var(--panel);border:1px solid var(--line)">
-          <div style="font-weight:700;margin-bottom:6px">Group {{ forloop.counter }}</div>
-          <form method="post" action="{% url 'dedup_merge' %}" style="margin-bottom:6px">
-            {% csrf_token %}
-            <table class="table" style="width:100%">
-              <thead>
+        <div class="panel" data-group="{{ forloop.counter0 }}">
+          <div class="panel__title">Group {{ forloop.counter }}</div>
+
+          <table class="table">
+            <thead><tr><th>Primary</th><th>Title / journal</th><th>Added</th></tr></thead>
+            <tbody>
+              {% for r in g %}
                 <tr>
-                  <th>Keep</th>
-                  <th>Title &nbsp;<span class="muted">(preview)</span></th>
-                  <th>DOI</th>
-                  <th>Year</th>
-                  <th>Journal</th>
-                  <th>Added</th>
+                  <td class="no-wrap">
+                    <input type="radio" name="primary-{{ forloop.parentloop.counter0 }}" value="{{ r.id }}" {% if forloop.first %}checked{% endif %}>
+                  </td>
+                  <td>
+                    <div><b>{{ r.title }}</b></div>
+                    <div class="muted">{{ r.journal }}{% if r.year %} · {{ r.year }}{% endif %}{% if r.doi %} · {{ r.doi }}{% endif %}</div>
+                    {% if r.preview %}<div class="muted" style="margin-top:4px">{{ r.preview }}</div>{% endif %}
+                  </td>
+                  <td class="no-wrap" title="{{ r.added_iso }}">{{ r.added }}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {% for r in g %}
-                  <tr>
-                    <td style="white-space:nowrap">
-                      <label><input type="radio" name="primary" value="{{ r.id }}" {% if forloop.first %}checked{% endif %}> primary</label>
-                      <label style="margin-left:8px"><input type="checkbox" name="others" value="{{ r.id }}" {% if not forloop.first %}checked{% endif %}> merge</label>
-                    </td>
-                    <td>
-                      <a href="{% url 'capture_view' r.id %}" target="_blank">{{ r.title }}</a>
-                      {% if r.preview %}
-                        <div class="muted" style="font-size:12px;margin-top:4px;max-width:980px">{{ r.preview }}</div>
-                      {% endif %}
-                    </td>
-                    <td>{{ r.doi }}</td>
-                    <td>{{ r.year }}</td>
-                    <td>{{ r.journal }}</td>
-                    <td style="white-space:nowrap; font-variant-numeric: tabular-nums;">
-                      {% if r.added %}
-                        <time datetime="{{ r.added_iso }}" title="{{ r.added_iso }}">{{ r.added }}</time>
-                      {% else %}
-                        —
-                      {% endif %}
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-            <div>
-              <button class="btn" type="submit" onclick="return confirm('Merge selected into the chosen primary item? This moves references/collections and deletes the duplicates.')">Merge</button>
+              {% endfor %}
+            </tbody>
+          </table>
+
+          <form class="pc-merge" method="post" action="{% url 'dedup_merge' %}">
+            {% csrf_token %}
+            {% for r in g %}<input type="hidden" name="others" value="{{ r.id }}">{% endfor %}
+            <input type="hidden" name="primary" value="{{ g.0.id }}">
+            <div class="mt-1">
+              <button type="submit" class="btn btn--primary"
+                      title="This moves references/collections and deletes the duplicates.">Merge</button>
+              <button type="button" class="btn pc-merge-cancel">Cancel</button>
             </div>
           </form>
 
-          <form method="post" action="{% url 'dedup_ignore' %}" onsubmit="return confirm('Ignore this group? You can show ignored groups by clicking “Show all”.')">
+          <form method="post" action="{% url 'dedup_ignore' %}"
+                onsubmit="return confirm('Ignore this group? You can show ignored groups by clicking “Show all”.')">
             {% csrf_token %}
             {% for r in g %}<input type="hidden" name="ids" value="{{ r.id }}">{% endfor %}
             <button class="btn" type="submit">Ignore group</button>
@@ -80,4 +61,44 @@
     </div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  // Wire radio → update the hidden "primary" in the Merge form for that group
+  document.querySelectorAll('div[data-group]').forEach(panel => {
+    const radios = panel.querySelectorAll('input[type="radio"]');
+    const form   = panel.querySelector('form.pc-merge');
+    const hidden = form.querySelector('input[name="primary"]');
+    radios.forEach(r => r.addEventListener('change', () => { hidden.value = r.value; }));
+  });
+
+  // Intercept Merge -> fetch JSON -> remove panel -> toast via base styles
+  function toast(msg){ try {
+    const d = document.createElement('div');
+    d.className = 'toast'; d.textContent = msg;
+    Object.assign(d.style, {position:'fixed', bottom:'14px', left:'14px',
+      background:'var(--panel-strong)', color:'var(--fg)', padding:'8px 10px', borderRadius:'8px'});
+    document.body.appendChild(d); setTimeout(() => d.remove(), 2200);
+  } catch (_) {} }
+
+  document.querySelectorAll('form.pc-merge').forEach(form => {
+    const panel = form.closest('div[data-group]');
+    const cancel = panel.querySelector('.pc-merge-cancel');
+    cancel?.addEventListener('click', () => panel.remove());
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const resp = await fetch(form.action, { method: 'POST', body: fd, headers: { 'Accept': 'application/json' } });
+      if (!resp.ok) { toast('Merge failed.'); return; }
+      const data = await resp.json();
+      panel.remove();
+      const n = (data.removed || []).length;
+      toast(`Merged ${n} duplicate${n===1?'':'s'}.`);
+    });
+  });
+})();
+</script>
 {% endblock %}

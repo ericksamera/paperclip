@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% load static staticv %}
+
+{% block title %}Imports · Paperclip{% endblock %}
+
+{% block content %}
+<div class="panel" style="margin:10px">
+  <h2 style="margin-top:0">Import papers</h2>
+  <p class="muted" style="margin-top:-6px">Paste DOIs or drop a <code>.ris</code> file. New items are enriched via Crossref.</p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <section class="panel" style="margin:0">
+      <div class="panel__title">Paste DOIs</div>
+      <form id="pc-doi-form" method="post" action="{% url 'import_dois' %}">
+        {% csrf_token %}
+        <textarea id="pc-doi-text" name="dois" rows="8" placeholder="One or many DOIs, in any format..."></textarea>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <button type="submit" class="btn btn--primary">Import</button>
+          <span id="pc-doi-count" class="muted"></span>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel" style="margin:0">
+      <div class="panel__title">Drop a .ris</div>
+      <form id="pc-ris-form" method="post" action="{% url 'import_ris' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div id="pc-drop" class="dropzone" style="padding:18px;border:2px dashed var(--line);border-radius:8px;text-align:center">
+          Drop a <b>.ris</b> file here or click to choose.
+          <input id="pc-ris-input" name="ris" type="file" accept=".ris" style="display:none">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <button type="submit" class="btn">Import file</button>
+          <span id="pc-ris-name" class="muted"></span>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="pc-import-result" class="panel" style="margin-top:16px;display:none"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{% staticv 'captures/imports.js' %}"></script>
+{% endblock %}

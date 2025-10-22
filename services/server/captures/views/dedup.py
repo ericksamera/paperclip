@@ -6,6 +6,7 @@ from contextlib import suppress
 
 from django.conf import settings
 from django.db import transaction
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -47,6 +48,19 @@ def _group_key(ids):
     return ",".join(sorted(ids))
 
 
+def _format_added(dt):
+    if not dt:
+        return "", ""
+    # human-ish
+    delta = timezone.now() - dt
+    days = int(delta.total_seconds() // 86400)
+    if days <= 0:
+        return "today", dt.isoformat()
+    if days == 1:
+        return "yesterday", dt.isoformat()
+    return f"{days}d ago", dt.isoformat()
+
+
 def _preview_for(c: Capture) -> str:
     """
     Small, stable preview for the dedup table:
@@ -60,41 +74,10 @@ def _preview_for(c: Capture) -> str:
         import re as _re
 
         txt = _re.sub(r"\s+", " ", txt).strip()
-        return (txt[:280] + "...") if len(txt) > 280 else txt
+        return (txt[:280] + ".") if len(txt) > 280 else txt
     meta = c.meta or {}
     csl = c.csl or {}
-    txt = (meta.get("abstract") or csl.get("abstract") or "").strip()
-    if txt:
-        import re as _re
-
-        txt = _re.sub(r"\s+", " ", txt)
-        return (txt[:280] + "...") if len(txt) > 280 else txt
-    return ""
-
-
-def _format_added(dt):
-    """
-    Return (human_str, iso_str) for the Added column.
-    human_str example: '2025-09-29 14:07 PDT'
-    iso_str example:   '2025-09-29T14:07-07:00'
-    """
-    if not dt:
-        return "", ""
-    try:
-        dt_local = timezone.localtime(dt) if timezone.is_aware(dt) else dt
-    except Exception:
-        dt_local = dt
-    human = dt_local.strftime("%Y-%m-%d %H:%M")
-    tzname = dt_local.tzname() or ""
-    if tzname:
-        human = f"{human} {tzname}"
-    # minutes precision keeps the cell compact but precise
-    try:
-        iso = dt_local.isoformat(timespec="minutes")
-    except TypeError:
-        # Python < 3.6 fallback (not expected, but safe)
-        iso = dt_local.replace(second=0, microsecond=0).isoformat()
-    return human, iso
+    return meta.get("abstract") or csl.get("abstract") or ""
 
 
 def dedup_review(request):
@@ -132,11 +115,7 @@ def dedup_review(request):
     return render(
         request,
         "captures/dupes.html",
-        {
-            "groups": decorated,
-            "ignored_count": len(ignored),
-            "all_mode": show_all,
-        },
+        {"groups": decorated, "ignored_count": len(ignored), "all_mode": show_all},
     )
 
 
@@ -167,11 +146,15 @@ def dedup_merge(request):
     primary_id = request.POST.get("primary")
     others = request.POST.getlist("others")
     if not primary_id or not others:
+        if "application/json" in (request.headers.get("Accept") or ""):
+            return JsonResponse({"ok": False, "error": "bad_request"}, status=400)
         return redirect("dedup_review")
+
     primary = get_object_or_404(Capture, pk=primary_id)
     from django.conf import settings as _s
 
     # transactional merge
+    removed = []
     with transaction.atomic():
         for oid in others:
             if oid == primary_id:
@@ -186,12 +169,25 @@ def dedup_merge(request):
                 col.captures.add(primary)
             # delete dup
             dup.delete()
+            removed.append(str(oid))
             # remove dup artifacts folder
             with suppress(Exception):
                 shutil.rmtree((_s.ARTIFACTS_DIR / str(oid)), ignore_errors=True)
+
     # mark this group as handled
     ignored = _ignored_set()
     ids = [primary_id, *others]
     ignored.add(_group_key(ids))
     _write_ignored(ignored)
+
+    wants_json = "application/json" in (request.headers.get("Accept") or "")
+    if wants_json:
+        return JsonResponse(
+            {
+                "ok": True,
+                "primary": str(primary_id),
+                "removed": removed,
+                "ignored_key": _group_key(ids),
+            }
+        )
     return redirect("dedup_review")

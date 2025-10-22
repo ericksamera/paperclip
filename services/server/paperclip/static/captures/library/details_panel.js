@@ -1,5 +1,6 @@
 // services/server/paperclip/static/captures/library/details_panel.js
 // Renders the right-hand details panel for the selected rows.
+// Uses canonical events (SELECTION, ROWS_CHANGED).
 
 import { $, $$, on, escapeHtml } from "./dom.js";
 import { onRowsChanged, EVENTS } from "./events.js";
@@ -19,8 +20,7 @@ function oneRowHtml(row) {
   const site    = row.getAttribute("data-site")     || "";
   const year    = row.getAttribute("data-year")     || "";
 
-  // NEW: keywords (already provided on each row as data-keywords)
-  // Accept comma or semicolon separators, trim, and drop empties.
+  // Keywords (comma or semicolon separated)
   const kwRaw = row.getAttribute("data-keywords") || "";
   const kws = kwRaw.split(/[;,]/).map(s => s.trim()).filter(Boolean);
   const kwsHtml = kws.length
@@ -59,20 +59,19 @@ export function initDetailsPanel() {
   // Initial render (in case the server preselected something)
   updateInfoPanel();
 
-  // When selection changes, refresh the panel
+  // Canonical selection event
   document.addEventListener(EVENTS.SELECTION, updateInfoPanel);
 
-  // Refresh on canonical rows-changed. The legacy bridge is now centralized in events.js.
+  // Canonical rows-changed event (legacy → canonical bridge lives in events.js)
   onRowsChanged(updateInfoPanel);
 
-  // Belt & suspenders: if some legacy code toggles selection on click but doesn’t fire the event,
-  // we still update on clicks inside the table.
+  // Belt & suspenders: update when clicking table rows even if some legacy handler forgot to emit
   on(
     document,
     "click",
     (e) => {
       if (e.target.closest && e.target.closest("#pc-body tr.pc-row")) {
-        // Let selection handlers run first.
+        // Let selection logic run first
         setTimeout(updateInfoPanel, 0);
       }
     },
