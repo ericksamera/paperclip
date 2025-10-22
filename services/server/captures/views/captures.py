@@ -17,22 +17,25 @@ from django.http import (
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
+from captures.exporters import bibtex_entry_for, ris_lines_for
 from captures.models import Capture
 from captures.reduced_view import read_reduced_view
-from captures.exporters import bibtex_entry_for, ris_lines_for
 from captures.types import CSL
 from captures.xref import enrich_reference_via_crossref
 from paperclip.artifacts import artifact_path
 from paperclip.utils import norm_doi
 
-from .common import _authors_intext, _journal_full
+from .common import _author_list, _authors_intext, _journal_full
 from .library import _filter_and_rank, _maybe_sort, _search_ids_for_query
 
 
 # --------------------------------------------------------------------------------------
-# Optional name helper kept for future formatting needs
+# Small helper (kept for potential formatting needs)
 # --------------------------------------------------------------------------------------
 def _first_m_last_from_parts(given: str, family: str) -> str:
+    """
+    Return 'First M Last' from given/family; includes middle initials if present.
+    """
     given = (given or "").replace("·", ".").replace("‧", ".").replace("•", ".").strip()
     family = (family or "").strip()
 
@@ -41,7 +44,7 @@ def _first_m_last_from_parts(given: str, family: str) -> str:
         s = re.sub(r"\s+", " ", s)
         return s.strip()
 
-    # All-initials (e.g., "A. T.")
+    # All-initials (e.g. "A. T.")
     if re.fullmatch(r"(?:[A-Za-z]\.\s*)+[A-Za-z]\.?", given):
         return f"{_collapse_initials(given).replace(' ', '')} {family}".strip()
 
@@ -64,22 +67,66 @@ def _first_m_last_from_parts(given: str, family: str) -> str:
 # --------------------------------------------------------------------------------------
 # Capture detail + actions
 # --------------------------------------------------------------------------------------
-def capture_view(request: HttpRequest, pk) -> HttpResponse:
+def capture_view(request: HttpRequest, pk: str) -> HttpResponse:
     """
-    Render capture detail. Provide BOTH keys 'cap' and 'c' for template
-    compatibility (some partials expect 'cap', others 'c').
+    Render capture detail, populating abstract, sections, and references.
+
+    Provides BOTH keys 'cap' and 'c' for template compatibility (older partials
+    sometimes use 'cap', others use 'c').
     """
     cap = get_object_or_404(Capture, pk=pk)
-    context = {
-        "cap": cap,  # <- old partials expect this
-        "c": cap,  # <- newer includes sometimes use this
-        "view": read_reduced_view(str(cap.id)),
-    }
-    return render(request, "captures/detail.html", context)
+
+    # Optional HTML snapshot (for the debug panel at the bottom of the page)
+    content_html = ""
+    p = artifact_path(str(cap.id), "content.html")
+    if p.exists():
+        content_html = p.read_text(encoding="utf-8")
+
+    # Tolerant reduced-view reader (handles current artifacts and older fallbacks)
+    rv = read_reduced_view(str(cap.id)) or {}
+    sections_blob = rv.get("sections") or {}
+
+    # Abstract: prefer reduced-view abstract, then DB meta/csl fallback
+    csl: CSL | Mapping[str, Any] = cap.csl if isinstance(cap.csl, dict) else {}
+    abs_text = (
+        (sections_blob.get("abstract") or "")
+        or (cap.meta or {}).get("abstract")
+        or (csl.get("abstract") if isinstance(csl, Mapping) else "")
+        or ""
+    )
+
+    # Sections: structured → fallback to preview paragraphs if present
+    sections: list[dict[str, Any]] = list(sections_blob.get("sections") or [])
+    if not sections:
+        paras = sections_blob.get("abstract_or_body") or []
+        if isinstance(paras, list) and paras:
+            sections = [{"title": "Body", "paragraphs": paras}]
+
+    # References from DB
+    refs = cap.references.all().order_by("id")
+
+    # Author line (for header)
+    meta = cap.meta or {}
+    authors_line = ", ".join([a for a in _author_list(meta, csl) if a]) or ""
+
+    return render(
+        request,
+        "captures/detail.html",
+        {
+            "cap": cap,
+            "c": cap,
+            "content": content_html,
+            "abs": abs_text,
+            "sections": sections,
+            "refs": refs,
+            "authors": _author_list(meta, csl),  # legacy list if needed by includes
+            "authors_line": authors_line,  # human-friendly line used by template
+        },
+    )
 
 
 @require_POST
-def capture_delete(request: HttpRequest, pk) -> HttpResponseRedirect:
+def capture_delete(request: HttpRequest, pk: str) -> HttpResponseRedirect:
     cap = get_object_or_404(Capture, pk=pk)
     cap.delete()
     return redirect("library")
@@ -96,23 +143,30 @@ def capture_bulk_delete(request: HttpRequest) -> HttpResponseRedirect:
     return redirect("library")
 
 
-def capture_open(_request: HttpRequest, pk) -> HttpResponseRedirect:
+def capture_open(_request: HttpRequest, pk: str) -> HttpResponseRedirect:
     cap = get_object_or_404(Capture, pk=pk)
     return HttpResponseRedirect(cap.url or "/")
 
 
-def capture_artifact(_request: HttpRequest, pk, basename: str) -> FileResponse:
+def capture_artifact(_request: HttpRequest, pk: str, basename: str) -> FileResponse:
+    """
+    Stream an artifact file (e.g., page.html, content.html, server_parsed.json).
+    """
     cap = get_object_or_404(Capture, pk=pk)
     path = artifact_path(str(cap.id), basename)
     try:
         return FileResponse(open(path, "rb"))
-    except FileNotFoundError:
-        raise Http404("Artifact not found")
+    except FileNotFoundError as exc:
+        raise Http404("Artifact not found") from exc
 
 
-def capture_enrich_refs(_request: HttpRequest, pk) -> HttpResponse:
+def capture_enrich_refs(_request: HttpRequest, pk: str) -> HttpResponse:
     """
-    Enrich references for a capture via Crossref; returns CSV summary.
+    Enrich references for a capture via Crossref; returns a small CSV summary.
+
+    NOTE: This does not *create* references; it enriches ones that already
+    exist. If a specific capture has 0 references, they weren’t extracted —
+    re‑ingest that item or add an admin repair to parse from page.html.
     """
     cap = get_object_or_404(Capture, pk=pk)
     refs_mgr = getattr(cap, "references", None)
@@ -137,7 +191,7 @@ def capture_enrich_refs(_request: HttpRequest, pk) -> HttpResponse:
 
 
 # --------------------------------------------------------------------------------------
-# Filtering helper shared by exports
+# Library exports (stay in sync with filtering/sorting used by the UI)
 # --------------------------------------------------------------------------------------
 def _filtered_captures_for_request(request: HttpRequest) -> list[Capture]:
     """
@@ -164,64 +218,44 @@ def _filtered_captures_for_request(request: HttpRequest) -> list[Capture]:
 
         base_qs = Capture.objects.all().order_by("-created_at")
         caps = _apply_filters(base_qs, year=year, journal=journal, site=site, col=col)
-        caps = _maybe_sort(caps, qterm="", sort=sort, direction=direction)
-    return caps
+        caps = _maybe_sort(caps, qterm=qterm, sort=sort, direction=direction)
+    return list(caps)
 
 
-# --------------------------------------------------------------------------------------
-# CSV export (broad, legacy behavior kept)
-# --------------------------------------------------------------------------------------
 def capture_export(_request: HttpRequest) -> HttpResponse:
+    """
+    Simple CSV export (for quick sanity checks or spreadsheets).
+    """
     buf = StringIO()
     w = csv.writer(buf)
     w.writerow(["id", "title", "authors_intext", "year", "journal_short", "doi", "url"])
-    for cap in Capture.objects.all().order_by("-created_at"):
-        meta = cap.meta or {}
-        csl: CSL | Mapping[str, Any] = cap.csl or {}
+    for c in Capture.objects.all().order_by("-created_at"):
+        meta = c.meta or {}
+        csl: CSL | Mapping[str, Any] = c.csl or {}
         title = (
-            cap.title
+            c.title
             or meta.get("title")
-            or (csl.get("title") if isinstance(csl, Mapping) else "")
-            or cap.url
+            or ((csl.get("title") if isinstance(csl, Mapping) else "") or "")
+            or c.url
             or ""
         ).strip() or "(Untitled)"
         authors = _authors_intext(meta, csl)
         j_full = _journal_full(meta, csl)
-        j_short = j_full  # keep simple; project has short-name helper elsewhere
+        j_short = j_full
         doi = (
-            cap.doi
+            c.doi
             or meta.get("doi")
-            or (csl.get("DOI") if isinstance(csl, Mapping) else "")
+            or ((csl.get("DOI") if isinstance(csl, Mapping) else "") or "")
             or ""
         ).strip()
-        w.writerow([str(cap.id), title, authors, cap.year, j_short, doi, cap.url or ""])
+        w.writerow([str(c.id), title, authors, c.year, j_short, doi, c.url or ""])
     resp = HttpResponse(buf.getvalue(), content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="paperclip_export.csv"'
     return resp
 
 
-# --------------------------------------------------------------------------------------
-# Collection-scoped exports (new guard)
-# --------------------------------------------------------------------------------------
-def _require_collection_id(
-    request: HttpRequest,
-) -> tuple[str | None, HttpResponse | None]:
-    """
-    All BibTeX/RIS exports must be explicitly scoped to a collection (?col=<id>).
-    Returns (col_id, error_response).
-    """
-    col = (request.GET.get("col") or "").strip()
-    if not col:
-        return None, HttpResponse(
-            "This export must be scoped to a collection (?col=<id>).", status=400
-        )
-    return col, None
-
-
+# --- BibTeX export ------------------------------------------------------------
 def library_export_bibtex(request: HttpRequest) -> HttpResponse:
-    col, err = _require_collection_id(request)
-    if err:
-        return err
     caps = _filtered_captures_for_request(request)
     entries = [bibtex_entry_for(c) for c in caps]
     text = (
@@ -236,10 +270,8 @@ def library_export_bibtex(request: HttpRequest) -> HttpResponse:
     return resp
 
 
+# --- RIS export ---------------------------------------------------------------
 def library_export_ris(request: HttpRequest) -> HttpResponse:
-    col, err = _require_collection_id(request)
-    if err:
-        return err
     caps = _filtered_captures_for_request(request)
     blocks = ["\n".join(ris_lines_for(c)) for c in caps]
     text = "\n".join(blocks) + "\n"
@@ -248,12 +280,3 @@ def library_export_ris(request: HttpRequest) -> HttpResponse:
     )
     resp["Content-Disposition"] = 'attachment; filename="paperclip_export.ris"'
     return resp
-
-
-# Back-compat aliases in case urls/__init__.py still import old names
-def capture_export_bibtex(request: HttpRequest) -> HttpResponse:  # pragma: no cover
-    return library_export_bibtex(request)
-
-
-def capture_export_ris(request: HttpRequest) -> HttpResponse:  # pragma: no cover
-    return library_export_ris(request)

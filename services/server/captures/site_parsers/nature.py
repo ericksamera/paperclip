@@ -57,7 +57,9 @@ def _clean_para_text(s: str) -> str:
     if not s:
         return ""
     stripped = s.strip()
-    if re.fullmatch(r"(source data|full size image|open in figure viewer)", stripped, re.I):
+    if re.fullmatch(
+        r"(source data|full size image|open in figure viewer)", stripped, re.I
+    ):
         return ""
     return stripped
 
@@ -168,7 +170,10 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
 
     # Fallback: any c-article-section (section OR div) whose header title == Abstract
     for sec in soup.select("section.c-article-section, div.c-article-section"):
-        h = sec.find(["h2", "h3"], class_=re.compile(r"c-article-section__title|js-section-title"))
+        h = sec.find(
+            ["h2", "h3"],
+            class_=re.compile(r"c-article-section__title|js-section-title"),
+        )
         if h and re.search(r"^\s*abstract\s*$", heading_text(h), re.I):
             host = sec.select_one(".c-article-section__content") or sec
             paras = []
@@ -219,7 +224,10 @@ def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
     out: list[dict[str, object]] = []
     # Support both tags to cover variants
     for sec in soup.select("section.c-article-section, div.c-article-section"):
-        h = sec.find(["h2", "h3"], class_=re.compile(r"c-article-section__title|js-section-title"))
+        h = sec.find(
+            ["h2", "h3"],
+            class_=re.compile(r"c-article-section__title|js-section-title"),
+        )
         title = heading_text(h) if h else ""
         if not title:
             continue
@@ -333,10 +341,16 @@ def extract_nature_meta(_url: str, dom_html: str) -> dict[str, object]:
 
 # -------------------------- registrations --------------------------
 # Meta
-register_meta(r"(?:^|\.)nature\.com$", extract_nature_meta, where="host", name="Nature meta")
-register_meta(r"nature\.com/", extract_nature_meta, where="url", name="Nature meta (path)")
+register_meta(
+    r"(?:^|\.)nature\.com$", extract_nature_meta, where="host", name="Nature meta"
+)
+register_meta(
+    r"nature\.com/", extract_nature_meta, where="url", name="Nature meta (path)"
+)
 # Proxy-friendly (e.g., www-nature-com.ezproxy.*, or nature-com inside proxied URLs)
-register_meta(r"nature[-\.]com", extract_nature_meta, where="url", name="Nature meta (proxy)")
+register_meta(
+    r"nature[-\.]com", extract_nature_meta, where="url", name="Nature meta (proxy)"
+)
 
 # References
 register(r"(?:^|\.)nature\.com$", parse_nature, where="host", name="Nature references")

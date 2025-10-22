@@ -1,432 +1,383 @@
 # services/server/captures/site_parsers/oup.py
 from __future__ import annotations
 
+"""
+Oxford Academic (OUP) parser
+----------------------------
+
+Goals
+- Robustly extract abstract, keywords, and fulltext section paragraphs across
+  classic and modern OUP templates on academic.oup.com.
+- Harvest references with DOI normalization from hrefs, data attrs, or text.
+- Be defensive against figure/caption/aside noise.
+- Black- and ruff-friendly.
+
+Public API
+- extract_oup_meta(url, dom_html) -> dict[str, object]
+- parse_oup(url, dom_html) -> list[dict[str, object]]
+
+This module registers itself for host + common proxy-like patterns.
+"""
+
 import re
-from typing import cast
-from collections.abc import Iterator
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
 from . import register, register_meta
 from .base import (
-    DOI_RE,  # r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+"
-    YEAR_RE,
     augment_from_raw,
     collapse_spaces,
+    collect_paragraphs_subtree,
     dedupe_keep_order,
     dedupe_section_nodes,
     extract_from_li,
     heading_text,
 )
 
-# -------------------------- helpers --------------------------
+# --------------------------------------------------------------------------------------
+# Patterns / heuristics
+# --------------------------------------------------------------------------------------
+
+# (Crossref-ish) DOI detector
+DOI_RX = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.I)
+
+# Sections we generally treat as non-body content
 _NONCONTENT_RX = re.compile(
-    r"\b("
-    r"references?|literature\s+cited|acknowledg(?:e)?ments?|back\s*acknowledgements?|"
-    r"conflicts?\s+of\s+interest|competing\s+interests?|ethics|funding|data\s+availability|"
-    r"author(?:s)?\s+contributions?|footnotes?|supplementary(?:\s+material|\s+information)?)\b",
-    re.I,
-)
-
-_EXCLUDE_PARENTS_RX = re.compile(
-    r"\b(abstract|kwd-group|article-metadata|fig|figure|caption|table|footnote|"
-    r"ref-list|backacknowledgements|backreferences|boxed|sidebar)\b",
+    r"\b(references?|acknowledg(e)?ments?|author (information|contributions?)|"
+    r"funding|ethics|conflict of interest|competing interests?|data availability|"
+    r"supplementary (data|material)|appendix|abbreviations)\b",
     re.I,
 )
 
 
+# --------------------------------------------------------------------------------------
+# Small helpers
+# --------------------------------------------------------------------------------------
 def _txt(x: str | None) -> str:
     return collapse_spaces(x)
 
 
-def _has_class(el: Tag, *classes: str) -> bool:
-    cls = " ".join(el.get("class") or []).lower()
-    return any(c.lower() in cls for c in classes)
+def _normalize_doi(s: str | None) -> str | None:
+    if not s:
+        return None
+    val = unquote(s).strip()
+    # Trim common prefixes and trailing punctuation
+    val = re.sub(r"^(?:doi:|https?://(?:dx\.)?doi\.org/)", "", val, flags=re.I)
+    val = val.strip().rstrip(" .;,")
+    return val.lower() if val else None
 
 
-def _is_h2_section_title(h: Tag) -> bool:
-    return (
-        isinstance(h, Tag)
-        and (h.name or "").lower() == "h2"
-        and _has_class(h, "section-title", "js-splitscreen-section-title")
-    )
+def _extract_doi_from_anchor(a: Tag) -> str | None:
+    """
+    Try multiple places a DOI might hide in OUP pages:
+      - data-doi / data-analytics-* / title attrs
+      - href query param (?doi=...) or path (/doi/10.x.y)
+      - visible text as last resort
+    """
+    # 1) data/title attributes
+    for attr in ("data-doi", "data-analytics-doi", "data-analytics-link", "title"):
+        v = a.get(attr)
+        if v:
+            m = DOI_RX.search(unquote(v))
+            if m:
+                return _normalize_doi(m.group(0))
 
+    # 2) href-based
+    href = a.get("href") or ""
+    if href:
+        href_dec = unquote(href)
+        parsed = urlparse(href_dec)
 
-def _is_hx_section_title(h: Tag) -> bool:
-    return (
-        isinstance(h, Tag)
-        and (h.name or "").lower() in ("h2", "h3", "h4")
-        and (
-            _has_class(h, "section-title")
-            or _has_class(h, "js-splitscreen-section-title")
-        )
-    )
+        # 2a) explicit ?doi=...
+        qs = parse_qs(parsed.query or "")
+        if "doi" in qs and qs["doi"]:
+            m = DOI_RX.search(unquote(qs["doi"][0]))
+            if m:
+                return _normalize_doi(m.group(0))
 
+        # 2b) anywhere in the href
+        m = DOI_RX.search(href_dec)
+        if m:
+            return _normalize_doi(m.group(0))
 
-def _is_abstract_h2(h: Tag) -> bool:
-    return (
-        isinstance(h, Tag)
-        and (h.name or "").lower() == "h2"
-        and (
-            _has_class(h, "abstract-title")
-            or re.search(r"\babstract\b", heading_text(h), re.I)
-        )
-    )
+    # 3) text content
+    t = a.get_text(" ", strip=True)
+    if t:
+        m = DOI_RX.search(t)
+        if m:
+            return _normalize_doi(m.group(0))
 
-
-def _next_sibling_heading(start: Tag, names: tuple[str, ...]) -> Tag | None:
-    cur = start.next_sibling
-    names = tuple(n.lower() for n in names)
-    while cur:
-        if isinstance(cur, Tag) and (cur.name or "").lower() in names:
-            return cur
-        cur = cur.next_sibling
     return None
 
 
-def _iter_between(start: Tag, end: Tag | None) -> Iterator[object]:
-    cur = start.next_sibling
-    while cur and cur is not end:
-        yield cur
-        cur = cur.next_sibling
+def _extract_doi_from_li(li: Tag) -> str | None:
+    """
+    Prefer obvious Article/DOI anchors first, then scan all anchors, then the LI text.
+    """
+    candidates: list[Tag] = []
+    for a in li.find_all("a"):
+        text = (a.get_text(strip=True) or "").lower()
+        if "https://doi.org" in (a.get("href") or "") or "article" in text:
+            candidates.insert(0, a)
+        else:
+            candidates.append(a)
+
+    for a in candidates:
+        doi = _extract_doi_from_anchor(a)
+        if doi:
+            return doi
+
+    m = DOI_RX.search(li.get_text(" ", strip=True))
+    if m:
+        return _normalize_doi(m.group(0))
+    return None
 
 
-def _collect_paragraphs_between(a: Tag, b: Tag | None) -> list[str]:
-    out: list[str] = []
-    for node in _iter_between(a, b):
-        if not isinstance(node, Tag):
-            continue
-        if (node.name or "").lower() == "p":
-            t = _txt(node.get_text(" ", strip=True))
-            if t:
-                out.append(t)
-        elif (node.name or "").lower() in ("ul", "ol"):
-            for li in node.find_all("li", recursive=False):
-                t = _txt(li.get_text(" ", strip=True))
-                if t:
-                    out.append(t)
-    return out
+def _is_figure_descendant(node: Tag) -> bool:
+    """True if a node sits within a figure/caption/table/aside/footnotes area."""
+    return bool(
+        node.find_parent(["figure", "figcaption", "table", "aside", "footer"])
+        is not None
+    )
 
 
-# -------------------------- Abstract --------------------------
+def _clean_para_text(s: str) -> str:
+    if not s:
+        return ""
+    stripped = s.strip()
+    # Common UI crumbs in content blocks
+    if re.fullmatch(r"(download|open|view)\s+(figure|image|table)", stripped, re.I):
+        return ""
+    return stripped
+
+
+# --------------------------------------------------------------------------------------
+# Abstract / keywords / sections
+# --------------------------------------------------------------------------------------
 def _extract_abstract(soup: BeautifulSoup) -> str | None:
-    for host in soup.select("section.abstract, div.abstract"):
-        paras = [p.get_text(" ", strip=True) for p in host.find_all("p")]
-        paras = [_txt(p) for p in paras if p]
-        if paras:
-            return " ".join(paras)
-    head = soup.find(_is_abstract_h2)
-    if head:
-        nxt = _next_sibling_heading(head, ("h2",))
-        paras = _collect_paragraphs_between(head, nxt)
-        if paras:
-            return " ".join(paras)
-    return None
-
-
-# -------------------------- Keywords --------------------------
-def _extract_keywords(soup: BeautifulSoup) -> list[str]:
-    items: list[str] = []
-    for a in soup.select(
-        ".kwd-group a.kwd-part, .kwd-group span.kwd-part, "
-        ".kwd-group a.kwd-main, .kwd-group span.kwd-main"
+    """
+    OUP variants seen in the wild:
+      - <section id="abstract"> ... <p>...</p>
+      - <div class="abstract"> ... <p>...</p>
+      - Heading 'Abstract' followed by paragraphs
+    Strategy:
+      - Prefer explicit abstract hosts with id/class hints.
+      - Fallback: a heading titled 'Abstract' and paragraphs until next heading.
+    """
+    # 1) Structured abstract containers
+    for host in soup.select(
+        "section#abstract, div#abstract, section[class*='abstract' i], div[class*='abstract' i]"
     ):
-        t = _txt(a.get_text(" ", strip=True))
-        if t:
-            items.append(t)
-    if not items:
-        el = soup.find(string=re.compile(r"^\s*Keywords?\s*:", re.I))
-        if isinstance(el, str):
-            text = re.sub(r"^\s*Keywords?\s*:\s*", "", el, flags=re.I)
-            parts = [x.strip() for x in re.split(r"[;,/]|[\r\n]+", text) if x.strip()]
-            items.extend(parts)
-    items = [x for x in items if x and len(x) > 1]
-    return dedupe_keep_order(items)
+        content = host.select_one(".article-section__content") or host
+        paras = []
+        for p in content.find_all("p"):
+            if _is_figure_descendant(p):
+                continue
+            text = _clean_para_text(p.get_text(" ", strip=True))
+            if text:
+                paras.append(text)
+        if paras:
+            return " ".join(paras)
 
+    # 2) Heading-based fallback
+    for h in soup.find_all(["h2", "h3", "h4"]):
+        title = heading_text(h)
+        if re.fullmatch(r"\s*abstract\s*", title or "", re.I):
+            paras: list[str] = []
+            cur = h.next_sibling
+            while cur:
+                if isinstance(cur, Tag) and cur.name in {"h2", "h3", "h4"}:
+                    break
+                if isinstance(cur, Tag):
+                    for p in cur.find_all("p"):
+                        if _is_figure_descendant(p):
+                            continue
+                        text = _clean_para_text(p.get_text(" ", strip=True))
+                        if text:
+                            paras.append(text)
+                cur = cur.next_sibling
+            if paras:
+                return " ".join(paras)
 
-# -------------------------- Sections --------------------------
-def _article_root(soup: BeautifulSoup) -> Tag:
-    return soup.select_one("[data-widgetname='ArticleFulltext']") or soup
+    # 3) Meta description fallback
+    md = soup.find("meta", attrs={"name": re.compile(r"^description$", re.I)})
+    if md and md.get("content"):
+        content = md["content"].strip()
+        if 40 <= len(content) <= 2000:
+            return content
 
-
-def _first_content_h2(soup: BeautifulSoup) -> Tag | None:
-    for h in soup.find_all("h2"):
-        if _is_h2_section_title(h) and not re.search(
-            r"\babstract\b", heading_text(h), re.I
-        ):
-            return h
     return None
 
 
-def _extract_headless_leadin(soup: BeautifulSoup) -> list[str]:
-    root = _article_root(soup)
-    first_h2 = _first_content_h2(soup)
-    seen_abstract = False
-    leadin: list[str] = []
-    abstract_host = soup.select_one("section.abstract, div.abstract")
-    abstract_h2 = soup.find(_is_abstract_h2)
-    for el in root.descendants:
-        if not isinstance(el, Tag):
-            continue
-        if el is abstract_host or el is abstract_h2:
-            seen_abstract = True
-            continue
-        if first_h2 is not None and el is first_h2:
-            break
-        if not seen_abstract:
-            continue
-        if (el.name or "").lower() == "p":
-            if el.find_parent(["figure", "figcaption", "table", "thead", "tbody"]):
-                continue
-            if el.find_parent(class_=_EXCLUDE_PARENTS_RX):
-                continue
+def _extract_keywords(soup: BeautifulSoup) -> list[str]:
+    """
+    Variants:
+      - <section id="keywords"> ... <li>Term</li> ...
+      - <div class="kwd-group"> <span class="kwd-text">Term</span> ...
+      - Inline 'Keywords:' label near abstract
+    """
+    out: list[str] = []
+
+    # 1) Canonical keywords blocks
+    for host in soup.select(
+        "section#keywords, div#keywords, "
+        "section[class*='keyword' i], div[class*='keyword' i], "
+        "div.kwd-group, div.kwdGroup",
+    ):
+        for el in host.select("a, li, span, strong"):
             t = _txt(el.get_text(" ", strip=True))
-            if t and len(t) > 40:
-                leadin.append(t)
-    uniq, seen = [], set()
-    for p in leadin:
-        if p not in seen:
-            seen.add(p)
-            uniq.append(p)
-    return uniq
+            if t and not re.fullmatch(r"keywords?\s*:?", t, re.I):
+                out.append(t)
+
+    # 2) Inline "Keywords:" fallback
+    if not out:
+        node = soup.find(string=re.compile(r"^\s*Keywords?\s*:\s*", re.I))
+        if isinstance(node, str):
+            text = re.sub(r"^\s*Keywords?\s*:\s*", "", node, flags=re.I)
+            parts = [x.strip() for x in re.split(r"[;,/]|[\r\n]+", text) if x.strip()]
+            out.extend(parts)
+
+    out = [x for x in out if x and len(x) > 1]
+    return dedupe_keep_order(out)
 
 
 def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
-    leadin_paras = _extract_headless_leadin(soup)
-    h2s = [h for h in soup.find_all("h2") if _is_h2_section_title(h)]
-    h2s = [h for h in h2s if not re.search(r"\babstract\b", heading_text(h), re.I)]
+    """
+    OUP body sections often look like:
+      <section id="sec-...">
+        <h2>Introduction</h2>
+        <div class="..."> <p>...</p> ... </div>
+      </section>
+
+    Strategy:
+      - Find sections with headings (h2/h3) under <section> or <div>.
+      - Skip Abstract (handled separately) and administrative blocks.
+      - Collect paragraph-like text, ignoring figure/caption/aside areas.
+    """
     out: list[dict[str, object]] = []
-    for i, h2 in enumerate(h2s):
-        title = heading_text(h2)
-        if not title or _NONCONTENT_RX.search(title):
+
+    # Prefer the main/article wrapper if present
+    wrapper = soup.find("main") or soup.find("article") or soup
+
+    for sec in wrapper.select("section, div.section, div[class*='section' i]"):
+        h = sec.find(["h2", "h3"])
+        title = heading_text(h) if h else ""
+        if not title:
             continue
-        h2_end = h2s[i + 1] if i + 1 < len(h2s) else None
-        child_heads: list[Tag] = []
-        for node in _iter_between(h2, h2_end):
-            if (
-                isinstance(node, Tag)
-                and (node.name or "").lower() in ("h3", "h4")
-                and _is_hx_section_title(node)
-            ):
-                child_heads.append(node)
-        first_child = child_heads[0] if child_heads else None
-        parent_paras = _collect_paragraphs_between(h2, first_child or h2_end)
-        children: list[dict[str, object]] = []
-        for j, ch in enumerate(child_heads):
-            ch_title = heading_text(ch)
-            if not ch_title or _NONCONTENT_RX.search(ch_title):
-                continue
-            ch_end = child_heads[j + 1] if j + 1 < len(child_heads) else h2_end
-            ch_paras = _collect_paragraphs_between(ch, ch_end)
-            if ch_paras:
-                children.append({"title": ch_title, "paragraphs": ch_paras})
-        sec: dict[str, object] = {"title": title}
-        if parent_paras:
-            sec["paragraphs"] = parent_paras
-        if children:
-            sec["children"] = children
-        if sec.get("paragraphs") or sec.get("children"):
-            out.append(sec)
-    if leadin_paras:
-        intro_idx = next(
-            (
-                i
-                for i, n in enumerate(out)
-                if isinstance(n.get("title"), str)
-                and cast(str, n.get("title")).strip().lower() == "introduction"
-            ),
-            None,
+        if re.search(r"^\s*abstract\s*$", title, re.I) or _NONCONTENT_RX.search(title):
+            continue
+
+        # Prefer a content host if present
+        host = (
+            sec.select_one(
+                "div[class*='content' i], div[class*='body' i], div.section-content"
+            )
+            or sec
         )
-        if intro_idx is not None:
-            prev = cast(list[str], out[intro_idx].get("paragraphs") or [])
-            out[intro_idx]["paragraphs"] = dedupe_keep_order(leadin_paras + prev)
-        else:
-            out.insert(0, {"title": "Introduction", "paragraphs": leadin_paras})
+
+        paras: list[str] = []
+        for p in host.find_all("p"):
+            if _is_figure_descendant(p):
+                continue
+            text = _clean_para_text(p.get_text(" ", strip=True))
+            if text:
+                paras.append(_txt(text))
+
+        # Fallback: subtree collector if nothing found
+        if not paras:
+            for ptxt in collect_paragraphs_subtree(host):
+                text = _clean_para_text(ptxt)
+                if text:
+                    paras.append(_txt(text))
+
+        node: dict[str, object] = {"title": title, "paragraphs": paras}
+        if node.get("paragraphs"):
+            out.append(node)
+
     return dedupe_section_nodes(out)
 
 
-# -------------------------- References: identifiers & clean text --------------------------
-# We intentionally EXTRACT identifiers BEFORE removing the "citation-links" UI box.
-
-_DOI_HINT_SEL = (
-    # explicit doi/crossref blocks and common anchors
-    "a.link-doi, .crossref-doi a, a[href*='doi.org'], a[href*='dx.doi.org'], "
-    "a[href*='/doi/10.'], a[href*='10.']"
-)
-
-
-def _find_doi_in_attrs(tag: Tag) -> str | None:
-    # scan any attr that might contain a DOI-ish string (href, data-targetid, data-doi)
-    for attr in ("href", "data-targetid", "data-doi", "data-dx-doi", "title"):
-        v = tag.get(attr)
-        if not v:
-            continue
-        s = unquote(v)
-        m = DOI_RE.search(s)
-        if m:
-            return m.group(0)
-    return None
-
-
-def _extract_doi_anywhere(container: Tag) -> str | None:
-    # 1) scan helpful anchors first
-    for a in container.select(_DOI_HINT_SEL):
-        doi = _find_doi_in_attrs(a)
-        if doi:
-            return doi
-        # sometimes the text itself is "10.xxxx/..." (rare)
-        m = DOI_RE.search(a.get_text(" ", strip=True) or "")
-        if m:
-            return m.group(0)
-    # 2) Silverchair exposes a percent-encoded DOI in the OpenURL holder
-    for span in container.select(".inst-open-url-holders, [data-targetid]"):
-        doi = _find_doi_in_attrs(span)
-        if doi:
-            return doi
-    # 3) last resort: any DOI-looking token in the container text
-    m = DOI_RE.search(container.get_text(" ", strip=True))
-    return m.group(0) if m else None
-
-
-def _extract_pmid(container: Tag) -> str | None:
-    for a in container.select("a[href*='ncbi.nlm.nih.gov/pubmed/'], a.link-pub-id"):
-        href = a.get("href") or ""
-        m = re.search(r"/pubmed/(\d+)", href)
-        if m:
-            return m.group(1)
-    return None
-
-
-def _extract_pmcid(container: Tag) -> str | None:
-    for a in container.select("a[href*='ncbi.nlm.nih.gov/pmc/articles/PMC']"):
-        href = a.get("href") or ""
-        m = re.search(r"/pmc/articles/(PMC\d+)", href, re.I)
-        if m:
-            return m.group(1).upper()
-    return None
-
-
-def _strip_ref_noise(tag: Tag) -> None:
-    # remove UI chrome AFTER we've harvested ids
-    for sel in [
-        ".citation-links",
-        ".crossref-doi",
-        ".adsDoiReference",
-        ".xslopenurl",
-        ".worldcat-reference-ref-link",
-        ".inst-open-url-holders",
-    ]:
-        for t in tag.select(sel):
-            t.decompose()
+# --------------------------------------------------------------------------------------
+# References
+# --------------------------------------------------------------------------------------
+def _reference_items(soup: BeautifulSoup) -> list[Tag]:
+    """
+    Find reference <li> nodes across OUP variants:
+      - <section id="references"> <ol> <li>...</li> ...
+      - <div id="References"> ...
+      - Sidebar/reading-companion lists
+    Order selectors from specific to general.
+    """
+    selectors = [
+        "section#references ol > li",
+        "section#references li",
+        "div#References ol > li",
+        "div#References li",
+        "div[data-widget='articleReferences'] li",
+        "ol.citation-list > li",
+        "ol.references > li",
+        "ul.references > li",
+        # coarse fallback
+        "li[data-ref-id], li[id^='ref-'], li.reference",
+    ]
+    items: list[Tag] = []
+    seen: set[int] = set()
+    for sel in selectors:
+        hits = soup.select(sel)
+        for li in hits:
+            if not isinstance(li, Tag):
+                continue
+            if not li.get_text(strip=True):
+                continue
+            key = id(li)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(li)
+        if items and sel in (
+            "section#references ol > li",
+            "div#References ol > li",
+            "ol.citation-list > li",
+        ):
+            break
+    return items
 
 
 def parse_oup(_url: str, dom_html: str) -> list[dict[str, object]]:
     """
-    Extract references from Oxford Academic (Silverchair) pages, including:
-      • split-view ref list (.ref-list .ref-content)
-      • classic <ol/ul class="references"> forms
-
-    Adds: rec['doi'] (normalized), rec['links']['doi'], and PubMed/PMCID when present.
+    Extract references, adding normalized 'doi' and a friendly DOI link when found.
     """
     soup = BeautifulSoup(dom_html or "", "html.parser")
     out: list[dict[str, object]] = []
+    for li in _reference_items(soup):
+        # Strip obvious link-button rows to reduce noise (class names vary a lot; be conservative)
+        for extra in li.select(
+            ".ref-links, .reference-actions, .c-article-references__links"
+        ):
+            extra.decompose()
 
-    # Preferred: split-view style
-    ref_nodes = soup.select(".ref-list .ref-content")
-    if not ref_nodes:
-        ref_nodes = soup.select(".ref-list .mixed-citation, .ref-list .ref")
-
-    for node in ref_nodes:
-        if not isinstance(node, Tag):
+        base = extract_from_li(li)
+        if not base.get("raw"):
+            # Guard: skip if the item collapsed to nothing
             continue
 
-        # ----- 1) Harvest identifiers BEFORE stripping link boxes -----
-        doi = _extract_doi_anywhere(node)
-        pmid = _extract_pmid(node)
-        pmcid = _extract_pmcid(node)
+        rec = augment_from_raw(base)
 
-        # ----- 2) Clean UI chrome and get raw text -----
-        _strip_ref_noise(node)
-        raw = _txt(node.get_text(" ", strip=True))
-        if not raw:
-            continue
-
-        rec: dict[str, object] = {"raw": raw}
+        doi = _extract_doi_from_li(li)
         if doi:
-            rec["doi"] = doi
-        if pmid:
-            rec["pmid"] = pmid
-        if pmcid:
-            rec["pmcid"] = pmcid
+            if not rec.get("doi"):
+                rec["doi"] = doi
+            rec.setdefault("links", {})
+            rec["links"]["doi"] = f"https://doi.org/{rec['doi']}"
 
-        # Optional year (if exposed via a tagged <div class="year">)
-        y_el = node.find(class_=re.compile(r"\byear\b", re.I))
-        if y_el:
-            y_txt = _txt(y_el.get_text(" ", strip=True))
-            m = YEAR_RE.search(y_txt) if y_txt else None
-            if m:
-                rec["year"] = m.group(0)
-
-        # Friendly links map
-        links: dict[str, str] = {}
-        if rec.get("doi"):
-            links["doi"] = f"https://doi.org/{rec['doi']}"
-        if pmid:
-            links["pubmed"] = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-        if pmcid:
-            links["pmc"] = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
-        if links:
-            rec["links"] = links
-
-        out.append(augment_from_raw(rec))
-
-    # Fallback: list-based references (rare on OUP)
-    if not out:
-        for sel in [
-            "ol.references li",
-            "ul.references li",
-            "section#references li",
-            "section.references li",
-            "li[id^='ref']",
-            "li[id^='B']",
-            "li[id^='R']",
-        ]:
-            items = soup.select(sel)
-            for li in items:
-                if not li.get_text(strip=True):
-                    continue
-                # Try to capture DOI first
-                doi = _extract_doi_anywhere(li)
-                pmid = _extract_pmid(li)
-                pmcid = _extract_pmcid(li)
-                # Clean chrome then text
-                _strip_ref_noise(li)
-                base = extract_from_li(li)  # includes 'raw'
-                rec = augment_from_raw(base)
-                if doi:
-                    rec["doi"] = doi
-                if pmid:
-                    rec["pmid"] = pmid
-                if pmcid:
-                    rec["pmcid"] = pmcid
-                links: dict[str, str] = {}
-                if doi:
-                    links["doi"] = f"https://doi.org/{doi}"
-                if pmid:
-                    links["pubmed"] = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-                if pmcid:
-                    links["pmc"] = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
-                if links:
-                    rec["links"] = links
-                out.append(rec)
-            if out:
-                break
-
+        out.append(rec)
     return out
 
 
-# -------------------------- public entry (meta/sections) --------------------------
+# --------------------------------------------------------------------------------------
+# Public meta entry
+# --------------------------------------------------------------------------------------
 def extract_oup_meta(_url: str, dom_html: str) -> dict[str, object]:
     soup = BeautifulSoup(dom_html or "", "html.parser")
     abstract = _extract_abstract(soup)
@@ -435,26 +386,44 @@ def extract_oup_meta(_url: str, dom_html: str) -> dict[str, object]:
     return {"abstract": abstract, "keywords": keywords, "sections": sections}
 
 
-# -------------------------- registrations --------------------------
+# --------------------------------------------------------------------------------------
+# Registrations
+# --------------------------------------------------------------------------------------
 # Meta
 register_meta(
-    r"(?:^|\.)academic\.oup\.com$", extract_oup_meta, where="host", name="OUP meta"
+    r"(?:^|\.)academic\.oup\.com$",
+    extract_oup_meta,
+    where="host",
+    name="OUP meta",
 )
-register_meta(r"oup\.com/", extract_oup_meta, where="url", name="OUP meta (path)")
-
-# References
-register(r"(?:^|\.)academic\.oup\.com$", parse_oup, where="host", name="OUP references")
-register(r"oup\.com/", parse_oup, where="url", name="OUP references (path)")
-
-# Proxy-friendly routes (e.g., academic-oup-com.ezproxy.*, doi-org/ dx.doi.org via proxy hops)
 register_meta(
-    r"academic[-\.]oup[-\.]com|oup[-\.]com",
+    r"academic\.oup\.com/",
+    extract_oup_meta,
+    where="url",
+    name="OUP meta (path)",
+)
+register_meta(
+    r"oup[-\.]com",
     extract_oup_meta,
     where="url",
     name="OUP meta (proxy)",
 )
+
+# References
 register(
-    r"academic[-\.]oup[-\.]com|oup[-\.]com",
+    r"(?:^|\.)academic\.oup\.com$",
+    parse_oup,
+    where="host",
+    name="OUP references",
+)
+register(
+    r"academic\.oup\.com/",
+    parse_oup,
+    where="url",
+    name="OUP references (path)",
+)
+register(
+    r"oup[-\.]com",
     parse_oup,
     where="url",
     name="OUP references (proxy)",

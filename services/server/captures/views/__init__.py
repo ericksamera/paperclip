@@ -1,3 +1,4 @@
+# services/server/captures/views/__init__.py
 from __future__ import annotations
 
 from .captures import (
@@ -18,16 +19,8 @@ from .collections import (
     collection_download_views,
     collection_rename,
 )
-from .dashboard import (
-    collection_dashboard,
-    collection_summary_json,
-)
-from .dedup import (
-    dedup_ignore,
-    dedup_merge,
-    dedup_review,
-    dedup_scan_view,
-)
+from .dashboard import collection_dashboard, collection_summary_json
+from .dedup import dedup_ignore, dedup_merge, dedup_review, dedup_scan_view
 from .library import LibraryView, library_page
 from .qaw import collection_qaw
 

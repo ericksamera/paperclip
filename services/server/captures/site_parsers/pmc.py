@@ -1,64 +1,54 @@
 # services/server/captures/site_parsers/pmc.py
 from __future__ import annotations
 
-import re
+"""
+PubMed Central (PMC) parser
+---------------------------
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+Goals
+- Robustly extract abstract, keywords, and full-text sections across PMC HTML variants.
+- Harvest references and enrich with DOI / PMID / PMCID when available.
+- Ignore figure/caption/aside noise and inline 'Keywords:' inside the abstract.
+- Black/ruff friendly.
+
+Public API
+- extract_pmc_meta(url, dom_html) -> dict[str, object]
+- parse_pmc(url, dom_html) -> list[dict[str, object]]
+
+This module registers itself for host + common path patterns.
+"""
+
+import re
+from urllib.parse import unquote
+
+from bs4 import BeautifulSoup, Tag
 
 from . import register, register_meta
 from .base import (
     KEYWORDS_PREFIX_RX,
     augment_from_raw,
-    collect_paragraphs_subtree,  # safe fallback (guarded)
+    collect_paragraphs_subtree,
     dedupe_keep_order,
-    dedupe_section_nodes,  # section de-dupe
-    extract_from_li,  # references helpers
-    heading_text,  # titles & de-dupe
-    split_keywords_block,  # keywords helpers
+    dedupe_section_nodes,
+    extract_from_li,
+    heading_text,
+    split_keywords_block,
 )
 
+# ======================================================================================
+# Patterns / heuristics
+# ======================================================================================
 
-# ======================================================================================
-# References
-# ======================================================================================
-def parse_pmc(url: str, dom_html: str) -> list[dict[str, object]]:
-    """
-    Extracts references from PMC-style pages. Works for both:
-      - <section id="ref-list..." class="ref-list"><ol class="ref-list">...</ol></section>
-      - any <ol/ul class="ref-list">...</ol/ul> structure
-    """
-    soup = BeautifulSoup(dom_html or "", "html.parser")
-    refs: list[dict[str, object]] = []
-    # Primary: anything under a ref-list section or list with class "ref-list"
-    for li in soup.select(
-        "section.ref-list li, .ref-list li, ol.ref-list li, ul.ref-list li"
-    ):
-        if not li.get_text(strip=True):
-            continue
-        base = extract_from_li(li)
-        refs.append(augment_from_raw(base))
-    # Fallback: generic "references" lists
-    if not refs:
-        for li in soup.select("ol.references li, ul.references li"):
-            if not li.get_text(strip=True):
-                continue
-            base = extract_from_li(li)
-            refs.append(augment_from_raw(base))
-    return refs
+DOI_RX = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.I)
+PMID_RX = re.compile(r"\bpmid[:\s]*([0-9]{4,12})\b", re.I)
+PMCID_RX = re.compile(r"\bpmcid[:\s]*([A-Z]*\d{3,})\b", re.I)
 
-
-# Route by host AND by url path (references)
-register(r"(?:^|\.)pmc\.ncbi\.nlm\.nih\.gov$", parse_pmc, where="host", name="PMC host")
-register(r"ncbi\.nlm\.nih\.gov/.*/pmc/|/pmc/", parse_pmc, where="url", name="PMC path")
-# ======================================================================================
-# Meta / Sections
-# ======================================================================================
-# Common non-content section headings to skip
+# Common non-content section titles
 _NONCONTENT_RX = re.compile(
-    r"\b(references?|acknowledg(e)?ments?|author(?:s)?(?:[''\s]|\s*contributions?)|"
-    r"funding|competing interests?|conflicts? of interest|ethics|data availability|"
-    r"declarations?|footnotes?|contributor information|supplementary(?: information)?|"
-    r"associated data)\b",
+    r"\b(references?|acknowledg(e)?ments?|author(?:s)?(?:['’\s]|"
+    r"\s*contributions?)|funding|competing interests?|conflicts? of interest|"
+    r"ethics|data availability|declarations?|footnotes?|contributor information|"
+    r"supplementary(?: information)?|associated data)\b",
     re.I,
 )
 
@@ -67,78 +57,128 @@ def _txt(s: str | None) -> str:
     return re.sub(r"\s+", " ", (s or "").replace("\xa0", " ")).strip()
 
 
-# --------------------------------------------------------------------------------------
-# Keywords detection helpers (more robust than PMC-only English "Keywords:" lines)
-# --------------------------------------------------------------------------------------
-# Widely seen "Keywords" headings/labels on PMC and mirrored journals (English + a few common langs)
-_KEYWORDS_LABEL_RX = re.compile(
-    r"^\s*(keywords?|key\s*words?|" r"mots[\s-]*clés?|" r")\s*[::]?\s*$",
-    re.I,
-)
-_EXTRA_KWD_SEP_RX = re.compile(
-    r"""\s*[
-        ,;:/|\\                      # ASCII punctuation
-        \u2010-\u2015\u2212\u2043    # hyphen, en/em/figure/horizontal bar, minus, hyphen bullet
-        \u2022\u2027\u00B7\u2219\u30FB  # bullets & middle dots
-        \u3001\uFF0C\uFF1B\uFF0F       # 、 fullwidth comma/semicolon/solidus
-    ]+\s*""",
-    re.UNICODE | re.VERBOSE,
-)
+def _normalize_doi(s: str | None) -> str | None:
+    if not s:
+        return None
+    d = unquote(s).strip()
+    d = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", "", d, flags=re.I)
+    return d.strip(" .;,").lower() or None
 
 
-def _is_keywords_line(text: str) -> bool:
-    t = _txt(text)
-    if not t:
-        return False
-    # Either our broader label regex OR the shared base
-    # KEYWORDS_PREFIX_RX (if it matches at line start)
-    return bool(_KEYWORDS_LABEL_RX.match(t) or KEYWORDS_PREFIX_RX.match(t))
+def _is_junk_text(s: str) -> bool:
+    # UI crumbs frequently embedded in PMC blocks
+    return bool(re.fullmatch(r"(view|open|download)\s+(figure|image|table)", s, re.I))
 
 
-def _strip_keywords_label(text: str) -> str:
-    t = _txt(text)
-    # Remove known prefixes like "Keywords:" (from base) and our wider label set
-    t = re.sub(KEYWORDS_PREFIX_RX, "", t)
-    t = re.sub(r"^\s*(?:keywords?|key\s*words?)\s*[::]\s*", "", t, flags=re.I)
-    return t
+def _is_figure_descendant(node: Tag) -> bool:
+    return bool(node.find_parent(["figure", "figcaption", "table", "aside", "footer"]))
 
 
-def _split_keywords(text: str) -> list[str]:
+# ======================================================================================
+# References
+# ======================================================================================
+def _extract_ids_from_block(block: Tag) -> dict[str, str]:
     """
-    Use the project's splitter first; then apply a permissive extra split
-    to catch bullets/pipes/etc.
+    Pull DOI / PMID / PMCID from a reference LI's text and anchors.
     """
-    base_items = [i for i in split_keywords_block(_strip_keywords_label(text)) if i]
-    out: list[str] = []
-    for item in base_items:
-        parts = [p for p in _EXTRA_KWD_SEP_RX.split(item) if p]
-        if parts:
-            out.extend(parts)
-        else:
-            out.append(item)
-    # Normalize, dedupe, and filter trivial tokens
-    cleaned = []
-    seen_lower = set()
-    for i in (re.sub(r"\s+", " ", it).strip(" .:;,-") for it in out):
-        if not i or len(i) < 2:
+    raw = block.get_text(" ", strip=True)
+    out: dict[str, str] = {}
+
+    # 1) DOI from anchors or raw text
+    for a in block.find_all("a", href=True):
+        m = DOI_RX.search(a.get("href", "")) or DOI_RX.search(
+            a.get_text(" ", strip=True)
+        )
+        if m:
+            out["doi"] = _normalize_doi(m.group(0)) or ""
+            break
+    if "doi" not in out:
+        m = DOI_RX.search(raw)
+        if m:
+            out["doi"] = _normalize_doi(m.group(0)) or ""
+
+    # 2) PMID / PMCID (anchors or raw)
+    for a in block.find_all("a", href=True):
+        t = a.get_text(" ", strip=True)
+        href = a["href"]
+        m1 = PMID_RX.search(t) or PMID_RX.search(href)
+        m2 = PMCID_RX.search(t) or PMCID_RX.search(href)
+        if m1 and "pmid" not in out:
+            out["pmid"] = m1.group(1)
+        if m2 and "pmcid" not in out:
+            out["pmcid"] = m2.group(1)
+    if "pmid" not in out:
+        m = PMID_RX.search(raw)
+        if m:
+            out["pmid"] = m.group(1)
+    if "pmcid" not in out:
+        m = PMCID_RX.search(raw)
+        if m:
+            out["pmcid"] = m.group(1)
+
+    return out
+
+
+def parse_pmc(_url: str, dom_html: str) -> list[dict[str, object]]:
+    """
+    Extract references from PMC pages and enrich with identifiers.
+    """
+    soup = BeautifulSoup(dom_html or "", "html.parser")
+    out: list[dict[str, object]] = []
+
+    selectors = [
+        # Canonical PMC references containers
+        "section.ref-list li",
+        ".ref-list li",
+        "ol.ref-list li",
+        "ul.ref-list li",
+        # Fallbacks
+        "ol.references li",
+        "ul.references li",
+        "li[id^='ref'], li.reference",
+    ]
+    items: list[Tag] = []
+    for sel in selectors:
+        items = soup.select(sel)
+        if items:
+            break
+
+    for li in items:
+        if not li.get_text(strip=True):
             continue
-        low = i.lower()
-        if low not in seen_lower:
-            cleaned.append(i)
-            seen_lower.add(low)
-    return cleaned
+        base = extract_from_li(li)  # {"raw": "...", maybe bits}
+        rec = augment_from_raw(base)
+
+        ids = _extract_ids_from_block(li)
+        if ids.get("doi") and not rec.get("doi"):
+            rec["doi"] = ids["doi"]
+        # Provide convenient links
+        if ids:
+            links: dict[str, str] = rec.get("links", {}) or {}
+            if ids.get("doi"):
+                links["doi"] = f"https://doi.org/{ids['doi']}"
+            if ids.get("pmid"):
+                links["pmid"] = f"https://www.ncbi.nlm.nih.gov/pubmed/{ids['pmid']}/"
+            if ids.get("pmcid"):
+                links["pmc"] = (
+                    f"https://www.ncbi.nlm.nih.gov/pmc/articles/{ids['pmcid']}/"
+                )
+            rec["links"] = links
+        out.append(rec)
+
+    return out
 
 
-# ------------------------ Abstract ------------------------
-def _abstract_block(soup: BeautifulSoup) -> Tag | None:
+# ======================================================================================
+# Meta / Sections
+# ======================================================================================
+def _abstract_host(soup: BeautifulSoup) -> Tag | None:
     """
-    Find the abstract container on PMC pages. Handles variants like:
-      - <section class="abstract" id="Abs1">...</section>
-      - <section class="abstract" id="abstract1">...</section>
-      - <div class="abstract">...</div>
-      - H2/H3/H4 titled "Abstract"
+    Find the abstract container. PMC variants include:
+      - <section class="abstract" id="Abs1"> or id="abstract1"
+      - <div class="abstract"> … </div>
+      - Heading 'Abstract' followed by paragraphs
     """
-    # Common PMC abstract containers
     for sel in [
         "section.abstract",
         "section#Abs1",
@@ -150,7 +190,7 @@ def _abstract_block(soup: BeautifulSoup) -> Tag | None:
         el = soup.select_one(sel)
         if el:
             return el
-    # Fallback: H2/strong title "Abstract"
+    # Heading fallback
     for h in soup.find_all(["h2", "h3", "h4"]):
         if re.fullmatch(r"\s*abstract\s*", heading_text(h), re.I):
             return h.parent if isinstance(h.parent, Tag) else h
@@ -158,325 +198,159 @@ def _abstract_block(soup: BeautifulSoup) -> Tag | None:
 
 
 def _extract_pmc_abstract(soup: BeautifulSoup) -> str | None:
-    """
-    Collect paragraphs from the abstract block, explicitly skipping the inline keywords
-    block (e.g. <section class="kwd-group"> with "<strong>Keywords:</strong> ..."),
-    which often sits inside the abstract container in PMC.
-    """
-    host = _abstract_block(soup)
+    host = _abstract_host(soup)
     if not host:
         return None
     paras: list[str] = []
     for p in host.find_all("p"):
-        # Skip any <p> that sits inside a keywords container (kwd-group),
-        # or that itself is a "Keywords:" line.
-        if p.find_parent(class_=re.compile(r"\bkwd-group\b", re.I)):
+        if _is_figure_descendant(p):
             continue
-        t = _txt(p.get_text(" ", strip=True))
-        if not t:
+        text = _txt(p.get_text(" ", strip=True))
+        # Skip inline "Keywords:" paragraph often embedded in abstract
+        if KEYWORDS_PREFIX_RX.match(text):
             continue
-        if KEYWORDS_PREFIX_RX.match(t) or _KEYWORDS_LABEL_RX.match(t):
-            continue
-        paras.append(t)
+        if text and not _is_junk_text(text):
+            paras.append(text)
     return " ".join(paras) if paras else None
-
-
-# ------------------------ Keywords ------------------------
-def _harvest_keywords_from_host(host: Tag) -> list[str]:
-    """
-    Pull keywords out of a given 'kwd-group' (or similar) container.
-    Supports list and inline formats.
-    """
-    items: list[str] = []
-    # List style: <ul><li>...</li></ul> or <ol>...
-    for li in host.select("li"):
-        t = _txt(li.get_text(" ", strip=True))
-        if t:
-            items.extend(_split_keywords(t))
-    # Inline paragraph style like: "<p><strong>Keywords:</strong> term1, term2 ...</p>"
-    for p in host.find_all("p"):
-        t = _txt(p.get_text(" ", strip=True))
-        if not t:
-            continue
-        if _is_keywords_line(t) or any(
-            ch in t for ch in (",", ";", "/", "|", "•", "·", "・")
-        ):
-            items.extend(_split_keywords(t))
-    # Sometimes keywords are placed into spans/anchors
-    for el in host.select("a, span"):
-        t = _txt(el.get_text(" ", strip=True))
-        if t and not _is_keywords_line(t):
-            items.extend(_split_keywords(t))
-    return items
 
 
 def _extract_pmc_keywords(soup: BeautifulSoup) -> list[str]:
     """
-    Extract keywords from standard PMC keyword locations, including inline
-    (<p><strong>Keywords:</strong> ...</p>), list formats, headings titled "Keywords",
-    and a few common non-English labels. Also falls back to <meta> tags (citation_keywords/DC).
+    PMC commonly uses:
+      <sec class="kwd-group"> <p><strong>Keywords:</strong> foo; bar …</p>
     """
-    items: list[str] = []
-    # Primary containers used by PMC (incl. when nested inside Abstract)
-    keyword_hosts = soup.select(
-        "section.kwd-group, div.kwd-group, #kwd-group, [id^='kwd-group'], "
-        ".kwd-group, [class*='kwd' i], [class*='keyword' i]"
+    # 1) Structured keywords hosts
+    for host in soup.select(
+        "section.kwd-group, sec.kwd-group, div.kwd-group, div.kwdGroup"
+    ):
+        texts = [
+            el.get_text(" ", strip=True) for el in host.find_all(["p", "li", "span"])
+        ]
+        blob = " | ".join(t for t in texts if t)
+        if blob:
+            items = split_keywords_block(blob)
+            return dedupe_keep_order(items)
+
+    # 2) Fallback: inline "Keywords: ..." anywhere
+    m = soup.find(string=KEYWORDS_PREFIX_RX)
+    if isinstance(m, str):
+        return dedupe_keep_order(split_keywords_block(m))
+
+    return []
+
+
+def _main_wrapper(soup: BeautifulSoup) -> Tag:
+    """
+    Prefer a main/article wrapper if present to limit section scanning.
+    """
+    return (
+        soup.find("article") or soup.find("main") or soup.find(id="maincontent") or soup
     )
-    for host in keyword_hosts:
-        items.extend(_harvest_keywords_from_host(host))
-    # Headings literally named "Keywords" (or language variants) with content right after them
-    # e.g., <h3>Keywords</h3><p>...</p> or <ul><li>...</li></ul>
-    if not items:
-        for h in soup.find_all(["h2", "h3", "h4"]):
-            ht = heading_text(h)
-            if _KEYWORDS_LABEL_RX.match(ht or ""):
-                sib = h.find_next_sibling()
-                while sib and isinstance(sib, Tag | NavigableString):
-                    if isinstance(sib, Tag) and sib.name in ("h2", "h3", "h4"):
-                        break  # stop at next section heading
-                    if isinstance(sib, Tag):
-                        # harvest text from immediate paragraph/list siblings
-                        if sib.name in ("p", "div"):
-                            t = _txt(sib.get_text(" ", strip=True))
-                            if t:
-                                items.extend(_split_keywords(t))
-                        for li in sib.find_all("li"):
-                            t = _txt(li.get_text(" ", strip=True))
-                            if t:
-                                items.extend(_split_keywords(t))
-                    sib = sib.next_sibling
-    # Fallback 1: a stray "Keywords:" paragraph anywhere
-    if not items:
-        for p in soup.find_all(["p", "div"]):
-            t = _txt(p.get_text(" ", strip=True))
-            if _is_keywords_line(t):
-                items.extend(_split_keywords(t))
-    # Fallback 2: <meta ...> variants commonly used in PMC mirrors
-    if not items:
-        for m in soup.select(
-            'meta[name*="keyword" i], meta[name="dc.Subject" i], meta[name="citation_keywords" i]'
-        ):
-            content = _txt(m.get("content"))
-            if content:
-                items.extend(_split_keywords(content))
-    # Final cleanup & de-dupe
-    items = [_txt(i) for i in items if i and len(i) > 1]
-    items = [i for i in items if not _is_keywords_line(i)]
-    return dedupe_keep_order(items)
 
 
-# ------------------------ Sections ------------------------
-def _paras_excluding_child_sections(sec: Tag) -> list[str]:
-    """
-    Collect <p>/<li> that belong to THIS section, skipping those inside nested <section> children.
-    """
+def _collect_section_paras(root: Tag) -> list[str]:
     out: list[str] = []
-    for p in sec.find_all("p"):
-        par_sec = p.find_parent("section")
-        if par_sec is not None and par_sec is not sec:
+    # Prefer <p> and list items in this subtree; ignore figure-like regions.
+    for p in root.find_all("p"):
+        if _is_figure_descendant(p):
             continue
         t = _txt(p.get_text(" ", strip=True))
-        if t:
+        if t and not _is_junk_text(t):
             out.append(t)
-    for li in sec.find_all("li"):
-        li_sec = li.find_parent("section")
-        if li_sec is not None and li_sec is not sec:
+    for li in root.find_all("li"):
+        if _is_figure_descendant(li):
             continue
         t = _txt(li.get_text(" ", strip=True))
-        if t:
+        if t and not _is_junk_text(t):
             out.append(t)
+    # Fallback to broad subtree collection if nothing was found
+    if not out:
+        for t in collect_paragraphs_subtree(root):
+            tt = _txt(t)
+            if tt and not _is_junk_text(tt):
+                out.append(tt)
     return out
 
 
-def _parse_pmc_section(sec: Tag) -> dict[str, object] | None:
+def _pmc_section_nodes(wrapper: Tag) -> list[dict[str, object]]:
     """
-    Turn a <section> into a structured node: {title, paragraphs?, children?}
+    Strategy:
+      - Use explicit section titles (class 'pmc_sec_title') when available.
+      - Otherwise segment by H2/H3/H4 headings within the wrapper.
+      - Skip 'Abstract' and admin-like sections via _NONCONTENT_RX.
     """
-    h = sec.find(
-        ["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)
-    ) or sec.find(["h2", "h3", "h4"])
-    title = heading_text(h) if h else ""
-    if (
-        not title
-        or _NONCONTENT_RX.search(title)
-        or re.fullmatch(r"\s*abstract\s*", title, re.I)
-    ):
-        return None
-    # Paragraphs that belong to THIS section (exclude nested subsections)
-    paras = _paras_excluding_child_sections(sec)
-    # 🚫 Do NOT fall back to subtree text if the section has immediate subsections.
-    has_immediate_subsections = bool(sec.find_all("section", recursive=False))
-    if not paras and not has_immediate_subsections:
-        # Conservative fallback only when there are no subsection children at all.
-        paras = [t for t in collect_paragraphs_subtree(sec) if t]
-    node: dict[str, object] = {"title": title, "paragraphs": paras}
-    # Children: any immediate subsection <section> under this section
-    children: list[dict[str, object]] = []
-    for child in sec.find_all("section", recursive=False):
-        kid = _parse_pmc_section(child)
-        if kid and (kid.get("title") or kid.get("paragraphs") or kid.get("children")):
-            children.append(kid)
-    if children:
-        node["children"] = children
-    # Keep the node if it has something useful
-    if node.get("title") or node.get("paragraphs") or node.get("children"):
-        return node
-    return None
-
-
-def _headless_leadin_paragraphs(soup: BeautifulSoup) -> list[str]:
-    """
-    Collect narrative paragraphs that appear *before* the first real content section.
-    Skips Abstract/Keywords/figure/caption/table blocks. Returns a clean list of strings.
-    """
-    from bs4 import Tag
-
-    def _txt(s: str | None) -> str:
-        return re.sub(r"\s+", " ", (s or "").replace("\xa0", " ")).strip()
-
-    # Find the article wrapper that contains the body content.
-    root = (
-        soup.select_one("section.body.main-article-body")
-        or soup.select_one("section#main-article-body")
-        or soup.find("article")
-        or soup.find("main")
-        or soup.body
-        or soup
-    )
-
-    # Where does the first content section start?
-    first_sec = None
-    # A "content section" is a <section> that has a heading and isn't non-content/abstract.
-    for sec in root.find_all("section"):
-        h = sec.find(
-            ["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)
-        ) or sec.find(["h2", "h3", "h4"])
-        title = heading_text(h) if h else ""
-        if not title:
-            continue
-        if re.fullmatch(r"\s*abstract\s*", title or "", re.I):
-            continue
-        if _NONCONTENT_RX.search(title or ""):
-            continue
-        first_sec = sec
-        break
-
-    # Walk nodes in document order until first_sec, picking only paragraphs that are NOT
-    # inside obvious non-content hosts (figures, tables, footnotes, keyword groups, etc.).
-    out: list[str] = []
-    stop_node = first_sec
-    for el in root.descendants:
-        if el is stop_node:
-            break
-        if not isinstance(el, Tag):
-            continue
-        # Skip containers that are clearly non-content or part of the abstract/keywords
-        if el.find_parent(
-            [
-                "figure",
-                "figcaption",
-                "table",
-                "thead",
-                "tbody",
-                "footer",
-                "aside",
-            ]
-        ):
-            continue
-        cls = " ".join(el.get("class") or []).lower()
-        if any(
-            k in cls
-            for k in ("kwd", "keyword", "ref-list", "references", "back", "footnote")
-        ):
-            continue
-        # Accept only paragraph/list text for the lead-in
-        if el.name == "p":
-            t = _txt(el.get_text(" ", strip=True))
-            if t and len(t) > 40:  # avoid tiny crumbs like “Open in a new tab”
-                out.append(t)
-        elif el.name in ("ul", "ol"):
-            for li in el.find_all("li", recursive=False):
-                t = _txt(li.get_text(" ", strip=True))
-                if t and len(t) > 2:
-                    out.append(t)
-    # De-dup consecutive repeats; keep it short
-    seen = set()
-    uniq: list[str] = []
-    for p in out:
-        if p not in seen:
-            seen.add(p)
-            uniq.append(p)
-    return uniq[:6]
-
-
-def _extract_pmc_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
-    """
-    Build a section tree from PMC body. Robust to:
-      - lowercased ids like id="sec1", id="sec2", ...
-      - top-level H3/H4 headings accidentally used at top-level (e.g., "sec5" with <h3>)
-      - presence of Abstract/References blocks among siblings
-      - **headless** articles (adds a synthetic 'Introduction' before the first section)
-    """
-    # Locate the main document wrapper
-    wrapper = (
-        soup.select_one("section.body.main-article-body")
-        or soup.select_one("section#main-article-body")
-        or soup.find("article")
-        or soup.find("main")
-        or soup
-    )
-    top_secs: list[Tag] = []
-    # Preferred: top-level <section> elements (direct children) with some heading
-    for s in wrapper.find_all("section", recursive=False):
-        h = s.find(
-            ["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)
-        ) or s.find(["h2", "h3", "h4"])
-        if h:
-            top_secs.append(s)
-    # Fallback: any <section id="sec..."> that's not nested under another such section
-    if not top_secs:
-        for s in wrapper.find_all("section", id=re.compile(r"^sec", re.I)):
-            h = s.find(
-                ["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)
-            ) or s.find(["h2", "h3", "h4"])
-            if not h:
-                continue
-            parent = s.find_parent("section")
-            keep = True
-            while parent and parent is not wrapper:
-                if re.match(r"^sec", (parent.get("id") or ""), re.I):
-                    keep = False
-                    break
-                parent = parent.find_parent("section")
-            if keep:
-                top_secs.append(s)
-
-    # Parse each top-level section into a node
     nodes: list[dict[str, object]] = []
-    for sec in top_secs:
-        node = _parse_pmc_section(sec)
-        if node:
+
+    # Prefer explicit PMC section title nodes
+    titled = wrapper.select(".pmc_sec_title")
+    headings = titled or wrapper.find_all(["h2", "h3", "h4"])
+
+    for idx, h in enumerate(headings):
+        title = heading_text(h)
+        if (
+            not title
+            or re.fullmatch(r"\s*abstract\s*", title, re.I)
+            or _NONCONTENT_RX.search(title)
+        ):
+            continue
+
+        # Determine the end boundary: next heading of similar level (or any)
+        end = None
+        for k in range(idx + 1, len(headings)):
+            end = headings[k]
+            break
+
+        # Build a temporary container of siblings between h and end
+        # (avoid mutating original DOM)
+        tmp_soup = BeautifulSoup("", "html.parser")
+        container: Tag = tmp_soup.new_tag("div")
+        sib = h.next_sibling
+        while sib and sib is not end:
+            if isinstance(sib, Tag):
+                container.append(sib)
+            sib = getattr(sib, "next_sibling", None)
+
+        paras = _collect_section_paras(container)
+        node: dict[str, object] = {"title": title}
+        if paras:
+            node["paragraphs"] = paras
+        if node.get("paragraphs"):
             nodes.append(node)
 
-    # If there is **no explicit Introduction** section, synthesize one from lead-in paragraphs.
+    # If there is no explicit "Introduction", synthesize from lead-in text
     has_intro = any(
-        isinstance(n.get("title"), str)
-        and str(n["title"]).strip().lower() == "introduction"
+        isinstance(n.get("title"), str) and n["title"].strip().lower() == "introduction"
         for n in nodes
     )
     if not has_intro:
-        leadin = _headless_leadin_paragraphs(soup)
+        # Lead-in: paragraphs after abstract and before the first heading
+        leadin: list[str] = []
+        first_head = headings[0] if headings else None
+        start = _abstract_host(wrapper) or wrapper
+        cur = getattr(start, "next_sibling", None)
+        while cur and cur is not first_head:
+            if isinstance(cur, Tag):
+                for p in cur.find_all("p"):
+                    if _is_figure_descendant(p):
+                        continue
+                    t = _txt(p.get_text(" ", strip=True))
+                    if t and not _is_junk_text(t):
+                        leadin.append(t)
+            cur = getattr(cur, "next_sibling", None)
         if leadin:
             nodes.insert(0, {"title": "Introduction", "paragraphs": leadin})
 
-    # Normalized de-duplication
     return dedupe_section_nodes(nodes)
+
+
+def _extract_pmc_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
+    wrapper = _main_wrapper(soup)
+    return _pmc_section_nodes(wrapper)
 
 
 def extract_pmc_meta(_url: str, dom_html: str) -> dict[str, object]:
     """
-    Return {"abstract": str|None, "keywords": [str],
-    "sections": [{title, paragraphs, children?}]}.
+    Return {"abstract": str|None, "keywords": [str], "sections": [ {title, paragraphs} ]}.
     """
     soup = BeautifulSoup(dom_html or "", "html.parser")
     abstract = _extract_pmc_abstract(soup)
@@ -485,7 +359,21 @@ def extract_pmc_meta(_url: str, dom_html: str) -> dict[str, object]:
     return {"abstract": abstract, "keywords": keywords, "sections": sections}
 
 
-# Register meta/sections at import time so the router always has PMC headers.
+# ======================================================================================
+# Registrations
+# ======================================================================================
+# References (host + path)
+register(
+    r"(?:^|\.)pmc\.ncbi\.nlm\.nih\.gov$", parse_pmc, where="host", name="PMC references"
+)
+register(
+    r"ncbi\.nlm\.nih\.gov/.*/pmc/|/pmc/",
+    parse_pmc,
+    where="url",
+    name="PMC references (path)",
+)
+
+# Meta/sections (host + path)
 register_meta(
     r"(?:^|\.)pmc\.ncbi\.nlm\.nih\.gov$",
     extract_pmc_meta,
