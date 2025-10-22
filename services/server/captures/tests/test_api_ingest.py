@@ -57,10 +57,14 @@ class ApiIngestTests(TestCase):
         # See: services/server/paperclip/api.py
         with (
             override_settings(ARTIFACTS_DIR=artifacts_dir, ANALYSIS_DIR=analysis_dir),
-            patch("captures.artifacts.build_server_parsed", return_value={"id": "stubbed"}),
+            patch(
+                "captures.artifacts.build_server_parsed", return_value={"id": "stubbed"}
+            ),
         ):
             resp = client.post(
-                "/api/captures/", data=json.dumps(payload), content_type="application/json"
+                "/api/captures/",
+                data=json.dumps(payload),
+                content_type="application/json",
             )
             self.assertEqual(resp.status_code, 201, resp.content)
             data = resp.json()
@@ -74,8 +78,12 @@ class ApiIngestTests(TestCase):
             self.assertEqual(cap.doi, "10.9999/xyz.abc")
             self.assertEqual(cap.year, "2020")
             # Meta should be merged with container_title + keywords
-            self.assertEqual((cap.meta or {}).get("container_title"), "Journal of Testing")
-            self.assertEqual((cap.meta or {}).get("keywords"), ["alpha", "beta", "gamma"])
+            self.assertEqual(
+                (cap.meta or {}).get("container_title"), "Journal of Testing"
+            )
+            self.assertEqual(
+                (cap.meta or {}).get("keywords"), ["alpha", "beta", "gamma"]
+            )
             # Artifacts written
             cap_dir = artifacts_dir / str(cap_id)
             self.assertTrue((cap_dir / "doc.json").exists())

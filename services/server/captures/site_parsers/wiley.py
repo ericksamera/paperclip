@@ -411,7 +411,11 @@ def _parse_subsection_block(block: Tag) -> dict[str, object] | None:
         node_dict["children"] = kids
     return (
         node_dict
-        if (node_dict.get("title") or node_dict.get("paragraphs") or node_dict.get("children"))
+        if (
+            node_dict.get("title")
+            or node_dict.get("paragraphs")
+            or node_dict.get("children")
+        )
         else None
     )
 
@@ -427,7 +431,11 @@ def _extract_wiley_sections_structured(wrapper: Tag) -> list[dict[str, object]]:
         top_secs = [
             d
             for d in wrapper.select("div.article-section__content")
-            if not (d.find_parent("section", class_=re.compile(r"article-section__abstract", re.I)))
+            if not (
+                d.find_parent(
+                    "section", class_=re.compile(r"article-section__abstract", re.I)
+                )
+            )
         ]
     out: list[dict[str, object]] = []
     for sec in top_secs:
@@ -450,7 +458,9 @@ def _extract_wiley_sections_structured(wrapper: Tag) -> list[dict[str, object]]:
         for child in sec.find_all(True, recursive=False):
             if _is_subsection_container(child):
                 kid = _parse_subsection_block(child)
-                if kid and (kid.get("title") or kid.get("paragraphs") or kid.get("children")):
+                if kid and (
+                    kid.get("title") or kid.get("paragraphs") or kid.get("children")
+                ):
                     children.append(kid)
         if children:
             node["children"] = children
@@ -464,7 +474,9 @@ def _extract_wiley_sections_heading_runs(wrapper: Tag) -> list[dict[str, object]
     Fallback: segment by runs of H2.article-section__title, respecting nested subsections.
     """
     out: list[dict[str, object]] = []
-    headings = wrapper.select("h2.article-section__title, h2[class*='article-section__title' i]")
+    headings = wrapper.select(
+        "h2.article-section__title, h2[class*='article-section__title' i]"
+    )
     if not headings:
         return out
 
@@ -474,7 +486,9 @@ def _extract_wiley_sections_heading_runs(wrapper: Tag) -> list[dict[str, object]
             if (
                 isinstance(cur, Tag)
                 and cur.name == "h2"
-                and ("article-section__title" in " ".join(cur.get("class") or []).lower())
+                and (
+                    "article-section__title" in " ".join(cur.get("class") or []).lower()
+                )
             ):
                 return cur
             cur = cur.next_sibling
@@ -507,7 +521,9 @@ def _extract_wiley_sections_heading_runs(wrapper: Tag) -> list[dict[str, object]
         for child in container.find_all(True, recursive=False):
             if _is_subsection_container(child):
                 kid = _parse_subsection_block(child)
-                if kid and (kid.get("title") or kid.get("paragraphs") or kid.get("children")):
+                if kid and (
+                    kid.get("title") or kid.get("paragraphs") or kid.get("children")
+                ):
                     children.append(kid)
         if children:
             node["children"] = children
@@ -548,13 +564,22 @@ def extract_wiley_meta(_url: str, dom_html: str) -> dict[str, object]:
 # -------------------------- registrations --------------------------
 # References (host + common proxy)
 register(
-    r"(?:^|\.)onlinelibrary\.wiley\.com$", parse_wiley, where="host", name="Wiley Online Library"
+    r"(?:^|\.)onlinelibrary\.wiley\.com$",
+    parse_wiley,
+    where="host",
+    name="Wiley Online Library",
 )
 register(r"onlinelibrary[-\.]wiley", parse_wiley, where="url", name="Wiley (proxy)")
 # Meta/sections (host + common proxy)
 register_meta(
-    r"(?:^|\.)onlinelibrary\.wiley\.com$", extract_wiley_meta, where="host", name="Wiley meta"
+    r"(?:^|\.)onlinelibrary\.wiley\.com$",
+    extract_wiley_meta,
+    where="host",
+    name="Wiley meta",
 )
 register_meta(
-    r"onlinelibrary[-\.]wiley", extract_wiley_meta, where="url", name="Wiley meta (proxy)"
+    r"onlinelibrary[-\.]wiley",
+    extract_wiley_meta,
+    where="url",
+    name="Wiley meta (proxy)",
 )

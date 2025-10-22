@@ -4,7 +4,9 @@ from __future__ import annotations
 from typing import Any
 
 from captures.head_meta import extract_head_meta
-from captures.site_parsers import extract_sections_meta  # site-aware meta/sections (best-effort)
+from captures.site_parsers import (
+    extract_sections_meta,
+)  # site-aware meta/sections (best-effort)
 
 from .sections_fallbacks import fallbacks as _fallbacks
 
@@ -37,7 +39,9 @@ def _merge_keywords(*sources: object) -> list[str]:
     return out
 
 
-def robust_parse(*, url: str | None, content_html: str, dom_html: str) -> dict[str, Any]:
+def robust_parse(
+    *, url: str | None, content_html: str, dom_html: str
+) -> dict[str, Any]:
     """
     Compose strong meta + site-specific sections + generic fallbacks into one shape.
     This version avoids a BeautifulSoup pass for <head> unless needed.
@@ -57,7 +61,9 @@ def robust_parse(*, url: str | None, content_html: str, dom_html: str) -> dict[s
 
     # 3) Merge meta - only call extract_head_meta (soup) if a core field is missing
     mu: dict[str, Any] = {}
-    mu.update({k: v for k, v in fb_meta.items() if k not in {"title", "doi", "issued_year"}})
+    mu.update(
+        {k: v for k, v in fb_meta.items() if k not in {"title", "doi", "issued_year"}}
+    )
     if url and not mu.get("url"):
         mu["url"] = url
 

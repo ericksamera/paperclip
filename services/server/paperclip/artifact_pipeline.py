@@ -24,7 +24,9 @@ def build_and_write_all(
         dom_html=dom_html,
     )
     # 3) Canonical normalization (single parse into typed schema)
-    server_parsed = build_server_parsed(_capture_stub(capture_id, extraction), extraction)
+    server_parsed = build_server_parsed(
+        _capture_stub(capture_id, extraction), extraction
+    )
     write_json_artifact(capture_id, "server_parsed.json", server_parsed)
     # 4) Reduced projection for the UI (canonical only; no legacy alias)
     reduced = build_reduced_view(

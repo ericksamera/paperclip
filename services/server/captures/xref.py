@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 from urllib.parse import quote
 
 import requests
@@ -51,7 +51,9 @@ def _cache_put(doi: str, csl: dict) -> None:
     _CACHE_MEM[key] = csl
     with suppress(Exception):
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _cache_path(key).write_text(json.dumps(csl, ensure_ascii=False), encoding="utf-8")
+        _cache_path(key).write_text(
+            json.dumps(csl, ensure_ascii=False), encoding="utf-8"
+        )
 
 
 # ---------- helpers: light normalization into our CSL TypedDict ----------
@@ -67,7 +69,7 @@ def _norm_str_or_first(v: Any) -> str:
 def _normalize_csl(raw: dict[str, Any]) -> CSL:
     """Return a tiny, normalized CSL dict (keeps only fields we actually use)."""
     authors: List[CSLAuthor] = []
-    for a in (raw.get("author") or []):
+    for a in raw.get("author") or []:
         if not isinstance(a, dict):
             continue
         fam = str(a.get("family") or a.get("last") or "").strip()
@@ -100,14 +102,21 @@ def _fetch_csl_for_doi(doi: str) -> Optional[CSL]:
     cached = _cache_get(doi)
     if cached:
         # tolerate either raw crossref or our normalized shape in cache
-        c = cached if "container_title" in cached or "container-title" in cached else cached
+        c = (
+            cached
+            if "container_title" in cached or "container-title" in cached
+            else cached
+        )
         return _normalize_csl(c)  # idempotent if already normalized
     try:
         url = f"https://api.crossref.org/v1/works/{doi}/transform/application/vnd.citationstyles.csl+json"
         r = requests.get(
             url,
             timeout=ENRICH_TIMEOUT,
-            headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.citationstyles.csl+json"},
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "application/vnd.citationstyles.csl+json",
+            },
         )
         if r.ok:
             csl_raw = r.json()
@@ -144,7 +153,9 @@ def _apa_from_csl(csl: CSL, doi: str) -> str:
     names = _family_given_list(csl)
     if names:
         if len(names) == 1:
-            authors = _name_abbrev(names[0].get("family", ""), names[0].get("given", ""))
+            authors = _name_abbrev(
+                names[0].get("family", ""), names[0].get("given", "")
+            )
         elif len(names) == 2:
             a = _name_abbrev(names[0].get("family", ""), names[0].get("given", ""))
             b = _name_abbrev(names[1].get("family", ""), names[1].get("given", ""))
@@ -222,7 +233,9 @@ def enrich_reference_via_crossref(ref: Any) -> Optional[dict[str, Any]]:
 
 
 def enrich_capture_via_crossref(cap: Any) -> Optional[dict[str, Any]]:
-    doi = norm_doi(getattr(cap, "doi", "") or (getattr(cap, "meta", {}) or {}).get("doi") or "")
+    doi = norm_doi(
+        getattr(cap, "doi", "") or (getattr(cap, "meta", {}) or {}).get("doi") or ""
+    )
     if not doi:
         return None
     csl = _fetch_csl_for_doi(doi)

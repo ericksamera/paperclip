@@ -39,7 +39,9 @@ def _coerce_section_node(obj: object) -> SectionNode:
     paragraphs = _as_list_str(obj.get("paragraphs"))
     children_raw = obj.get("children")
     children: List[SectionNode] = []
-    if isinstance(children_raw, Iterable) and not isinstance(children_raw, (str, bytes)):
+    if isinstance(children_raw, Iterable) and not isinstance(
+        children_raw, (str, bytes)
+    ):
         for ch in children_raw:
             children.append(_coerce_section_node(ch))
     node: SectionNode = SectionNode()
@@ -68,7 +70,9 @@ def _coerce_sections(obj: object) -> ReducedSections:
     # sections
     sections_raw = obj.get("sections")
     nodes: List[SectionNode] = []
-    if isinstance(sections_raw, Iterable) and not isinstance(sections_raw, (str, bytes)):
+    if isinstance(sections_raw, Iterable) and not isinstance(
+        sections_raw, (str, bytes)
+    ):
         for n in sections_raw:
             node = _coerce_section_node(n)
             if node.get("title") or node.get("paragraphs") or node.get("children"):

@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup, Tag
 
 from . import register, register_meta
 from .base import (
-    DOI_RE,            # r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+"
+    DOI_RE,  # r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+"
     YEAR_RE,
     augment_from_raw,
     collapse_spaces,
@@ -35,12 +35,15 @@ _EXCLUDE_PARENTS_RX = re.compile(
     re.I,
 )
 
+
 def _txt(x: str | None) -> str:
     return collapse_spaces(x)
+
 
 def _has_class(el: Tag, *classes: str) -> bool:
     cls = " ".join(el.get("class") or []).lower()
     return any(c.lower() in cls for c in classes)
+
 
 def _is_h2_section_title(h: Tag) -> bool:
     return (
@@ -49,19 +52,28 @@ def _is_h2_section_title(h: Tag) -> bool:
         and _has_class(h, "section-title", "js-splitscreen-section-title")
     )
 
+
 def _is_hx_section_title(h: Tag) -> bool:
     return (
         isinstance(h, Tag)
         and (h.name or "").lower() in ("h2", "h3", "h4")
-        and (_has_class(h, "section-title") or _has_class(h, "js-splitscreen-section-title"))
+        and (
+            _has_class(h, "section-title")
+            or _has_class(h, "js-splitscreen-section-title")
+        )
     )
+
 
 def _is_abstract_h2(h: Tag) -> bool:
     return (
         isinstance(h, Tag)
         and (h.name or "").lower() == "h2"
-        and (_has_class(h, "abstract-title") or re.search(r"\babstract\b", heading_text(h), re.I))
+        and (
+            _has_class(h, "abstract-title")
+            or re.search(r"\babstract\b", heading_text(h), re.I)
+        )
     )
+
 
 def _next_sibling_heading(start: Tag, names: tuple[str, ...]) -> Tag | None:
     cur = start.next_sibling
@@ -72,11 +84,13 @@ def _next_sibling_heading(start: Tag, names: tuple[str, ...]) -> Tag | None:
         cur = cur.next_sibling
     return None
 
+
 def _iter_between(start: Tag, end: Tag | None) -> Iterator[object]:
     cur = start.next_sibling
     while cur and cur is not end:
         yield cur
         cur = cur.next_sibling
+
 
 def _collect_paragraphs_between(a: Tag, b: Tag | None) -> list[str]:
     out: list[str] = []
@@ -94,6 +108,7 @@ def _collect_paragraphs_between(a: Tag, b: Tag | None) -> list[str]:
                     out.append(t)
     return out
 
+
 # -------------------------- Abstract --------------------------
 def _extract_abstract(soup: BeautifulSoup) -> str | None:
     for host in soup.select("section.abstract, div.abstract"):
@@ -108,6 +123,7 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
         if paras:
             return " ".join(paras)
     return None
+
 
 # -------------------------- Keywords --------------------------
 def _extract_keywords(soup: BeautifulSoup) -> list[str]:
@@ -128,15 +144,20 @@ def _extract_keywords(soup: BeautifulSoup) -> list[str]:
     items = [x for x in items if x and len(x) > 1]
     return dedupe_keep_order(items)
 
+
 # -------------------------- Sections --------------------------
 def _article_root(soup: BeautifulSoup) -> Tag:
     return soup.select_one("[data-widgetname='ArticleFulltext']") or soup
 
+
 def _first_content_h2(soup: BeautifulSoup) -> Tag | None:
     for h in soup.find_all("h2"):
-        if _is_h2_section_title(h) and not re.search(r"\babstract\b", heading_text(h), re.I):
+        if _is_h2_section_title(h) and not re.search(
+            r"\babstract\b", heading_text(h), re.I
+        ):
             return h
     return None
+
 
 def _extract_headless_leadin(soup: BeautifulSoup) -> list[str]:
     root = _article_root(soup)
@@ -169,6 +190,7 @@ def _extract_headless_leadin(soup: BeautifulSoup) -> list[str]:
             seen.add(p)
             uniq.append(p)
     return uniq
+
 
 def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
     leadin_paras = _extract_headless_leadin(soup)
@@ -223,6 +245,7 @@ def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
             out.insert(0, {"title": "Introduction", "paragraphs": leadin_paras})
     return dedupe_section_nodes(out)
 
+
 # -------------------------- References: identifiers & clean text --------------------------
 # We intentionally EXTRACT identifiers BEFORE removing the "citation-links" UI box.
 
@@ -231,6 +254,7 @@ _DOI_HINT_SEL = (
     "a.link-doi, .crossref-doi a, a[href*='doi.org'], a[href*='dx.doi.org'], "
     "a[href*='/doi/10.'], a[href*='10.']"
 )
+
 
 def _find_doi_in_attrs(tag: Tag) -> str | None:
     # scan any attr that might contain a DOI-ish string (href, data-targetid, data-doi)
@@ -243,6 +267,7 @@ def _find_doi_in_attrs(tag: Tag) -> str | None:
         if m:
             return m.group(0)
     return None
+
 
 def _extract_doi_anywhere(container: Tag) -> str | None:
     # 1) scan helpful anchors first
@@ -263,6 +288,7 @@ def _extract_doi_anywhere(container: Tag) -> str | None:
     m = DOI_RE.search(container.get_text(" ", strip=True))
     return m.group(0) if m else None
 
+
 def _extract_pmid(container: Tag) -> str | None:
     for a in container.select("a[href*='ncbi.nlm.nih.gov/pubmed/'], a.link-pub-id"):
         href = a.get("href") or ""
@@ -271,6 +297,7 @@ def _extract_pmid(container: Tag) -> str | None:
             return m.group(1)
     return None
 
+
 def _extract_pmcid(container: Tag) -> str | None:
     for a in container.select("a[href*='ncbi.nlm.nih.gov/pmc/articles/PMC']"):
         href = a.get("href") or ""
@@ -278,6 +305,7 @@ def _extract_pmcid(container: Tag) -> str | None:
         if m:
             return m.group(1).upper()
     return None
+
 
 def _strip_ref_noise(tag: Tag) -> None:
     # remove UI chrome AFTER we've harvested ids
@@ -291,6 +319,7 @@ def _strip_ref_noise(tag: Tag) -> None:
     ]:
         for t in tag.select(sel):
             t.decompose()
+
 
 def parse_oup(_url: str, dom_html: str) -> list[dict[str, object]]:
     """
@@ -396,6 +425,7 @@ def parse_oup(_url: str, dom_html: str) -> list[dict[str, object]]:
 
     return out
 
+
 # -------------------------- public entry (meta/sections) --------------------------
 def extract_oup_meta(_url: str, dom_html: str) -> dict[str, object]:
     soup = BeautifulSoup(dom_html or "", "html.parser")
@@ -404,9 +434,12 @@ def extract_oup_meta(_url: str, dom_html: str) -> dict[str, object]:
     sections = _extract_sections(soup)
     return {"abstract": abstract, "keywords": keywords, "sections": sections}
 
+
 # -------------------------- registrations --------------------------
 # Meta
-register_meta(r"(?:^|\.)academic\.oup\.com$", extract_oup_meta, where="host", name="OUP meta")
+register_meta(
+    r"(?:^|\.)academic\.oup\.com$", extract_oup_meta, where="host", name="OUP meta"
+)
 register_meta(r"oup\.com/", extract_oup_meta, where="url", name="OUP meta (path)")
 
 # References

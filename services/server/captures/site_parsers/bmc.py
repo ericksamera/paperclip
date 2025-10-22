@@ -50,7 +50,9 @@ def _clean_para_text(s: str) -> str:
         return ""
     stripped = s.strip()
     # Remove tiny UI crumbs that sometimes appear in figure areas
-    if re.fullmatch(r"(source data|full size image|open in figure viewer)", stripped, re.I):
+    if re.fullmatch(
+        r"(source data|full size image|open in figure viewer)", stripped, re.I
+    ):
         return ""
     return stripped
 
@@ -150,7 +152,10 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
 
     # Fallback: any c-article-section titled "Abstract"
     for sec in soup.select("section.c-article-section, div.c-article-section"):
-        h = sec.find(["h2", "h3"], class_=re.compile(r"c-article-section__title|js-section-title"))
+        h = sec.find(
+            ["h2", "h3"],
+            class_=re.compile(r"c-article-section__title|js-section-title"),
+        )
         if h and re.search(r"^\s*abstract\s*$", heading_text(h), re.I):
             host = sec.select_one(".c-article-section__content") or sec
             paras = []
@@ -182,7 +187,9 @@ def _extract_keywords(soup: BeautifulSoup) -> list[str]:
         p = soup.find(string=re.compile(r"^\s*Keywords?\s*:", re.I))
         if isinstance(p, str):
             text = re.sub(r"^\s*Keywords?\s*:\s*", "", p, flags=re.I)
-            items.extend([x.strip() for x in re.split(r"[;,/]|\r?\n", text) if x.strip()])
+            items.extend(
+                [x.strip() for x in re.split(r"[;,/]|\r?\n", text) if x.strip()]
+            )
     items = [x for x in items if x and len(x) > 1]
     return dedupe_keep_order(items)
 
@@ -191,7 +198,10 @@ def _extract_keywords(soup: BeautifulSoup) -> list[str]:
 def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
     out: list[dict[str, object]] = []
     for sec in soup.select("section.c-article-section, div.c-article-section"):
-        h = sec.find(["h2", "h3"], class_=re.compile(r"c-article-section__title|js-section-title"))
+        h = sec.find(
+            ["h2", "h3"],
+            class_=re.compile(r"c-article-section__title|js-section-title"),
+        )
         title = heading_text(h) if h else ""
         if not title:
             continue
@@ -288,7 +298,11 @@ def extract_bmc_meta(_url: str, dom_html: str) -> dict[str, object]:
 
 # -------------------------- registrations --------------------------
 # Host pattern covers e.g. bmcbioinformatics.biomedcentral.com, bmcresnotes.biomedcentral.com, etc.
-register_meta(r"(?:^|\.)biomedcentral\.com$", extract_bmc_meta, where="host", name="BMC meta")
-register_meta(r"biomedcentral[-\.]", extract_bmc_meta, where="url", name="BMC meta (proxy)")
+register_meta(
+    r"(?:^|\.)biomedcentral\.com$", extract_bmc_meta, where="host", name="BMC meta"
+)
+register_meta(
+    r"biomedcentral[-\.]", extract_bmc_meta, where="url", name="BMC meta (proxy)"
+)
 register(r"(?:^|\.)biomedcentral\.com$", parse_bmc, where="host", name="BMC references")
 register(r"biomedcentral[-\.]", parse_bmc, where="url", name="BMC references (proxy)")

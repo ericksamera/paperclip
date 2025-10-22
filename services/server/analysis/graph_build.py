@@ -92,7 +92,9 @@ def build_citation_edges(docs: list[Doc]) -> list[dict[str, Any]]:
     return [{"source": s, "target": t, "weight": w} for (s, t), w in weights.items()]
 
 
-def compute_metrics(nodes: list[str], edges: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+def compute_metrics(
+    nodes: list[str], edges: list[dict[str, Any]]
+) -> dict[str, dict[str, float]]:
     """
     Returns: metrics[id] = {"degree": deg, "pagerank": pr?}
     """

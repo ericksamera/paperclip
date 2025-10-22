@@ -116,7 +116,9 @@ class SimpleORMAdapter(BaseAdapter):
         return "\n\n".join([p for p in parts if p])
 
     # ---- retrieval ----
-    def _intersect_ordered(self, ranked_ids: list[PK], scope: Iterable[PK], limit: int) -> list[PK]:
+    def _intersect_ordered(
+        self, ranked_ids: list[PK], scope: Iterable[PK], limit: int
+    ) -> list[PK]:
         S = {str(x) for x in scope}
         out = [pk for pk in ranked_ids if str(pk) in S]
         return out[: max(1, int(limit))]
@@ -184,8 +186,12 @@ class SimpleORMAdapter(BaseAdapter):
         mode: str = "hybrid",
     ) -> list[PK]:
         # 1) Prefer the canonical retriever with restrict_to_ids
-        ranked = self._via_search_ids_for_query(question, restrict_to_ids, limit, mode=mode.lower())
+        ranked = self._via_search_ids_for_query(
+            question, restrict_to_ids, limit, mode=mode.lower()
+        )
         if ranked:
             return ranked
         # 2) Then semantic/hybrid/text rails with intersection
-        return self._via_semantic_or_fts(question, restrict_to_ids, limit, mode=mode.lower())
+        return self._via_semantic_or_fts(
+            question, restrict_to_ids, limit, mode=mode.lower()
+        )

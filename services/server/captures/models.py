@@ -26,7 +26,9 @@ class Capture(models.Model):
 
 
 class Reference(models.Model):
-    capture = models.ForeignKey(Capture, related_name="references", on_delete=models.CASCADE)
+    capture = models.ForeignKey(
+        Capture, related_name="references", on_delete=models.CASCADE
+    )
     ref_id = models.CharField(max_length=100, blank=True)
     raw = models.TextField(blank=True)
     title = models.CharField(max_length=500, blank=True)

@@ -24,7 +24,9 @@ DEFAULT_MODEL = os.environ.get("PAPERCLIP_EMBED_MODEL", "allenai/specter2_base")
 
 def _need_model():
     if SentenceTransformer is None:
-        raise RuntimeError("sentence-transformers not installed; pip install sentence-transformers")
+        raise RuntimeError(
+            "sentence-transformers not installed; pip install sentence-transformers"
+        )
     return SentenceTransformer
 
 
@@ -83,7 +85,10 @@ def search_ids_semantic(query: str, k: int = 200) -> list[str]:
         return []
     model = _load_model(model_name)
     q = model.encode(
-        [query], show_progress_bar=False, convert_to_numpy=True, normalize_embeddings=True
+        [query],
+        show_progress_bar=False,
+        convert_to_numpy=True,
+        normalize_embeddings=True,
     )
     q = q.astype("float32")[0]
     sims = (M @ q).astype("float32")

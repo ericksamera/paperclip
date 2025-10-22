@@ -91,13 +91,17 @@ def _extract_abstract(dom_html: str) -> str | None:
         return None
     # 1) explicit abstract containers
     m = re.search(
-        r'<(section|div)[^>]*class="[^"]*abstract[^"]*"[^>]*>(.*?)</\1>', dom_html, re.I | re.S
+        r'<(section|div)[^>]*class="[^"]*abstract[^"]*"[^>]*>(.*?)</\1>',
+        dom_html,
+        re.I | re.S,
     )
     if m:
         txt = _strip_tags(m.group(2))
         return txt or None
     # 2) heading "Abstract" until next heading
-    h = re.search(r"<h\d[^>]*>\s*Abstract\s*</h\d>\s*(.+?)(?:<h\d|\Z)", dom_html, re.I | re.S)
+    h = re.search(
+        r"<h\d[^>]*>\s*Abstract\s*</h\d>\s*(.+?)(?:<h\d|\Z)", dom_html, re.I | re.S
+    )
     if h:
         txt = _strip_tags(h.group(1))
         return txt or None
@@ -149,13 +153,21 @@ def fallbacks(url: str | None, dom_html: str, content_html: str) -> dict[str, ob
         or ""
     )
     doi = (
-        _find_meta(dom_html, ("citation_doi", "dc.identifier", "dc.identifier.doi", "prism.doi"))
+        _find_meta(
+            dom_html,
+            ("citation_doi", "dc.identifier", "dc.identifier.doi", "prism.doi"),
+        )
         or ""
     )
     pubdate = (
         _find_meta(
             dom_html,
-            ("citation_publication_date", "prism.publicationdate", "dc.date", "dcterms.issued"),
+            (
+                "citation_publication_date",
+                "prism.publicationdate",
+                "dc.date",
+                "dcterms.issued",
+            ),
         )
         or ""
     )
@@ -167,8 +179,12 @@ def fallbacks(url: str | None, dom_html: str, content_html: str) -> dict[str, ob
                 issued_year = int(m.group(0))
             except Exception:
                 issued_year = None
-    container = _find_meta(dom_html, ("citation_journal_title", "prism.publicationname")) or ""
-    keywords_meta = _find_meta(dom_html, ("citation_keywords", "keywords", "dc.subject")) or ""
+    container = (
+        _find_meta(dom_html, ("citation_journal_title", "prism.publicationname")) or ""
+    )
+    keywords_meta = (
+        _find_meta(dom_html, ("citation_keywords", "keywords", "dc.subject")) or ""
+    )
     keywords = split_keywords(keywords_meta) if keywords_meta else []
     authors = _parse_authors(dom_html)
     # Paragraphs for preview
@@ -178,7 +194,9 @@ def fallbacks(url: str | None, dom_html: str, content_html: str) -> dict[str, ob
     else:
         segment = _segment_from_dom(dom_html)
         # strip scripts/styles out of segment first
-        segment = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", segment, flags=re.I | re.S)
+        segment = re.sub(
+            r"<(script|style)[^>]*>.*?</\1>", " ", segment, flags=re.I | re.S
+        )
         paras = _paragraphs_from_html(segment)
     meta_updates: dict[str, object] = {}
     if title:

@@ -16,16 +16,30 @@ urlpatterns = [
     # (kept) optional QA app include
     path("", include("paperclip.qa.urls")),
     # Home → Library
-    path("", RedirectView.as_view(pattern_name="library", permanent=False), name="root"),
+    path(
+        "", RedirectView.as_view(pattern_name="library", permanent=False), name="root"
+    ),
     # Library UI
     path("library/", cap_views.LibraryView.as_view(), name="library"),
     path("captures/", cap_views.LibraryView.as_view(), name="captures"),
     path("library/page/", cap_views.library_page, name="library_page"),
     # Collections
     path("collections/create/", cap_views.collection_create, name="collection_create"),
-    path("collections/<int:pk>/rename/", cap_views.collection_rename, name="collection_rename"),
-    path("collections/<int:pk>/delete/", cap_views.collection_delete, name="collection_delete"),
-    path("collections/<int:pk>/assign/", cap_views.collection_assign, name="collection_assign"),
+    path(
+        "collections/<int:pk>/rename/",
+        cap_views.collection_rename,
+        name="collection_rename",
+    ),
+    path(
+        "collections/<int:pk>/delete/",
+        cap_views.collection_delete,
+        name="collection_delete",
+    ),
+    path(
+        "collections/<int:pk>/assign/",
+        cap_views.collection_assign,
+        name="collection_assign",
+    ),
     path(
         "collections/<str:cid>/download-views.zip",
         cap_views.collection_download_views,
@@ -48,28 +62,48 @@ urlpatterns = [
     path("dedup/", cap_views.dedup_review, name="dedup_review"),
     path("dedup/scan/", cap_views.dedup_scan_view, name="dedup_scan"),
     path("dedup/ignore/", cap_views.dedup_ignore, name="dedup_ignore"),
-    path("dedup/merge/",  cap_views.dedup_merge, name="dedup_merge"),
+    path("dedup/merge/", cap_views.dedup_merge, name="dedup_merge"),
     # Bulk + export
-    path("captures/bulk-delete/", cap_views.capture_bulk_delete, name="capture_bulk_delete"),
-    path("captures/export/",        cap_views.capture_export,        name="capture_export"),        # CSV (existing)
-    path("captures/export.bib",     cap_views.library_export_bibtex, name="capture_export_bibtex"), # NEW
-    path("captures/export.ris",     cap_views.library_export_ris,    name="capture_export_ris"),    # NEW (optional)
+    path(
+        "captures/bulk-delete/",
+        cap_views.capture_bulk_delete,
+        name="capture_bulk_delete",
+    ),
+    path(
+        "captures/export/", cap_views.capture_export, name="capture_export"
+    ),  # CSV (existing)
+    path(
+        "captures/export.bib",
+        cap_views.library_export_bibtex,
+        name="capture_export_bibtex",
+    ),  # NEW
+    path(
+        "captures/export.ris", cap_views.library_export_ris, name="capture_export_ris"
+    ),  # NEW (optional)
     # Detail / actions
     path("captures/<uuid:pk>/", cap_views.capture_view, name="capture_detail"),
     path("captures/<uuid:pk>/view/", cap_views.capture_view, name="capture_view"),
     path("captures/<uuid:pk>/delete/", cap_views.capture_delete, name="capture_delete"),
     path("captures/<uuid:pk>/open/", cap_views.capture_open, name="capture_open"),
     path(
-        "captures/<uuid:pk>/enrich-refs/", cap_views.capture_enrich_refs, name="capture_enrich_refs"
+        "captures/<uuid:pk>/enrich-refs/",
+        cap_views.capture_enrich_refs,
+        name="capture_enrich_refs",
     ),
     # Artifacts
     path(
-        "captures/<uuid:pk>/artifact/<str:basename>/", cap_views.capture_artifact, name="artifact"
+        "captures/<uuid:pk>/artifact/<str:basename>/",
+        cap_views.capture_artifact,
+        name="artifact",
     ),
     # Analysis (Graph)
     path("runs/", analysis_views.RunsListView.as_view(), name="analysis_runs"),
     path("graph/", analysis_views.LatestGraphView.as_view(), name="analysis_graph"),
-    path("graph/embed/", analysis_views.GraphEmbedView.as_view(), name="analysis_graph_embed"),
+    path(
+        "graph/embed/",
+        analysis_views.GraphEmbedView.as_view(),
+        name="analysis_graph_embed",
+    ),
     path("runs/run-now/", analysis_views.RunNowView.as_view(), name="analysis_run_now"),
     path("analysis/run/", analysis_views.RunNowView.as_view(), name="analysis_run"),
     path(

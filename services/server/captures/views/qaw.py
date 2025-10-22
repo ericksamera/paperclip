@@ -37,7 +37,9 @@ def _abstract_or_preview(c: Capture, max_paras: int = 3) -> str:
     meta = c.meta or {}
     csl = c.csl or {}
     return (
-        meta.get("abstract") or (csl.get("abstract") if isinstance(csl, dict) else "") or ""
+        meta.get("abstract")
+        or (csl.get("abstract") if isinstance(csl, dict) else "")
+        or ""
     ).strip()
 
 
@@ -54,11 +56,15 @@ def _year_int(y: str | int | None) -> int | None:
         return None
 
 
-def _filter_by_year(caps: list[Capture], yr_min: int | None, yr_max: int | None) -> list[Capture]:
+def _filter_by_year(
+    caps: list[Capture], yr_min: int | None, yr_max: int | None
+) -> list[Capture]:
     out = []
     for c in caps:
         y = _year_int(
-            c.year or (c.meta or {}).get("year") or (c.meta or {}).get("publication_year")
+            c.year
+            or (c.meta or {}).get("year")
+            or (c.meta or {}).get("publication_year")
         )
         if y is None:
             continue
@@ -93,7 +99,8 @@ def _sources_rows(caps: list[Capture]) -> list[dict[str, Any]]:
         out.append(
             {
                 "id": str(c.id),
-                "title": (c.title or meta.get("title") or c.url or "").strip() or "(Untitled)",
+                "title": (c.title or meta.get("title") or c.url or "").strip()
+                or "(Untitled)",
                 "year": c.year or "",
                 "journal": j,
                 "url": c.url or "",
@@ -106,7 +113,9 @@ def _hist_by_year(caps: list[Capture]) -> list[dict[str, Any]]:
     counter: dict[int, int] = defaultdict(int)
     for c in caps:
         y = _year_int(
-            c.year or (c.meta or {}).get("year") or (c.meta or {}).get("publication_year")
+            c.year
+            or (c.meta or {}).get("year")
+            or (c.meta or {}).get("publication_year")
         )
         if y is not None:
             counter[y] += 1
@@ -115,7 +124,8 @@ def _hist_by_year(caps: list[Capture]) -> list[dict[str, Any]]:
     years = sorted(counter.keys())
     mx = max(counter.values()) or 1
     return [
-        {"label": str(y), "count": counter[y], "pct": round(counter[y] * 100 / mx)} for y in years
+        {"label": str(y), "count": counter[y], "pct": round(counter[y] * 100 / mx)}
+        for y in years
     ]
 
 
@@ -128,26 +138,38 @@ def _top_terms(texts: list[str], k: int = 12) -> list[str]:
 
 # ------------------------------ “methods” intent ------------------------------
 _METHOD_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("qPCR / RT-qPCR", re.compile(r"\b(qpcr|rt[- ]?qpcr|real[- ]?time[- ]?pcr)\b", re.I)),
+    (
+        "qPCR / RT-qPCR",
+        re.compile(r"\b(qpcr|rt[- ]?qpcr|real[- ]?time[- ]?pcr)\b", re.I),
+    ),
     ("PCR", re.compile(r"\bpolymerase chain reaction\b|\bpcr\b", re.I)),
-    ("Whole-genome sequencing (WGS)", re.compile(r"\bwhole[- ]?genome sequenc|\bWGS\b", re.I)),
+    (
+        "Whole-genome sequencing (WGS)",
+        re.compile(r"\bwhole[- ]?genome sequenc|\bWGS\b", re.I),
+    ),
     ("16S rRNA sequencing", re.compile(r"\b16s\s*r?rna\b", re.I)),
     ("Metagenomics", re.compile(r"\bmetagenom", re.I)),
     ("Phylogenetic analysis/MLST", re.compile(r"\bphylogen(et)?ic|MLST\b", re.I)),
     (
         "Antimicrobial susceptibility (MIC, disc diffusion)",
-        re.compile(r"\bMICs?\b|disc[- ]diffusion|kirby[- ]bauer|broth[- ]microdilution", re.I),
+        re.compile(
+            r"\bMICs?\b|disc[- ]diffusion|kirby[- ]bauer|broth[- ]microdilution", re.I
+        ),
     ),
     ("Culture-based isolation", re.compile(r"\bcultur(?:e|ing)|CFU\b", re.I)),
     ("ELISA / immunoassay", re.compile(r"\belisa\b|immunoassay", re.I)),
     (
         "Microscopy (TEM/SEM)",
         re.compile(
-            r"\b(TEM|SEM|transmission electron microscopy|scanning electron microscopy)\b", re.I
+            r"\b(TEM|SEM|transmission electron microscopy|scanning electron microscopy)\b",
+            re.I,
         ),
     ),
     ("In vitro experiments", re.compile(r"\bin\s+vitro\b", re.I)),
-    ("In vivo / animal challenge", re.compile(r"\bin\s+vivo\b|challenge(?:\s+trial)?", re.I)),
+    (
+        "In vivo / animal challenge",
+        re.compile(r"\bin\s+vivo\b|challenge(?:\s+trial)?", re.I),
+    ),
     (
         "Field sampling / surveillance",
         re.compile(r"\bfield\s+sampling|surveillance|monitoring\b", re.I),
@@ -155,7 +177,10 @@ _METHOD_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 _STUDY_DESIGN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("Randomized / controlled trial", re.compile(r"\brandomi[sz]ed|controlled trial", re.I)),
+    (
+        "Randomized / controlled trial",
+        re.compile(r"\brandomi[sz]ed|controlled trial", re.I),
+    ),
     ("Cohort", re.compile(r"\bcohort study\b", re.I)),
     ("Case-control", re.compile(r"\bcase[- ]control\b", re.I)),
     ("Cross-sectional", re.compile(r"\bcross[- ]sectional\b", re.I)),
@@ -221,7 +246,8 @@ def _score_patterns(
 def _intent_of(q: str) -> str:
     q = (q or "").lower()
     if re.search(
-        r"\b(method|methodology|how (?:do|did|were|was) .* (?:study|measure|investigat))", q
+        r"\b(method|methodology|how (?:do|did|were|was) .* (?:study|measure|investigat))",
+        q,
     ):
         return "methods"
     return "general"
@@ -232,7 +258,9 @@ def _auto_bullets(texts: list[str]) -> dict[str, list[str]]:
     agree_kw = re.compile(
         r"\b(increase(?:s|d)?|associated|consistent|evidence\s+suggests?)\b", re.I
     )
-    disagree_kw = re.compile(r"\b(contradict|mixed\s+results|however|inconsistent)\b", re.I)
+    disagree_kw = re.compile(
+        r"\b(contradict|mixed\s+results|however|inconsistent)\b", re.I
+    )
     gap_kw = re.compile(
         r"\b(limited|few|lack|scarce|insufficient|randomi[sz]ed|longitudinal)\b", re.I
     )
@@ -280,21 +308,33 @@ def _build_trace(
             "title": "Plan",
             "children": [
                 {"title": "Interpret question", "note": f"User asked: “{q}”"},
-                {"title": "Pick strategy", "note": f"Mode = {method} (text | semantic | hybrid)"},
+                {
+                    "title": "Pick strategy",
+                    "note": f"Mode = {method} (text | semantic | hybrid)",
+                },
             ],
         },
         {
             "title": "Retrieve",
             "children": [
-                {"title": "Search corpus", "note": f"Matched {total} item(s) before filters"},
-                {"title": "Filter scope", "note": f"Year range = {yr_min or '—'}-{yr_max or '—'}"},
+                {
+                    "title": "Search corpus",
+                    "note": f"Matched {total} item(s) before filters",
+                },
+                {
+                    "title": "Filter scope",
+                    "note": f"Year range = {yr_min or '—'}-{yr_max or '—'}",
+                },
                 {"title": "Select sources", "note": f"Kept top {kept} sources"},
             ],
         },
         {
             "title": "Synthesize",
             "children": [
-                {"title": "Tokenize & score", "note": f"Top terms: {', '.join(top_terms[:8])}"},
+                {
+                    "title": "Tokenize & score",
+                    "note": f"Top terms: {', '.join(top_terms[:8])}",
+                },
             ],
         },
         {
@@ -331,7 +371,9 @@ def collection_qaw(request: HttpRequest, pk: int):
         if not q:
             return _respond_err("missing_question", 400)
 
-        method = (data.get("method") or "hybrid").strip().lower()  # "text" | "semantic" | "hybrid"
+        method = (
+            (data.get("method") or "hybrid").strip().lower()
+        )  # "text" | "semantic" | "hybrid"
         yr_min = data.get("year_min")
         yr_max = data.get("year_max")
         try:
@@ -353,14 +395,18 @@ def collection_qaw(request: HttpRequest, pk: int):
         ids_ranked = [pk for pk in ids_ranked if pk in universe_map]
         total_before_filters = len(ids_ranked)
 
-        kept_caps = _filter_by_year([universe_map[pk] for pk in ids_ranked], yr_min, yr_max)
+        kept_caps = _filter_by_year(
+            [universe_map[pk] for pk in ids_ranked], yr_min, yr_max
+        )
         kept_caps = kept_caps[:limit]
 
         texts = [_abstract_or_preview(c, 4) for c in kept_caps]
         top = _top_terms(texts, 12)
         hist_years = _hist_by_year(kept_caps)
         bullets = _auto_bullets(texts)
-        trace = _build_trace(q, method, total_before_filters, len(kept_caps), yr_min, yr_max, top)
+        trace = _build_trace(
+            q, method, total_before_filters, len(kept_caps), yr_min, yr_max, top
+        )
 
         # -------- intent routing (methods) --------
         intent = _intent_of(q)
@@ -390,7 +436,9 @@ def collection_qaw(request: HttpRequest, pk: int):
                 f"{max(hist_years, key=lambda h: h['count'])['label']}."
             )
         if len(kept_caps) < total_before_filters:
-            es.append(f"Scoped to {len(kept_caps)} sources (from {total_before_filters} matches).")
+            es.append(
+                f"Scoped to {len(kept_caps)} sources (from {total_before_filters} matches)."
+            )
 
         answer = {
             "question": q,
@@ -415,6 +463,11 @@ def collection_qaw(request: HttpRequest, pk: int):
         "captures/qaw.html",
         {
             "collection": {"id": col.id, "name": col.name},
-            "defaults": {"method": "hybrid", "year_min": None, "year_max": None, "limit": 30},
+            "defaults": {
+                "method": "hybrid",
+                "year_min": None,
+                "year_max": None,
+                "limit": 30,
+            },
         },
     )

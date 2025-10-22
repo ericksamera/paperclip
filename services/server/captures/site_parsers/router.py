@@ -4,30 +4,34 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from re import Pattern
-from typing import Any, Callable, Mapping
+from typing import Callable
 from urllib.parse import urlparse
 
 # Types for site parsers
 Parser = Callable[[str, str], list[dict[str, object]]]
 MetaParser = Callable[[str, str], dict[str, object]]
 
+
 @dataclass
 class Rule:
-    pattern: Pattern[str]      # compiled regex
-    where: str                 # "host" or "url"
+    pattern: Pattern[str]  # compiled regex
+    where: str  # "host" or "url"
     parser: Parser
     name: str
+
 
 @dataclass
 class MetaRule:
     pattern: Pattern[str]
-    where: str                 # "host" or "url"
+    where: str  # "host" or "url"
     parser: MetaParser
     name: str
+
 
 # In-memory registries
 _REGISTRY: list[Rule] = []
 _REG_META: list[MetaRule] = []
+
 
 def _compile_pattern(p: str | Pattern[str], where: str) -> Pattern[str]:
     if isinstance(p, re.Pattern):
@@ -40,35 +44,61 @@ def _compile_pattern(p: str | Pattern[str], where: str) -> Pattern[str]:
         return re.compile(s, re.I)
     return re.compile(s, re.I)
 
+
 # ---------------- Registry API (no side effects) ----------------
 
-def register(pattern: str | Pattern[str], parser: Parser, *, where: str = "host", name: str = "") -> None:
+
+def register(
+    pattern: str | Pattern[str], parser: Parser, *, where: str = "host", name: str = ""
+) -> None:
     where = where.lower()
     if where not in ("host", "url"):
         raise ValueError('where must be "host" or "url"')
     _REGISTRY.append(
-        Rule(pattern=_compile_pattern(pattern, where), where=where, parser=parser, name=name or str(pattern))
+        Rule(
+            pattern=_compile_pattern(pattern, where),
+            where=where,
+            parser=parser,
+            name=name or str(pattern),
+        )
     )
 
-def register_meta(pattern: str | Pattern[str], parser: MetaParser, *, where: str = "host", name: str = "") -> None:
+
+def register_meta(
+    pattern: str | Pattern[str],
+    parser: MetaParser,
+    *,
+    where: str = "host",
+    name: str = "",
+) -> None:
     where = where.lower()
     if where not in ("host", "url"):
         raise ValueError('where must be "host" or "url"')
     _REG_META.append(
-        MetaRule(pattern=_compile_pattern(pattern, where), where=where, parser=parser, name=name or str(pattern))
+        MetaRule(
+            pattern=_compile_pattern(pattern, where),
+            where=where,
+            parser=parser,
+            name=name or str(pattern),
+        )
     )
+
 
 def clear_registry() -> None:
     _REGISTRY.clear()
 
+
 def clear_meta_registry() -> None:
     _REG_META.clear()
+
 
 def get_registry() -> list[tuple[str, str]]:
     """Return (name, where) for debugging/tests."""
     return [(r.name, r.where) for r in _REGISTRY]
 
+
 # ---------------- Routers (no default auto-load) ----------------
+
 
 def route_references(url: str | None, dom_html: str) -> list[dict[str, object]]:
     """
@@ -91,6 +121,7 @@ def route_references(url: str | None, dom_html: str) -> list[dict[str, object]]:
                 return refs
     return _DEFAULT_PARSER(url or "", dom_html)
 
+
 def route_sections_meta(url: str | None, dom_html: str) -> dict[str, object]:
     """
     Route meta/sections extractors by current registry (no auto-load).
@@ -111,7 +142,9 @@ def route_sections_meta(url: str | None, dom_html: str) -> dict[str, object]:
             return out
     return {}
 
+
 # ---------------- Utilities ----------------
+
 
 def dedupe_references(refs: list[dict[str, object]]) -> list[dict[str, object]]:
     """
@@ -139,6 +172,7 @@ def dedupe_references(refs: list[dict[str, object]]) -> list[dict[str, object]]:
                 seen_raw.add(raw_key)
         out.append(r)
     return out
+
 
 __all__ = [
     "Parser",

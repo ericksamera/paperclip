@@ -51,17 +51,28 @@ class IngestOverrideAndDedupeTests(TestCase):
                 "</head></html>"
             ),
             "extraction": {
-                "meta": {"title": "Client Title", "doi": "10.1111/CLIENT", "issued_year": "1999"},
+                "meta": {
+                    "title": "Client Title",
+                    "doi": "10.1111/CLIENT",
+                    "issued_year": "1999",
+                },
                 "csl": {"title": "CSL Client Title"},
                 "content_html": "<div>content</div>",
                 "references": [
-                    {"raw": "A ref", "doi": "10.1000/xxx", "title": "R1", "issued_year": "2000"}
+                    {
+                        "raw": "A ref",
+                        "doi": "10.1000/xxx",
+                        "title": "R1",
+                        "issued_year": "2000",
+                    }
                 ],
             },
         }
         with self.tmp_data_dir():
             resp = self.client.post(
-                "/api/captures/", data=json.dumps(payload), content_type="application/json"
+                "/api/captures/",
+                data=json.dumps(payload),
+                content_type="application/json",
             )
             self.assertEqual(resp.status_code, 201, resp.content)
             cap = Capture.objects.order_by("-id").first()
@@ -113,14 +124,21 @@ class IngestOverrideAndDedupeTests(TestCase):
             },
         }
         mock_extract_refs.return_value = [
-            {"raw": "SiteRef", "doi": "10.1000/abc", "title": "Site R", "issued_year": "2000"}
+            {
+                "raw": "SiteRef",
+                "doi": "10.1000/abc",
+                "title": "Site R",
+                "issued_year": "2000",
+            }
         ]
         resp = self.client.post(
             "/api/captures/", data=json.dumps(payload), content_type="application/json"
         )
         self.assertEqual(resp.status_code, 201, resp.content)
         cap = Capture.objects.get(url="https://example.org/dup")
-        self.assertEqual(cap.references.count(), 1, "Duplicate DOI (case/format) was not de-duped")
+        self.assertEqual(
+            cap.references.count(), 1, "Duplicate DOI (case/format) was not de-duped"
+        )
 
     def test_registry_first_non_empty_wins_and_order_matters(self) -> None:
         # Save/restore registry
@@ -137,7 +155,9 @@ class IngestOverrideAndDedupeTests(TestCase):
 
             register(r"/custom/path", parser_empty, where="url", name="A_empty")
             register(r"(?:^|\.)example\.com$", parser_hit, where="host", name="B_hit")
-            out = extract_references("https://sub.example.com/custom/path", "<html></html>")
+            out = extract_references(
+                "https://sub.example.com/custom/path", "<html></html>"
+            )
             self.assertEqual(out, [{"raw": "hit", "title": "hit"}])
 
             # Now reverse order: Rule A returns non-empty; it should win immediately.
@@ -148,7 +168,9 @@ class IngestOverrideAndDedupeTests(TestCase):
 
             register(r"/custom/path", parser_hit_first, where="url", name="A_first")
             register(r"(?:^|\.)example\.com$", parser_hit, where="host", name="B_hit")
-            out2 = extract_references("https://sub.example.com/custom/path", "<html></html>")
+            out2 = extract_references(
+                "https://sub.example.com/custom/path", "<html></html>"
+            )
             self.assertEqual(out2, [{"raw": "first", "title": "first"}])
         finally:
             clear_registry()  # leave registry clean for other tests

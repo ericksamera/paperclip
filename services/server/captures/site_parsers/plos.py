@@ -183,14 +183,18 @@ def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
     for sec in soup.select("div.section.toc-section"):
         if sec.find_parent(
             "div",
-            class_=lambda cs: isinstance(cs, list) and "section" in cs and "toc-section" in cs,
+            class_=lambda cs: isinstance(cs, list)
+            and "section" in cs
+            and "toc-section" in cs,
         ):
             continue
         top_nodes.append(sec)
     out: list[dict[str, object]] = []
     for sec in top_nodes:
         node = _parse_plos_section(sec)
-        if node and (node.get("title") or node.get("paragraphs") or node.get("children")):
+        if node and (
+            node.get("title") or node.get("paragraphs") or node.get("children")
+        ):
             out.append(node)
     return dedupe_section_nodes(out)
 
@@ -226,7 +230,9 @@ def _clean_li_and_get_bits(li: Tag) -> dict[str, str]:
             doi_url = f"https://doi.org/{d}"
         if not doi:
             for a in reflinks.find_all("a", href=True):
-                m = DOI_RE.search(a["href"]) or DOI_RE.search(a.get_text(" ", strip=True))
+                m = DOI_RE.search(a["href"]) or DOI_RE.search(
+                    a.get_text(" ", strip=True)
+                )
                 if m:
                     doi = m.group(0)
                     doi_url = "https://doi.org/" + doi
@@ -241,7 +247,13 @@ def _clean_li_and_get_bits(li: Tag) -> dict[str, str]:
         raw = collapse_spaces(PMID_RE.sub("", raw))
     # Drop any leading "36." residue that might remain
     raw = re.sub(r"^\s*\d+\.\s*", "", raw)
-    return {"raw": raw, "pmid": pmid, "doi": doi, "doi_url": doi_url, "position": position}
+    return {
+        "raw": raw,
+        "pmid": pmid,
+        "doi": doi,
+        "doi_url": doi_url,
+        "position": position,
+    }
 
 
 def _authors_string_to_list(authors_str: str) -> list[dict[str, str]]:
@@ -255,9 +267,16 @@ def _authors_string_to_list(authors_str: str) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for p in parts:
         # Examples: "Koepfli K-P", "Moran JA", "de Folter S"
-        m = re.match(r"(?P<family>.+?)\s+(?P<given>[A-Z][A-Za-z\-\.]*([A-Z][A-Za-z\-\.]*)?)$", p)
+        m = re.match(
+            r"(?P<family>.+?)\s+(?P<given>[A-Z][A-Za-z\-\.]*([A-Z][A-Za-z\-\.]*)?)$", p
+        )
         if m:
-            out.append({"family": m.group("family"), "given": m.group("given").replace(".", "")})
+            out.append(
+                {
+                    "family": m.group("family"),
+                    "given": m.group("given").replace(".", ""),
+                }
+            )
         else:
             # fallback: everything as family
             out.append({"family": p, "given": ""})
@@ -293,7 +312,9 @@ def parse_plos(_url: str, dom_html: str) -> list[dict[str, object]]:
         # Stable id if present
         ref_id = li.get("id") or None
         if not ref_id:
-            a_named = li.find("a", attrs={"name": True}) or li.find("a", attrs={"id": True})
+            a_named = li.find("a", attrs={"name": True}) or li.find(
+                "a", attrs={"id": True}
+            )
             if a_named:
                 ref_id = a_named.get("name") or a_named.get("id") or None
         # Start with a generic parse to get authors etc.

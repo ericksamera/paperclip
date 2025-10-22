@@ -26,7 +26,11 @@ except Exception:  # pragma: no cover
     requests = None  # type: ignore[assignment]
 
 # --- Config (env-tunable) ----------------------------------------------------
-ENABLE_NLM_LOOKUP: bool = os.getenv("PAPERCLIP_ENABLE_NLM", "1").lower() not in {"0", "false", "no"}
+ENABLE_NLM_LOOKUP: bool = os.getenv("PAPERCLIP_ENABLE_NLM", "1").lower() not in {
+    "0",
+    "false",
+    "no",
+}
 NLM_ES_TIMEOUT: float = float(os.getenv("PAPERCLIP_NLM_ES_TIMEOUT", "4"))
 NLM_SUMMARY_TIMEOUT: float = float(os.getenv("PAPERCLIP_NLM_SUMMARY_TIMEOUT", "6"))
 NLM_RETMAX: int = int(os.getenv("PAPERCLIP_NLM_RETMAX", "10"))
@@ -57,7 +61,11 @@ class _NlmCandidate(TypedDict, total=False):
 def _from_csl(csl: Mapping[str, Any] | None) -> Optional[str]:
     if not isinstance(csl, Mapping):
         return None
-    for k in ("short-container-title", "container-title-short", "container_title_short"):
+    for k in (
+        "short-container-title",
+        "container-title-short",
+        "container_title_short",
+    ):
         v = csl.get(k)
         if isinstance(v, list) and v:
             return str(v[0]).strip()
@@ -93,7 +101,9 @@ def _heuristic_iso4(title: str) -> str:
     return abbr if len(abbr) >= 3 else title
 
 
-def _pick_best_medlineta(target_title: str, candidates: List[_NlmCandidate]) -> Optional[str]:
+def _pick_best_medlineta(
+    target_title: str, candidates: List[_NlmCandidate]
+) -> Optional[str]:
     """
     Choose the medlineta whose record title is closest to the requested title.
     candidates: [{'title': str, 'medlineta': str}, ...]
@@ -119,7 +129,9 @@ def _pick_best_medlineta(target_title: str, candidates: List[_NlmCandidate]) -> 
 
 
 # --- Public API ---------------------------------------------------------------
-def get_short_journal_name(title: str | None, csl: Mapping[str, Any] | None = None) -> str:
+def get_short_journal_name(
+    title: str | None, csl: Mapping[str, Any] | None = None
+) -> str:
     """
     Best-effort short name (cached). See module docstring for strategy.
     """
@@ -171,7 +183,11 @@ def get_short_journal_name(title: str | None, csl: Mapping[str, Any] | None = No
                 if ids:
                     su = requests.get(  # type: ignore[call-arg]
                         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
-                        params={"db": "nlmcatalog", "retmode": "json", "id": ",".join(ids)},
+                        params={
+                            "db": "nlmcatalog",
+                            "retmode": "json",
+                            "id": ",".join(ids),
+                        },
                         timeout=NLM_SUMMARY_TIMEOUT,
                     )
                     if su.ok:
@@ -180,7 +196,9 @@ def get_short_journal_name(title: str | None, csl: Mapping[str, Any] | None = No
                             rec = data.get(sid) or {}
                             candidates.append(
                                 _NlmCandidate(
-                                    title=rec.get("title") or rec.get("fulljournalname") or "",
+                                    title=rec.get("title")
+                                    or rec.get("fulljournalname")
+                                    or "",
                                     medlineta=rec.get("medlineta") or "",
                                 )
                             )

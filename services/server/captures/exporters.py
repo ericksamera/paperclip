@@ -29,7 +29,9 @@ def _bibtex_authors(c: Capture) -> str:
     if isinstance(csl_auth, list):
         for a in csl_auth:
             if isinstance(a, dict):
-                fam = (a.get("family") or a.get("last") or a.get("literal") or "").strip()
+                fam = (
+                    a.get("family") or a.get("last") or a.get("literal") or ""
+                ).strip()
                 giv = (a.get("given") or a.get("first") or "").strip()
                 if fam or giv:
                     items.append(f"{fam}, {giv}".strip().rstrip(","))
@@ -69,15 +71,42 @@ def bibtex_entry_for(c: Capture) -> str:
     csl: CSL | Mapping[str, Any] = c.csl or {}
 
     title = (
-        c.title or meta.get("title") or ((csl.get("title") if isinstance(csl, Mapping) else "") or "") or c.url or ""
+        c.title
+        or meta.get("title")
+        or ((csl.get("title") if isinstance(csl, Mapping) else "") or "")
+        or c.url
+        or ""
     ).strip() or "(Untitled)"
     journal = _journal_full(meta, csl)
-    doi = norm_doi(c.doi or meta.get("doi") or (csl.get("DOI") if isinstance(csl, Mapping) else ""))
+    doi = norm_doi(
+        c.doi or meta.get("doi") or (csl.get("DOI") if isinstance(csl, Mapping) else "")
+    )
     year = str(meta.get("year") or meta.get("publication_year") or c.year or "").strip()
 
-    volume = str((csl.get("volume") if isinstance(csl, Mapping) else "") or meta.get("volume") or "") or ""
-    issue = str((csl.get("issue") if isinstance(csl, Mapping) else "") or meta.get("issue") or "") or ""
-    pages = str((csl.get("page") if isinstance(csl, Mapping) else "") or meta.get("pages") or "") or ""
+    volume = (
+        str(
+            (csl.get("volume") if isinstance(csl, Mapping) else "")
+            or meta.get("volume")
+            or ""
+        )
+        or ""
+    )
+    issue = (
+        str(
+            (csl.get("issue") if isinstance(csl, Mapping) else "")
+            or meta.get("issue")
+            or ""
+        )
+        or ""
+    )
+    pages = (
+        str(
+            (csl.get("page") if isinstance(csl, Mapping) else "")
+            or meta.get("pages")
+            or ""
+        )
+        or ""
+    )
     url = c.url or ""
 
     entry_type = "article" if journal else "misc"
@@ -86,7 +115,9 @@ def bibtex_entry_for(c: Capture) -> str:
     authors_for_key = _bibtex_authors(c)
     if authors_for_key:
         fam = authors_for_key.split(" and ")[0].split(",", 1)[0]
-    first_word = re.sub(r"[^A-Za-z0-9]+", "", title.split()[0]) if title.split() else "item"
+    first_word = (
+        re.sub(r"[^A-Za-z0-9]+", "", title.split()[0]) if title.split() else "item"
+    )
     key = _ascii_slug(f"{fam or 'anon'}-{year or 'na'}-{first_word}")
 
     fields = []
@@ -118,11 +149,34 @@ def ris_lines_for(c: Capture) -> list[str]:
 
     journal = _journal_full(meta, csl)
     year = str(meta.get("year") or meta.get("publication_year") or c.year or "").strip()
-    doi = norm_doi(c.doi or meta.get("doi") or (csl.get("DOI") if isinstance(csl, Mapping) else ""))
+    doi = norm_doi(
+        c.doi or meta.get("doi") or (csl.get("DOI") if isinstance(csl, Mapping) else "")
+    )
     url = c.url or ""
-    volume = str((csl.get("volume") if isinstance(csl, Mapping) else "") or meta.get("volume") or "") or ""
-    issue = str((csl.get("issue") if isinstance(csl, Mapping) else "") or meta.get("issue") or "") or ""
-    pages = str((csl.get("page") if isinstance(csl, Mapping) else "") or meta.get("pages") or "") or ""
+    volume = (
+        str(
+            (csl.get("volume") if isinstance(csl, Mapping) else "")
+            or meta.get("volume")
+            or ""
+        )
+        or ""
+    )
+    issue = (
+        str(
+            (csl.get("issue") if isinstance(csl, Mapping) else "")
+            or meta.get("issue")
+            or ""
+        )
+        or ""
+    )
+    pages = (
+        str(
+            (csl.get("page") if isinstance(csl, Mapping) else "")
+            or meta.get("pages")
+            or ""
+        )
+        or ""
+    )
     sp, ep = "", ""
     m = re.match(r"^\s*(\d+)\s*[-–—]\s*(\d+)\s*$", pages)
     if m:
@@ -134,7 +188,13 @@ def ris_lines_for(c: Capture) -> list[str]:
         a = a.strip()
         if a:
             lines.append(f"AU  - {a}")
-    title = (c.title or meta.get("title") or ((csl.get("title") if isinstance(csl, Mapping) else "") or "") or c.url or "").strip()
+    title = (
+        c.title
+        or meta.get("title")
+        or ((csl.get("title") if isinstance(csl, Mapping) else "") or "")
+        or c.url
+        or ""
+    ).strip()
     if title:
         lines.append(f"TI  - {title}")
     if year:

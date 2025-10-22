@@ -30,7 +30,9 @@ def parse_pmc(url: str, dom_html: str) -> list[dict[str, object]]:
     soup = BeautifulSoup(dom_html or "", "html.parser")
     refs: list[dict[str, object]] = []
     # Primary: anything under a ref-list section or list with class "ref-list"
-    for li in soup.select("section.ref-list li, .ref-list li, ol.ref-list li, ul.ref-list li"):
+    for li in soup.select(
+        "section.ref-list li, .ref-list li, ol.ref-list li, ul.ref-list li"
+    ):
         if not li.get_text(strip=True):
             continue
         base = extract_from_li(li)
@@ -196,7 +198,9 @@ def _harvest_keywords_from_host(host: Tag) -> list[str]:
         t = _txt(p.get_text(" ", strip=True))
         if not t:
             continue
-        if _is_keywords_line(t) or any(ch in t for ch in (",", ";", "/", "|", "•", "·", "・")):
+        if _is_keywords_line(t) or any(
+            ch in t for ch in (",", ";", "/", "|", "•", "·", "・")
+        ):
             items.extend(_split_keywords(t))
     # Sometimes keywords are placed into spans/anchors
     for el in host.select("a, span"):
@@ -288,11 +292,15 @@ def _parse_pmc_section(sec: Tag) -> dict[str, object] | None:
     """
     Turn a <section> into a structured node: {title, paragraphs?, children?}
     """
-    h = sec.find(["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)) or sec.find(
-        ["h2", "h3", "h4"]
-    )
+    h = sec.find(
+        ["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)
+    ) or sec.find(["h2", "h3", "h4"])
     title = heading_text(h) if h else ""
-    if not title or _NONCONTENT_RX.search(title) or re.fullmatch(r"\s*abstract\s*", title, re.I):
+    if (
+        not title
+        or _NONCONTENT_RX.search(title)
+        or re.fullmatch(r"\s*abstract\s*", title, re.I)
+    ):
         return None
     # Paragraphs that belong to THIS section (exclude nested subsections)
     paras = _paras_excluding_child_sections(sec)
@@ -340,9 +348,9 @@ def _headless_leadin_paragraphs(soup: BeautifulSoup) -> list[str]:
     first_sec = None
     # A "content section" is a <section> that has a heading and isn't non-content/abstract.
     for sec in root.find_all("section"):
-        h = sec.find(["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)) or sec.find(
-            ["h2", "h3", "h4"]
-        )
+        h = sec.find(
+            ["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)
+        ) or sec.find(["h2", "h3", "h4"])
         title = heading_text(h) if h else ""
         if not title:
             continue
@@ -376,7 +384,10 @@ def _headless_leadin_paragraphs(soup: BeautifulSoup) -> list[str]:
         ):
             continue
         cls = " ".join(el.get("class") or []).lower()
-        if any(k in cls for k in ("kwd", "keyword", "ref-list", "references", "back", "footnote")):
+        if any(
+            k in cls
+            for k in ("kwd", "keyword", "ref-list", "references", "back", "footnote")
+        ):
             continue
         # Accept only paragraph/list text for the lead-in
         if el.name == "p":
@@ -417,17 +428,17 @@ def _extract_pmc_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
     top_secs: list[Tag] = []
     # Preferred: top-level <section> elements (direct children) with some heading
     for s in wrapper.find_all("section", recursive=False):
-        h = s.find(["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)) or s.find(
-            ["h2", "h3", "h4"]
-        )
+        h = s.find(
+            ["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)
+        ) or s.find(["h2", "h3", "h4"])
         if h:
             top_secs.append(s)
     # Fallback: any <section id="sec..."> that's not nested under another such section
     if not top_secs:
         for s in wrapper.find_all("section", id=re.compile(r"^sec", re.I)):
-            h = s.find(["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)) or s.find(
-                ["h2", "h3", "h4"]
-            )
+            h = s.find(
+                ["h2", "h3", "h4"], class_=re.compile(r"pmc_sec_title", re.I)
+            ) or s.find(["h2", "h3", "h4"])
             if not h:
                 continue
             parent = s.find_parent("section")
@@ -449,7 +460,8 @@ def _extract_pmc_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
 
     # If there is **no explicit Introduction** section, synthesize one from lead-in paragraphs.
     has_intro = any(
-        isinstance(n.get("title"), str) and str(n["title"]).strip().lower() == "introduction"
+        isinstance(n.get("title"), str)
+        and str(n["title"]).strip().lower() == "introduction"
         for n in nodes
     )
     if not has_intro:
@@ -474,7 +486,15 @@ def extract_pmc_meta(_url: str, dom_html: str) -> dict[str, object]:
 
 
 # Register meta/sections at import time so the router always has PMC headers.
-register_meta(r"(?:^|\.)pmc\.ncbi\.nlm\.nih\.gov$", extract_pmc_meta, where="host", name="PMC meta")
 register_meta(
-    r"ncbi\.nlm\.nih\.gov/.*/pmc/|/pmc/", extract_pmc_meta, where="url", name="PMC meta (path)"
+    r"(?:^|\.)pmc\.ncbi\.nlm\.nih\.gov$",
+    extract_pmc_meta,
+    where="host",
+    name="PMC meta",
+)
+register_meta(
+    r"ncbi\.nlm\.nih\.gov/.*/pmc/|/pmc/",
+    extract_pmc_meta,
+    where="url",
+    name="PMC meta (path)",
 )

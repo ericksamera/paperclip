@@ -1,8 +1,18 @@
 # services/server/captures/site_parsers/nature.py
 from __future__ import annotations
 
+"""
+Nature site parser: robust abstract/keywords/sections extraction + references.
+
+Public API:
+- extract_nature_meta(url, dom_html) -> dict[str, object]
+- parse_nature(url, dom_html) -> list[dict[str, object]]
+
+This module registers itself for both host and common proxy patterns.
+"""
+
 import re
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import parse_qs, unquote, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
@@ -27,7 +37,7 @@ _NONCONTENT_RX = re.compile(
 _FIGLIKE_CLASS_RX = re.compile(r"\bc-article-section__figure\b", re.I)
 
 # DOI detector (Crossref-ish heuristic)
-DOI_RX = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.I)
+DOI_RX = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.I)
 
 
 def _txt(x: str | None) -> str:
@@ -35,15 +45,15 @@ def _txt(x: str | None) -> str:
 
 
 def _is_figure_descendant(node: Tag) -> bool:
-    # Skip paragraphs that live inside figures/figcaptions or figure containers
-    return (
+    """True if the node sits inside a figure or a figure-like container."""
+    return bool(
         node.find_parent(["figure", "figcaption"]) is not None
-        or node.find_parent(class__=_FIGLIKE_CLASS_RX) is not None
+        or node.find_parent(class_=_FIGLIKE_CLASS_RX) is not None
     )
 
 
 def _clean_para_text(s: str) -> str:
-    # Filter out trivial "Source data" / UI cruft lines, keep real content
+    # Filter out trivial “Source data / View figure …” crumbs; keep real content.
     if not s:
         return ""
     stripped = s.strip()
@@ -66,12 +76,12 @@ def _normalize_doi(s: str | None) -> str | None:
 def _extract_doi_from_anchor(a: Tag) -> str | None:
     """
     Try multiple places a DOI might hide:
-      - data-track-label / item_id attributes
+      - data-track-label / item id / title attributes
       - href query param ?doi=...
       - anywhere in href path (covers /doi/10.x.y and proxied doi-org hosts)
       - visible text (rare)
     """
-    # 1) data-track-label / item id / title
+    # 1) data attributes or title
     for attr in ("data-track-label", "data-track-item_id", "title"):
         v = a.get(attr)
         if v:
@@ -127,10 +137,9 @@ def _extract_doi_from_li(li: Tag) -> str | None:
     seen: set[str] = set()
     for a in candidates:
         doi = _extract_doi_from_anchor(a)
-        if doi:
-            if doi not in seen:
-                return doi
-            # else keep looking for a different one (rare)
+        if doi and doi not in seen:
+            return doi
+
     # Fall back to scanning the entire list item text
     li_text = li.get_text(" ", strip=True)
     m = DOI_RX.search(li_text)
@@ -147,7 +156,7 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
         "section[aria-labelledby='abstract']"
     ):
         host = sec.select_one(".c-article-section__content") or sec
-        paras = []
+        paras: list[str] = []
         for p in host.find_all("p"):
             if _is_figure_descendant(p):
                 continue
@@ -156,6 +165,7 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
                 paras.append(text)
         if paras:
             return " ".join(paras)
+
     # Fallback: any c-article-section (section OR div) whose header title == Abstract
     for sec in soup.select("section.c-article-section, div.c-article-section"):
         h = sec.find(["h2", "h3"], class_=re.compile(r"c-article-section__title|js-section-title"))
@@ -226,8 +236,8 @@ def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
                 paras.append(_txt(text))
         # As a last resort, pull paragraph-like blocks from the subtree (still ignore figures)
         if not paras:
-            for p in collect_paragraphs_subtree(host):
-                text = _clean_para_text(p)
+            for ptxt in collect_paragraphs_subtree(host):
+                text = _clean_para_text(ptxt)
                 if text:
                     paras.append(_txt(text))
         node: dict[str, object] = {"title": title, "paragraphs": paras}
@@ -244,7 +254,7 @@ def _reference_items(soup: BeautifulSoup) -> list[Tag]:
     Order selectors from most-specific to least to reduce false positives.
     """
     selectors = [
-        # Reading companion (sidebar) – what your snippet uses
+        # Reading companion (sidebar)
         "ol.c-reading-companion__references-list > li",
         "li.c-reading-companion__reference-item",
         # Newer magazine layout
@@ -257,7 +267,7 @@ def _reference_items(soup: BeautifulSoup) -> list[Tag]:
         # Fallback data-test hook seen on some articles
         "li[data-test='reference']",
     ]
-    seen_ids = set()
+    seen_ids: set[int] = set()
     items: list[Tag] = []
     for sel in selectors:
         for li in soup.select(sel):
@@ -291,7 +301,7 @@ def parse_nature(_url: str, dom_html: str) -> list[dict[str, object]]:
     out: list[dict[str, object]] = []
     items = _reference_items(soup)
     for li in items:
-        # Strip the row of outbound link buttons if present (prevents noise)
+        # Strip the outbound link buttons row if present (prevents noise)
         for extra in li.select(".c-article-references__links"):
             extra.decompose()
         if not li.get_text(strip=True):
@@ -299,7 +309,7 @@ def parse_nature(_url: str, dom_html: str) -> list[dict[str, object]]:
         base = extract_from_li(li)
         rec = augment_from_raw(base)
 
-        # --- NEW: DOI harvesting ---
+        # --- DOI harvesting ---
         doi = _extract_doi_from_li(li)
         if doi:
             # Only set if absent to avoid clobbering an upstream extractor

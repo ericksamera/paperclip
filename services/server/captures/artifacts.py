@@ -87,7 +87,9 @@ def _rich_fallback_doc(cap: Any, extraction: dict[str, Any]) -> dict[str, Any]:
     mu = bridge.get("meta_updates") or {}
     sections = bridge.get("content_sections") or {}
     abs_txt = (sections.get("abstract") or "") if isinstance(sections, dict) else ""
-    paras = (sections.get("abstract_or_body") or []) if isinstance(sections, dict) else []
+    paras = (
+        (sections.get("abstract_or_body") or []) if isinstance(sections, dict) else []
+    )
     # Build abstract/body sections
     abstract = [{"title": None, "paragraphs": [abs_txt]}] if abs_txt else []
     body = [{"title": "Body", "paragraphs": [p for p in paras if p]}] if paras else []

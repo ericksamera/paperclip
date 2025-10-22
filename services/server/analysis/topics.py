@@ -67,7 +67,10 @@ def _ctfidf_top_terms_sklearn(
         class_docs.append("\n".join(buf) if buf else "")
 
     vec = TfidfVectorizer(
-        stop_words="english", ngram_range=ngram_range, max_features=max_features, min_df=1
+        stop_words="english",
+        ngram_range=ngram_range,
+        max_features=max_features,
+        min_df=1,
     )
     X = vec.fit_transform(class_docs)  # shape (n_classes, vocab)
     terms = vec.get_feature_names_out()
@@ -98,12 +101,17 @@ def _fallback_topics(
 ) -> tuple[list[int], list[dict[str, Any]], dict[str, list[str]]]:
     n = len(texts)
     if n <= 1:
-        return [0] * n, [{"cluster": 0, "top_terms": [], "size": n}], {str(i): [] for i in range(n)}
+        return (
+            [0] * n,
+            [{"cluster": 0, "top_terms": [], "size": n}],
+            {str(i): [] for i in range(n)},
+        )
     k = min(6, max(2, round(math.sqrt(n))))
     labels = [i % k for i in range(n)]
     ctf = _ctfidf_top_terms_sklearn(texts, labels, k=12)
     topics: list[dict[str, Any]] = [
-        {"cluster": i, "top_terms": ctf.get(i, []), "size": labels.count(i)} for i in range(k)
+        {"cluster": i, "top_terms": ctf.get(i, []), "size": labels.count(i)}
+        for i in range(k)
     ]
     doc_terms = {str(i): tokenize(texts[i])[:10] for i in range(n)}
     return labels, topics, doc_terms
@@ -141,7 +149,11 @@ def _kmeans_topics(
     topics: list[dict[str, Any]] = []
     for i in range(k):
         topics.append(
-            {"cluster": i, "top_terms": ctf.get(i, []), "size": int((labels_arr == i).sum())}
+            {
+                "cluster": i,
+                "top_terms": ctf.get(i, []),
+                "size": int((labels_arr == i).sum()),
+            }
         )
 
     # Doc-level top terms for tooltips (phrase-aware)
@@ -196,7 +208,9 @@ def _embed_hdbscan_topics(
         )
 
     clusterer = hdbscan.HDBSCAN(
-        min_cluster_size=max(2, len(texts) // 20 or 2), min_samples=1, metric="euclidean"
+        min_cluster_size=max(2, len(texts) // 20 or 2),
+        min_samples=1,
+        metric="euclidean",
     )
     raw = clusterer.fit_predict(embs).tolist()
 
@@ -208,7 +222,8 @@ def _embed_hdbscan_topics(
     ctf = _ctfidf_top_terms_sklearn(texts, labels, k=12)
     k = len(uniq)
     topics: list[dict[str, Any]] = [
-        {"cluster": i, "top_terms": ctf.get(i, []), "size": labels.count(i)} for i in range(k)
+        {"cluster": i, "top_terms": ctf.get(i, []), "size": labels.count(i)}
+        for i in range(k)
     ]
     doc_terms = {str(i): tokenize(texts[i])[:10] for i in range(len(texts))}
     return labels, topics, doc_terms
@@ -298,7 +313,10 @@ def _try_openai_label(cluster_docs: list[str]) -> tuple[str, str] | None:
             resp = client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "Write concise, specific topic labels."},
+                    {
+                        "role": "system",
+                        "content": "Write concise, specific topic labels.",
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
@@ -311,7 +329,10 @@ def _try_openai_label(cluster_docs: list[str]) -> tuple[str, str] | None:
             resp = openai.ChatCompletion.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "Write concise, specific topic labels."},
+                    {
+                        "role": "system",
+                        "content": "Write concise, specific topic labels.",
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
@@ -388,7 +409,9 @@ def label_topics_if_configured(
     if dirty and cache_path:
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+            cache_path.write_text(
+                json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
         except Exception:
             pass
 

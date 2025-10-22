@@ -59,17 +59,30 @@ def _facets_for_caps(caps: Iterable[Capture]) -> dict[str, Any]:
             if fam:
                 authors[fam] = authors.get(fam, 0) + 1
     # Years → normalized histogram for UI bars
-    yr_sorted = sorted(years.items(), key=lambda kv: int(kv[0]), reverse=True) if years else []
+    yr_sorted = (
+        sorted(years.items(), key=lambda kv: int(kv[0]), reverse=True) if years else []
+    )
     max_count = max(years.values()) if years else 1
-    years_hist = [{"label": y, "count": n, "pct": round(n * 100 / max_count)} for y, n in yr_sorted]
+    years_hist = [
+        {"label": y, "count": n, "pct": round(n * 100 / max_count)}
+        for y, n in yr_sorted
+    ]
     return {
         "years": years_hist,
         "journals": _topn(journals, 12),
         "sites": _topn(sites, 12),
         "authors": _topn(authors, 12),
         "years_stats": {
-            "min": int(min((int(y) for y, _ in yr_sorted), default=0)) if yr_sorted else None,
-            "max": int(max((int(y) for y, _ in yr_sorted), default=0)) if yr_sorted else None,
+            "min": (
+                int(min((int(y) for y, _ in yr_sorted), default=0))
+                if yr_sorted
+                else None
+            ),
+            "max": (
+                int(max((int(y) for y, _ in yr_sorted), default=0))
+                if yr_sorted
+                else None
+            ),
             "mode": int(yr_sorted[0][0]) if yr_sorted else None,
             "span": (
                 (

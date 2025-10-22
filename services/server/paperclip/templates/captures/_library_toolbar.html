@@ -72,16 +72,17 @@
 
     {% if selected.col %}
       <a class="btn" href="{% url 'collection_download_views' selected.col %}">Download views</a>
+      <a class="btn" href="{% url 'capture_export_bibtex' %}?col={{ selected.col }}">Export BibTeX</a>
+      {# Optional: uncomment if you added RIS #}
+      {# <a class="btn" href="{% url 'capture_export_ris' %}?col={{ selected.col }}">Export RIS</a> #}
     {% else %}
-      <a class="btn" href="{% url 'collection_download_views' 'all' %}">Download views</a>
+      <span class="btn" style="opacity:.5;pointer-events:none" title="Select a collection to export">Download views</span>
+      <span class="btn" style="opacity:.5;pointer-events:none" title="Select a collection to export">Export BibTeX</span>
+      {# <span class="btn" style="opacity:.5;pointer-events:none" title="Select a collection to export">Export RIS</span> #}
     {% endif %}
 
     <a class="btn" href="{% url 'dedup_review' %}">Dedup review</a>
     <a class="btn" href="{% url 'capture_export' %}?{{ current_params.urlencode }}">Export CSV</a>
-    <a class="btn" href="{% url 'capture_export_bibtex' %}?{{ current_params.urlencode }}">Export BibTeX</a>
-    {# Optional: uncomment if you added RIS #}
-    {# <a class="btn" href="{% url 'capture_export_ris' %}?{{ current_params.urlencode }}">Export RIS</a> #}
-
     <button id="z-toggle-left"  class="btn" type="button" title="Toggle sidebar">Sidebar ⇆</button>
     <button id="z-toggle-right" class="btn" type="button" title="Toggle info panel">Info ⇆</button>
   </div>
@@ -100,13 +101,8 @@
     <div class="row">
       <em class="muted">Show / hide &amp; drag to reorder</em>
       <ul id="pc-cols-list" class="pc-cols-list" aria-label="Columns order and visibility">
-        {# Rows are injected by JS to reflect saved order; keep server markup minimal #}
+        {# Rows are injected by JS to reflect saved prefs #}
       </ul>
-    </div>
-
-    <div class="row" style="display:flex;gap:8px;align-items:center">
-      <button id="pc-cols-reset" class="btn" type="button">Reset defaults</button>
-      <span class="muted">Saved automatically</span>
     </div>
   </aside>
 </div>

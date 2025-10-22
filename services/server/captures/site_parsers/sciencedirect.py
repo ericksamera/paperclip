@@ -33,6 +33,7 @@ _HEADLESS_NOISE_RX = re.compile(
     re.I,
 )
 
+
 def _has_direct_heading(sec: Tag, levels: Iterable[str]) -> Tag | None:
     """Return the direct child heading tag (h2/h3/h4) if present."""
     for lvl in levels:
@@ -41,12 +42,14 @@ def _has_direct_heading(sec: Tag, levels: Iterable[str]) -> Tag | None:
             return h
     return None
 
+
 def _good_title(h: Tag | None) -> str:
     if not h:
         return ""
     t = heading_text(h)
     # Tiny guard: SD sometimes repeats empty headings for anchors
     return collapse_spaces(t)
+
 
 def _parse_sd_section(sec: Tag, seen_ids: set[str]) -> dict[str, object] | None:
     sid = (sec.get("id") or "").strip()
@@ -66,7 +69,9 @@ def _parse_sd_section(sec: Tag, seen_ids: set[str]) -> dict[str, object] | None:
     for child_sec in sec.find_all("section", recursive=False):
         child_node = _parse_sd_section(child_sec, seen_ids)
         if child_node and (
-            child_node.get("title") or child_node.get("paragraphs") or child_node.get("children")
+            child_node.get("title")
+            or child_node.get("paragraphs")
+            or child_node.get("children")
         ):
             children.append(child_node)
 
@@ -90,6 +95,7 @@ def _parse_sd_section(sec: Tag, seen_ids: set[str]) -> dict[str, object] | None:
     if deduped:
         node["children"] = deduped
     return node
+
 
 def _find_top_sections(soup: BeautifulSoup) -> list[Tag]:
     """
@@ -133,6 +139,7 @@ def _find_top_sections(soup: BeautifulSoup) -> list[Tag]:
             really_top.append(s)
     return really_top
 
+
 def _extract_sd_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
     """
     Build a clean section tree for SD pages without duplicating children.
@@ -161,12 +168,15 @@ def _extract_sd_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
     if host:
         # Collect paragraphs across the subtree; drop obvious UI/figure-download lines
         paras = [
-            t for t in (collect_paragraphs_subtree(host) or []) if t and not _HEADLESS_NOISE_RX.search(t)
+            t
+            for t in (collect_paragraphs_subtree(host) or [])
+            if t and not _HEADLESS_NOISE_RX.search(t)
         ]
         # Be conservative: require a few lines so we don't create empty shells
         if paras[:3]:
             return [{"title": "Introduction", "paragraphs": paras}]
     return []
+
 
 # ======================================================================================
 # Meta: abstract, keywords, sections
@@ -197,6 +207,7 @@ def _extract_abstract(soup: BeautifulSoup) -> str:
             if t:
                 return t
     return ""
+
 
 def _extract_keywords(soup: BeautifulSoup) -> list[str]:
     kws: list[str] = []
@@ -229,12 +240,14 @@ def _extract_keywords(soup: BeautifulSoup) -> list[str]:
             break
     return dedupe_keep_order(kws)
 
+
 def extract_sciencedirect_meta(_url: str, dom_html: str) -> dict[str, object]:
     soup = BeautifulSoup(dom_html or "", "html.parser")
     abstract = _extract_abstract(soup)
     keywords = _extract_keywords(soup)
     sections = _extract_sd_sections(soup)
     return {"abstract": abstract, "keywords": keywords, "sections": sections}
+
 
 # ======================================================================================
 # References
@@ -265,6 +278,7 @@ def parse_sciencedirect(_url: str, dom_html: str) -> list[dict[str, object]]:
             break
     return out
 
+
 # ======================================================================================
 # Registration
 # ======================================================================================
@@ -289,5 +303,8 @@ register(
     name="ScienceDirect references",
 )
 register(
-    r"sciencedirect[-\.]", parse_sciencedirect, where="url", name="ScienceDirect references (proxy)"
+    r"sciencedirect[-\.]",
+    parse_sciencedirect,
+    where="url",
+    name="ScienceDirect references (proxy)",
 )

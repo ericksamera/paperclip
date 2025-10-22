@@ -14,13 +14,17 @@ from paperclip.conf import AUTO_ENRICH, ENRICH_ON_CAPTURE
 from paperclip.utils import norm_doi
 
 
-def _build_server_parsed(capture: Capture, extraction: dict[str, Any]) -> dict[str, Any]:
+def _build_server_parsed(
+    capture: Capture, extraction: dict[str, Any]
+) -> dict[str, Any]:
     from captures.artifacts import build_server_parsed as _sp
 
     return _sp(capture, extraction)
 
 
-def _robust_parse(*, url: str | None, content_html: str, dom_html: str) -> dict[str, Any]:
+def _robust_parse(
+    *, url: str | None, content_html: str, dom_html: str
+) -> dict[str, Any]:
     from captures.parsing_bridge import robust_parse as _rp
 
     return _rp(url=url, content_html=content_html, dom_html=dom_html)
@@ -33,7 +37,9 @@ def _host(url: str) -> str:
         return ""
 
 
-def _ref_kwargs(r: dict[str, Any], *, capture: Capture, csl_ok: bool = True) -> dict[str, Any]:
+def _ref_kwargs(
+    r: dict[str, Any], *, capture: Capture, csl_ok: bool = True
+) -> dict[str, Any]:
     return {
         "capture": capture,
         "ref_id": (r.get("id") or ""),
@@ -70,7 +76,8 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
         cap = Capture.objects.create(
             url=src_url,
             site=src_host or "",
-            title=(meta_in.get("title") or "").strip() or (csl_in.get("title") or "").strip(),
+            title=(meta_in.get("title") or "").strip()
+            or (csl_in.get("title") or "").strip(),
             meta=meta_in,
             csl=csl_in or {},
         )
@@ -95,7 +102,9 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
         if new_year is not None:
             cap.year = str(new_year or "")
         BLOCKED_META_KEYS = {"title", "doi", "issued_year"}
-        passthrough = {k: v for k, v in meta_updates.items() if k not in BLOCKED_META_KEYS}
+        passthrough = {
+            k: v for k, v in meta_updates.items() if k not in BLOCKED_META_KEYS
+        }
         if passthrough:
             cap.meta = {**(cap.meta or {}), **passthrough}
         if not cap.site:
@@ -131,7 +140,9 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
         for r in site_refs:
             doi_key = norm_doi(r.get("doi"))
             raw_key = (r.get("raw") or "").strip().lower()
-            if (doi_key and doi_key in existing_doi) or (not doi_key and raw_key in existing_raw):
+            if (doi_key and doi_key in existing_doi) or (
+                not doi_key and raw_key in existing_raw
+            ):
                 continue
             to_create.append(Reference(**_ref_kwargs(r, capture=cap, csl_ok=False)))
         if to_create:

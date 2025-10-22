@@ -74,13 +74,21 @@ class ReferenceIngestTests(TestCase):
             payload = {
                 "source_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC999999/",
                 "dom_html": PMC_PAGE,
-                "extraction": {"meta": {}, "content_html": "<p>Hi</p>", "references": []},
+                "extraction": {
+                    "meta": {},
+                    "content_html": "<p>Hi</p>",
+                    "references": [],
+                },
                 "rendered": {},
                 "client": {"ext": "chrome", "v": "0.1.0"},
             }
-            with patch("captures.artifacts.build_server_parsed", return_value={"id": "stubbed"}):
+            with patch(
+                "captures.artifacts.build_server_parsed", return_value={"id": "stubbed"}
+            ):
                 resp = client.post(
-                    "/api/captures/", data=json.dumps(payload), content_type="application/json"
+                    "/api/captures/",
+                    data=json.dumps(payload),
+                    content_type="application/json",
                 )
                 self.assertEqual(resp.status_code, 201, resp.content)
                 cap_id = resp.json()["capture_id"]
@@ -101,13 +109,21 @@ class ReferenceIngestTests(TestCase):
             payload = {
                 "source_url": "https://example.org/article/abc",
                 "dom_html": GENERIC_PAGE,
-                "extraction": {"meta": {}, "content_html": "<p>Hi</p>", "references": []},
+                "extraction": {
+                    "meta": {},
+                    "content_html": "<p>Hi</p>",
+                    "references": [],
+                },
                 "rendered": {},
                 "client": {"ext": "chrome", "v": "0.1.0"},
             }
-            with patch("captures.artifacts.build_server_parsed", return_value={"id": "stubbed"}):
+            with patch(
+                "captures.artifacts.build_server_parsed", return_value={"id": "stubbed"}
+            ):
                 resp = client.post(
-                    "/api/captures/", data=json.dumps(payload), content_type="application/json"
+                    "/api/captures/",
+                    data=json.dumps(payload),
+                    content_type="application/json",
                 )
                 self.assertEqual(resp.status_code, 201, resp.content)
                 cap_id = resp.json()["capture_id"]

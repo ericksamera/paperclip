@@ -25,7 +25,11 @@ def _ascii_slug(s: str) -> str:
     """
     Fold accents → ASCII, keep [a-z0-9-], collapse dashes, lowercase.
     """
-    s = unicodedata.normalize("NFKD", (s or "")).encode("ascii", "ignore").decode("ascii")
+    s = (
+        unicodedata.normalize("NFKD", (s or ""))
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
     s = re.sub(r"[^A-Za-z0-9]+", "-", s).strip("-").lower()
     s = re.sub(r"-{2,}", "-", s)
     return s
@@ -38,7 +42,9 @@ def _slug_for_capture(c: Capture) -> str:
     """
     meta: Mapping[str, Any] = c.meta or {}
     csl: CSL | Mapping[str, Any] = c.csl or {}
-    year = (c.year or meta.get("year") or meta.get("publication_year") or "").strip() or "na"
+    year = (
+        c.year or meta.get("year") or meta.get("publication_year") or ""
+    ).strip() or "na"
     authors = _author_list(meta, csl)
     fam = _family_from_name(authors[0]) if authors else ""
     fam_slug = _ascii_slug(fam or "anon") or "anon"
@@ -72,6 +78,27 @@ def collection_rename(request, pk: int):
 @require_POST
 def collection_delete(request, pk: int):
     col = get_object_or_404(Collection, pk=pk)
+    force = (request.POST.get("force") or "").strip() == "1"
+
+    has_children = col.children.exists()
+    has_items = col.captures.exists()
+
+    if (has_children or has_items) and not force:
+        msg = "Collection is not empty. Re-run with force=1 to delete."
+        from django.http import HttpResponseBadRequest
+
+        return HttpResponseBadRequest(msg)
+
+    # If forcing, clear items and reparent children to the parent (if any) before delete
+    if force:
+        parent = col.parent
+        if has_items:
+            col.captures.clear()
+        if has_children:
+            for child in col.children.all():
+                child.parent = parent
+                child.save(update_fields=["parent"])
+
     col.delete()
     return redirect("library")
 
@@ -93,9 +120,18 @@ def collection_assign(request, pk: int):
 
 def collection_download_views(request, cid: str):
     """
-    Download a zip of all reduced views for the current collection (or 'all'),
-    naming each entry as: {year}_{first-author}_{journal-short}__{UUID}.json
+    Download a zip of all reduced views for the given collection id.
+    Global (all) exports are disabled by default, behind a setting.
     """
+    from django.conf import settings
+    from django.http import HttpResponseBadRequest
+
+    allow_global = bool(getattr(settings, "ALLOW_GLOBAL_VIEW_EXPORTS", False))
+    if cid == "all" and not allow_global:
+        return HttpResponseBadRequest(
+            "Global view export is disabled. Choose a collection to export its views."
+        )
+
     if cid == "all":
         caps = Capture.objects.all()
         label = "all-items"
@@ -103,6 +139,7 @@ def collection_download_views(request, cid: str):
         col = get_object_or_404(Collection, pk=int(cid))
         caps = col.captures.all()
         label = f"collection-{col.id}"
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for c in caps:
@@ -110,7 +147,7 @@ def collection_download_views(request, cid: str):
             if not view:
                 continue
             slug = _slug_for_capture(c)
-            arcname = f"{slug}__{c.id}.json"  # keep UUID suffix for uniqueness
+            arcname = f"{slug}__{c.id}.json"
             zf.writestr(arcname, json.dumps(view, ensure_ascii=False, indent=2))
     buf.seek(0)
     resp = HttpResponse(buf.read(), content_type="application/zip")

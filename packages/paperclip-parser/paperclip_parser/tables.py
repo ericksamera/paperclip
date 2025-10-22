@@ -125,7 +125,12 @@ def _collect_title_caption_id(table: Tag) -> Dict[str, Optional[str]]:
                 source_link = a["href"]
                 break
 
-    return {"id": table_id, "title": title, "caption": caption, "source_link": source_link}
+    return {
+        "id": table_id,
+        "title": title,
+        "caption": caption,
+        "source_link": source_link,
+    }
 
 
 def _select_trs(table: Tag) -> Dict[str, List[Tag]]:
@@ -148,7 +153,9 @@ def _select_trs(table: Tag) -> Dict[str, List[Tag]]:
     return {"thead": thead_trs, "tbody": tbody_trs}
 
 
-def _compose_headers(header_rows: List[List[str]], body_rows: List[List[str]]) -> List[str]:
+def _compose_headers(
+    header_rows: List[List[str]], body_rows: List[List[str]]
+) -> List[str]:
     if header_rows:
         n_cols = max(len(r) for r in header_rows)
         headers: List[str] = []

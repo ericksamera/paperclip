@@ -20,7 +20,9 @@ def _find_dotenv_candidates() -> list[Path]:
     repo = service.parent.parent  # .../<repo root>
 
     env_from_env = (
-        os.getenv("DOTENV_PATH") or os.getenv("ENV_FILE") or os.getenv("PAPERCLIP_ENV_FILE")
+        os.getenv("DOTENV_PATH")
+        or os.getenv("ENV_FILE")
+        or os.getenv("PAPERCLIP_ENV_FILE")
     )
 
     paths: list[Path] = []
@@ -52,7 +54,9 @@ def _parse_dotenv_line(line: str) -> tuple[str, str] | None:
     key = key.strip()
 
     # Trim surrounding quotes
-    if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+    if (val.startswith('"') and val.endswith('"')) or (
+        val.startswith("'") and val.endswith("'")
+    ):
         val = val[1:-1]
 
     # Expand ${VAR} using existing environment

@@ -33,7 +33,9 @@ DATA_DIR = MONOREPO_ROOT / "data"
 # --- Core ---
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-secret")
 DEBUG = os.environ.get("DEBUG", "1").lower() in {"1", "true", "yes"}
-ALLOWED_HOSTS = [h for h in os.environ.get("ALLOWED_HOSTS", "*").split(",") if h]  # dev-friendly
+ALLOWED_HOSTS = [
+    h for h in os.environ.get("ALLOWED_HOSTS", "*").split(",") if h
+]  # dev-friendly
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

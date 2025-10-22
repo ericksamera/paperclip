@@ -91,7 +91,9 @@ def sanitize_graph(
         with suppress(Exception):
             import logging
 
-            logging.getLogger(__name__).warning("sanitize_graph: dropped %d broken edges", dropped)
+            logging.getLogger(__name__).warning(
+                "sanitize_graph: dropped %d broken edges", dropped
+            )
     return nodes, clean
 
 
@@ -203,7 +205,14 @@ def run(out_dir: Path, k: int | None = None) -> dict[str, Any]:
     # --- 1) Captures → documents
     docs = collect_docs()
     if not docs:
-        data = {"nodes": [], "edges": [], "edgesets": {}, "topics": [], "k": 0, "mode": "empty"}
+        data = {
+            "nodes": [],
+            "edges": [],
+            "edgesets": {},
+            "topics": [],
+            "k": 0,
+            "mode": "empty",
+        }
         (out_dir / "graph.json").write_text(
             json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -279,7 +288,11 @@ def run(out_dir: Path, k: int | None = None) -> dict[str, Any]:
         cid = int(t.get("cluster", 0))
         label: str = cast(
             str,
-            (t.get("label") or " · ".join((t.get("top_terms") or [])[:3]) or f"Topic {cid}"),
+            (
+                t.get("label")
+                or " · ".join((t.get("top_terms") or [])[:3])
+                or f"Topic {cid}"
+            ),
         )
         tid = f"T{cid}"
         topic_nodes.append(
@@ -358,7 +371,9 @@ def run(out_dir: Path, k: int | None = None) -> dict[str, Any]:
         for _s, targets in by_src.items():
             for a, b in _comb(sorted(targets), 2):
                 w[(a, b)] += 1
-        return [{"source": a, "target": b, "weight": c} for (a, b), c in w.items() if c > 0]
+        return [
+            {"source": a, "target": b, "weight": c} for (a, b), c in w.items() if c > 0
+        ]
 
     edges_mutual = _mutual_edges(edges_doc_citations)
     edges_shared = _biblio_coupling(docs)
@@ -377,7 +392,10 @@ def run(out_dir: Path, k: int | None = None) -> dict[str, Any]:
 
             model = SentenceTransformer(model_name)
             embs = model.encode(
-                texts, show_progress_bar=False, convert_to_numpy=True, normalize_embeddings=True
+                texts,
+                show_progress_bar=False,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
             )
             return np.asarray(embs, dtype="float32"), model_name
         try:
@@ -443,7 +461,8 @@ def run(out_dir: Path, k: int | None = None) -> dict[str, Any]:
     sim_thresh = float(os.environ.get("PAPERCLIP_SIM_THRESH", "0.32"))
     edges_semantic = _knn_edges(emb, [d.id for d in docs], k=knn_k, thresh=sim_thresh)
     c_pairs = {
-        (min(e["source"], e["target"]), max(e["source"], e["target"])) for e in edges_doc_citations
+        (min(e["source"], e["target"]), max(e["source"], e["target"]))
+        for e in edges_doc_citations
     }
     suggested: list[dict[str, Any]] = []
     for e in edges_semantic:
@@ -501,10 +520,14 @@ def run(out_dir: Path, k: int | None = None) -> dict[str, Any]:
     cluster_counts: dict[int, int] = (
         Counter(int(c) for c in labels) if labels else Counter({0: len(docs)})
     )
-    tiny_clusters = {cid for cid, cnt in cluster_counts.items() if cnt < tiny_topic_cutoff}
+    tiny_clusters = {
+        cid for cid, cnt in cluster_counts.items() if cnt < tiny_topic_cutoff
+    }
     NodeById = {n["id"]: n for n in nodes}
     for cid in sorted(tiny_clusters):
-        gaps_summary["topic_gaps"].append({"cluster": int(cid), "size": int(cluster_counts[cid])})
+        gaps_summary["topic_gaps"].append(
+            {"cluster": int(cid), "size": int(cluster_counts[cid])}
+        )
     for i, d in enumerate(docs):
         cid = int(labels[i]) if labels else 0
         reasons = []

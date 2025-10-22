@@ -54,7 +54,9 @@ def _filter_and_rank(
     """Filter the subset of Capture rows in ids and return (ordered_list, rank_map)."""
     rank = {pk: i for i, pk in enumerate(ids)}
     qs = Capture.objects.filter(id__in=ids)
-    filtered: list[Capture] = _apply_filters(qs, year=year, journal=journal, site=site, col=col)
+    filtered: list[Capture] = _apply_filters(
+        qs, year=year, journal=journal, site=site, col=col
+    )
     filtered.sort(key=lambda c: rank.get(str(c.id), 10**9))
     return filtered, rank
 
@@ -91,7 +93,12 @@ def _sort_key(c: Capture, key: str) -> Any:
     if k == "refs":
         return _safe_refs_count(c)  # <-- typed helper (avoids mypy 'attr-defined')
     if k == "doi":
-        d = c.doi or meta.get("doi") or (csl.get("DOI") if isinstance(csl, dict) else "") or ""
+        d = (
+            c.doi
+            or meta.get("doi")
+            or (csl.get("DOI") if isinstance(csl, dict) else "")
+            or ""
+        )
         return str(d).casefold()
     # Fallback = added
     return c.created_at
@@ -153,15 +160,23 @@ class LibraryView(View):
         if qterm:
             # Searching: get ranked IDs then optionally resort if user clicked a header
             ids = _search_ids_for_query(qterm, search_mode)
-            filtered, _rank = _filter_and_rank(ids, year=year, journal=journal, site=site, col=col)
-            filtered = _maybe_sort(filtered, qterm=qterm, sort=sort, direction=direction)
+            filtered, _rank = _filter_and_rank(
+                ids, year=year, journal=journal, site=site, col=col
+            )
+            filtered = _maybe_sort(
+                filtered, qterm=qterm, sort=sort, direction=direction
+            )
             total = len(filtered)
             start = (page_no - 1) * per
             end = start + per
             rows = [_row(c) for c in filtered[start:end]]
             # "All items" count for the Collections header when a search is active
             all_items_filtered = _apply_filters(
-                Capture.objects.filter(id__in=ids), year=year, journal=journal, site=site, col=""
+                Capture.objects.filter(id__in=ids),
+                year=year,
+                journal=journal,
+                site=site,
+                col="",
             )
             collections_all_count = len(all_items_filtered)
             # Expose current params so qs_sort can generate toggles
@@ -185,12 +200,16 @@ class LibraryView(View):
                 },
             )
         # Non-search listing (simple ordering + pagination)
-        filtered = _apply_filters(base_qs, year=year, journal=journal, site=site, col=col)
+        filtered = _apply_filters(
+            base_qs, year=year, journal=journal, site=site, col=col
+        )
         filtered = _maybe_sort(filtered, qterm="", sort=sort, direction=direction)
         paginator = Paginator(filtered, per)
         page = paginator.get_page(page_no)
         rows = [_row(c) for c in page.object_list]
-        all_items_filtered = _apply_filters(base_qs, year=year, journal=journal, site=site, col="")
+        all_items_filtered = _apply_filters(
+            base_qs, year=year, journal=journal, site=site, col=""
+        )
         collections_all_count = len(all_items_filtered)
         current_params = request.GET
         ui_sort = sort or "created_at"
@@ -224,7 +243,9 @@ def library_page(request):
     direction = request.GET.get("dir", "desc")
     if qterm:
         ids = _search_ids_for_query(qterm, search_mode)
-        filtered, _rank = _filter_and_rank(ids, year=year, journal=journal, site=site, col=col)
+        filtered, _rank = _filter_and_rank(
+            ids, year=year, journal=journal, site=site, col=col
+        )
         filtered = _maybe_sort(filtered, qterm=qterm, sort=sort, direction=direction)
         paginator = Paginator(filtered, per)
         page = paginator.get_page(page_no)

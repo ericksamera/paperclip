@@ -60,14 +60,17 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
         if paras:
             return " ".join(paras)
     # 2) Heading "Abstract" → paragraphs until next heading
-    head = soup.find(lambda t: is_heading(t) and re.search(r"\babstract\b", heading_text(t), re.I))
+    head = soup.find(
+        lambda t: is_heading(t) and re.search(r"\babstract\b", heading_text(t), re.I)
+    )
     if head:
         paras = paras_between(head, _next_heading(head))
         if paras:
             return " ".join(paras)
     # 3) Fallback: paragraphs *above* the "Introduction" heading
     intro = soup.find(
-        lambda t: is_heading(t) and re.search(r"\bintroduction\b", heading_text(t), re.I)
+        lambda t: is_heading(t)
+        and re.search(r"\bintroduction\b", heading_text(t), re.I)
     )
     if intro:
         out: list[str] = []
@@ -94,8 +97,12 @@ def _extract_keywords(soup: BeautifulSoup) -> list[str]:
     # Prefer structured keyword widgets when present
     for kw_wrap in soup.find_all(_looks_like_kw_host):
         items: list[str] = []
-        items += [a.get_text(" ", strip=True) for a in kw_wrap.select("a, .keyword, span, li")]
-        items = [re.sub(r"^\s*Keywords?\s*:\s*", "", _txt(t), flags=re.I) for t in items]
+        items += [
+            a.get_text(" ", strip=True) for a in kw_wrap.select("a, .keyword, span, li")
+        ]
+        items = [
+            re.sub(r"^\s*Keywords?\s*:\s*", "", _txt(t), flags=re.I) for t in items
+        ]
         items = [t for t in items if t and len(t) > 1]
         if items:
             return dedupe_keep_order(items)
@@ -118,7 +125,9 @@ def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
         or soup
     )
     headings = [
-        h for h in root.find_all(["h2", "h3", "h4"]) if not _NONCONTENT_RX.search(heading_text(h))
+        h
+        for h in root.find_all(["h2", "h3", "h4"])
+        if not _NONCONTENT_RX.search(heading_text(h))
     ]
     if not headings:
         return []
@@ -137,11 +146,16 @@ def _extract_sections(soup: BeautifulSoup) -> list[dict[str, object]]:
         for k in headings[i + 1 :]:
             next_h = k
             break
-        node: dict[str, object] = {"title": title, "paragraphs": paras_between(h, next_h)}
+        node: dict[str, object] = {
+            "title": title,
+            "paragraphs": paras_between(h, next_h),
+        }
         while stack and stack[-1][0] >= lvl:
             stack.pop()
         if stack:
-            children = cast(list[dict[str, object]], stack[-1][1].setdefault("children", []))
+            children = cast(
+                list[dict[str, object]], stack[-1][1].setdefault("children", [])
+            )
             children.append(node)
         else:
             top.append(node)
@@ -189,7 +203,9 @@ def parse_frontiers(_url: str, dom_html: str) -> list[dict[str, object]]:
         # DOI: any DOI-looking href or text in the block
         doi = ""
         for a in box.find_all("a", href=True):
-            m = DOI_RE.search(a.get("href", "")) or DOI_RE.search(a.get_text(" ", strip=True))
+            m = DOI_RE.search(a.get("href", "")) or DOI_RE.search(
+                a.get_text(" ", strip=True)
+            )
             if m:
                 doi = m.group(0)
                 break
@@ -213,11 +229,27 @@ def extract_frontiers_meta(_url: str, dom_html: str) -> dict[str, object]:
 
 # Register for both direct host and potential proxy-ish URL forms
 register_meta(
-    r"(?:^|\.)frontiersin\.org$", extract_frontiers_meta, where="host", name="Frontiers meta"
+    r"(?:^|\.)frontiersin\.org$",
+    extract_frontiers_meta,
+    where="host",
+    name="Frontiers meta",
 )
 register_meta(
-    r"frontiersin[-\.]", extract_frontiers_meta, where="url", name="Frontiers meta (proxy)"
+    r"frontiersin[-\.]",
+    extract_frontiers_meta,
+    where="url",
+    name="Frontiers meta (proxy)",
 )
 # References registration
-register(r"(?:^|\.)frontiersin\.org$", parse_frontiers, where="host", name="Frontiers references")
-register(r"frontiersin[-\.]", parse_frontiers, where="url", name="Frontiers references (proxy)")
+register(
+    r"(?:^|\.)frontiersin\.org$",
+    parse_frontiers,
+    where="host",
+    name="Frontiers references",
+)
+register(
+    r"frontiersin[-\.]",
+    parse_frontiers,
+    where="url",
+    name="Frontiers references (proxy)",
+)

@@ -13,10 +13,10 @@ It does not affect runtime.
 from datetime import datetime
 from typing import Any, Iterable, Optional
 
-
 # ---- Minimal helpers ---------------------------------------------------------
 
 class _Manager: ...
+
 class _RelatedManager:
     def all(self) -> Any: ...
     def count(self) -> int: ...
@@ -26,7 +26,6 @@ class _RelatedManager:
     def order_by(self, *fields: str) -> Any: ...
     def only(self, *fields: str) -> Any: ...
     def exists(self) -> bool: ...
-
 
 # ---- Reference model (subset of fields we touch) -----------------------------
 
@@ -45,7 +44,6 @@ class Reference:
     # Standard Django bits used in code/tests
     objects: _Manager
     def save(self, *, update_fields: Iterable[str] | None = ...) -> None: ...
-
 
 # ---- Capture model (subset) --------------------------------------------------
 
@@ -67,7 +65,6 @@ class Capture:
     collections: _RelatedManager
 
     objects: _Manager
-
 
 # ---- Collection model (subset) ----------------------------------------------
 

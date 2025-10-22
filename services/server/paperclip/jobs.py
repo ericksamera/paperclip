@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+
 def submit_analysis(run_id: int) -> bool:
     """
     Try to queue the analysis run via Celery; fall back to a synchronous call

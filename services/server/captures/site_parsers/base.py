@@ -64,7 +64,12 @@ def looks_like_para_div(el: Tag) -> bool:
         return False
     did = (el.get("id") or "").lower()
     cls = " ".join(el.get("class") or []).lower()
-    return bool(_SD_PARA_ID.match(did) or "u-margin" in cls or "para" in cls or "paragraph" in cls)
+    return bool(
+        _SD_PARA_ID.match(did)
+        or "u-margin" in cls
+        or "para" in cls
+        or "paragraph" in cls
+    )
 
 
 def collect_sd_paragraphs(sec: Tag) -> list[str]:
@@ -84,7 +89,8 @@ def collect_sd_paragraphs(sec: Tag) -> list[str]:
             continue
         # lists inside paragraph divs
         lis = [
-            collapse_spaces(li.get_text(" ", strip=True)) for li in d.find_all("li", recursive=True)
+            collapse_spaces(li.get_text(" ", strip=True))
+            for li in d.find_all("li", recursive=True)
         ]
         lis = [x for x in lis if x and len(x) > 1]
         if lis:
@@ -173,13 +179,17 @@ def split_keywords_block(s: str) -> list[str]:
 def next_heading(node: Tag, levels: Iterable[str] = ("h2", "h3", "h4")) -> Tag | None:
     cur = node.next_sibling
     while cur:
-        if isinstance(cur, Tag) and (cur.name or "").lower() in {lvl.lower() for lvl in levels}:
+        if isinstance(cur, Tag) and (cur.name or "").lower() in {
+            lvl.lower() for lvl in levels
+        }:
             return cur
         cur = getattr(cur, "next_sibling", None)
     return None
 
 
-def _has_ancestor_matching(tag: Tag, root: Tag, predicate: Callable[[Tag], bool]) -> bool:
+def _has_ancestor_matching(
+    tag: Tag, root: Tag, predicate: Callable[[Tag], bool]
+) -> bool:
     cur = tag.parent
     while isinstance(cur, Tag) and cur is not root:
         if predicate(cur):
@@ -188,14 +198,18 @@ def _has_ancestor_matching(tag: Tag, root: Tag, predicate: Callable[[Tag], bool]
     return False
 
 
-def collect_paras_excluding(root: Tag, is_subsection_container: Callable[[Tag], bool]) -> list[str]:
+def collect_paras_excluding(
+    root: Tag, is_subsection_container: Callable[[Tag], bool]
+) -> list[str]:
     """
     Collect <p>/<li> that belong to `root`, skipping those inside nested blocks
     recognized by `is_subsection_container`. If nothing found AND there are no
     such nested blocks, fall back to subtree text.
     """
     out: list[str] = []
-    has_sub = any(is_subsection_container(c) for c in root.find_all(True, recursive=False))
+    has_sub = any(
+        is_subsection_container(c) for c in root.find_all(True, recursive=False)
+    )
     for p in root.find_all("p"):
         if _has_ancestor_matching(p, root, is_subsection_container):
             continue
@@ -255,11 +269,15 @@ def authors_initials_first_to_surname_initials(auths: list[str]) -> list[str]:
     out: list[str] = []
     for a in auths:
         a = collapse_spaces(a)
-        m = re.fullmatch(r"((?:[A-Z]\.){1,4})\s+([A-Z][a-zA-Z''\-]+)", a)  # "A.T. Vincent"
+        m = re.fullmatch(
+            r"((?:[A-Z]\.){1,4})\s+([A-Z][a-zA-Z''\-]+)", a
+        )  # "A.T. Vincent"
         if m:
             out.append(f"{m.group(2)}, {m.group(1)}")
             continue
-        m = re.fullmatch(r"([A-Z][a-zA-Z''\-]+),\s*((?:[A-Z]\.){1,4})", a)  # "Vincent, A.T."
+        m = re.fullmatch(
+            r"([A-Z][a-zA-Z''\-]+),\s*((?:[A-Z]\.){1,4})", a
+        )  # "Vincent, A.T."
         if m:
             out.append(a)
             continue
@@ -273,7 +291,9 @@ def authors_initials_first_to_surname_initials(auths: list[str]) -> list[str]:
 # ======================================================================================
 def extract_from_li(li: Tag) -> dict[str, str]:
     cite = li.find("cite")
-    raw = (cite.get_text(" ", strip=True) if cite else li.get_text(" ", strip=True)) or ""
+    raw = (
+        cite.get_text(" ", strip=True) if cite else li.get_text(" ", strip=True)
+    ) or ""
     href_doi = ""
     for a in li.find_all("a", href=True):
         m = DOI_RE.search(a["href"])
@@ -297,7 +317,8 @@ def parse_raw_reference(raw: str) -> dict[str, object]:
     text = re.sub(r"^[\[\(]?\d+[\]\)\.\:]\s*", "", text)
     out: dict[str, object] = {"raw": raw, "doi": ""}
     jmatch = re.search(
-        r"(?P<journal>[A-Za-z][A-Za-z\.\s&\-]+?),\s*(?P<vol>\d{1,4})\s*\((?P<year>\d{4})\)", text
+        r"(?P<journal>[A-Za-z][A-Za-z\.\s&\-]+?),\s*(?P<vol>\d{1,4})\s*\((?P<year>\d{4})\)",
+        text,
     )
     jstart = jmatch.start() if jmatch else -1
     authors: list[str] = []

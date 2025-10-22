@@ -117,7 +117,11 @@ def _author_list(meta: Mapping[str, Any], csl: CSL | Mapping[str, Any]) -> list[
                     names.append(full)
 
     # Fallback: meta.authors (strings or dicts)
-    if not names and isinstance(meta, Mapping) and isinstance(meta.get("authors"), list):
+    if (
+        not names
+        and isinstance(meta, Mapping)
+        and isinstance(meta.get("authors"), list)
+    ):
         for a in meta["authors"]:
             if isinstance(a, str) and a.strip():
                 names.append(a.strip())
@@ -165,7 +169,11 @@ def _journal_full(meta: Mapping[str, Any], csl: CSL | Mapping[str, Any]) -> str:
 def _doi_url(doi: str | None) -> str | None:
     if not doi:
         return None
-    return doi if doi.startswith("http://") or doi.startswith("https://") else f"https://doi.org/{doi}"
+    return (
+        doi
+        if doi.startswith("http://") or doi.startswith("https://")
+        else f"https://doi.org/{doi}"
+    )
 
 
 # ---------- references helpers (Pylance-safe) ----------
@@ -214,11 +222,18 @@ def _abstract_from_view(c: Capture, preview_max_paras: int = 3) -> str:
 def _row(c: Capture) -> LibraryRow:
     meta = c.meta or {}
     csl = c.csl or {}
-    title = (c.title or meta.get("title") or csl.get("title") or c.url or "").strip() or "(Untitled)"
+    title = (
+        c.title or meta.get("title") or csl.get("title") or c.url or ""
+    ).strip() or "(Untitled)"
     authors_intext = _authors_intext(meta, csl)
     j_full = _journal_full(meta, csl)
     j_short = get_short_journal_name(j_full, csl) or j_full
-    doi_raw = (c.doi or meta.get("doi") or (csl.get("DOI") if isinstance(csl, dict) else "") or "").strip()
+    doi_raw = (
+        c.doi
+        or meta.get("doi")
+        or (csl.get("DOI") if isinstance(csl, dict) else "")
+        or ""
+    ).strip()
 
     # Keywords → always list[str]
     kw_in = meta.get("keywords") or []
@@ -231,13 +246,19 @@ def _row(c: Capture) -> LibraryRow:
 
     # Abstract (reduced view preferred; fall back to meta/csl)
     abstract = _abstract_from_view(c) or (
-        meta.get("abstract") or (csl.get("abstract") if isinstance(csl, dict) else "") or ""
+        meta.get("abstract")
+        or (csl.get("abstract") if isinstance(csl, dict) else "")
+        or ""
     )
 
     refs_count = _ref_count(c)
 
     # Prefer normalized host field if present; else derive from URL
-    site_lbl = ((c.site or "").replace("www.", "")) if (getattr(c, "site", "") or "") else _site_label(c.url or "")
+    site_lbl = (
+        ((c.site or "").replace("www.", ""))
+        if (getattr(c, "site", "") or "")
+        else _site_label(c.url or "")
+    )
 
     return LibraryRow(
         id=str(c.id),
@@ -289,6 +310,7 @@ def _apply_filters(
       - open high:  ">=2015" or "2015+"
       - open low:   "<=2012"
     """
+
     def _parse_year_range(expr: str) -> tuple[int | None, int | None] | None:
         expr = (expr or "").strip()
         if not expr:
@@ -297,7 +319,9 @@ def _apply_filters(
         if m:
             a, b = int(m.group(1)), int(m.group(2))
             return (min(a, b), max(a, b))
-        m = re.match(r"^\s*>=?\s*(\d{4})\s*$", expr) or re.match(r"^\s*(\d{4})\+\s*$", expr)
+        m = re.match(r"^\s*>=?\s*(\d{4})\s*$", expr) or re.match(
+            r"^\s*(\d{4})\+\s*$", expr
+        )
         if m:
             return (int(m.group(1)), None)
         m = re.match(r"^\s*<=?\s*(\d{4})\s*$", expr)
@@ -386,27 +410,41 @@ def _build_facets(all_caps: Iterable[Capture]) -> Facets:
         if j:
             journals[j] = journals.get(j, 0) + 1
         # Prefer normalized host field
-        site = (c.site or "").replace("www.", "") if (c.site or "") else _site_label(c.url or "")
+        site = (
+            (c.site or "").replace("www.", "")
+            if (c.site or "")
+            else _site_label(c.url or "")
+        )
         if site:
             sites[site] = sites.get(site, 0) + 1
 
-    yr_sorted = sorted(((str(y), n) for y, n in years.items()), key=lambda kv: int(kv[0]), reverse=True)
+    yr_sorted = sorted(
+        ((str(y), n) for y, n in years.items()), key=lambda kv: int(kv[0]), reverse=True
+    )
     max_count = max(years.values()) if years else 1
     years_hist: list[YearBucket] = [
-        {"label": y, "count": n, "pct": int(round(n * 100 / max_count))} for y, n in yr_sorted
+        {"label": y, "count": n, "pct": int(round(n * 100 / max_count))}
+        for y, n in yr_sorted
     ]
 
     def sort_desc(d: dict[str, int]) -> list[tuple[str, int]]:
         return sorted(d.items(), key=lambda kv: (-kv[1], kv[0]))
 
-    out: Facets = {"years": years_hist, "journals": sort_desc(journals), "sites": sort_desc(sites)}
+    out: Facets = {
+        "years": years_hist,
+        "journals": sort_desc(journals),
+        "sites": sort_desc(sites),
+    }
     cache.set(KEY, out, timeout=90)
     return out
 
 
 def _collections_with_counts() -> list[CollectionSummary]:
     cols = Collection.objects.annotate(count=Count("captures")).order_by("name")
-    return [{"id": c.id, "name": c.name, "count": c.count, "parent": c.parent_id} for c in cols]
+    return [
+        {"id": c.id, "name": c.name, "count": c.count, "parent": c.parent_id}
+        for c in cols
+    ]
 
 
 __all__ = [

@@ -38,7 +38,9 @@ class CaptureInSerializer(serializers.Serializer):
     source_url = serializers.URLField()
     captured_at = serializers.DateTimeField(required=False)  # optional for now
     dom_html = serializers.CharField(required=False, allow_blank=True)
-    selection_html = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    selection_html = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True
+    )
     extraction = ExtractionSerializer()
     rendered = serializers.DictField(required=False)  # {markdown, filename}
     client = serializers.DictField(required=False)  # {paperclip_version, ...}

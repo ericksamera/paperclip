@@ -16,6 +16,8 @@ class Command(BaseCommand):
         out = settings.ANALYSIS_DIR / "dupes.json"
         out.write_text(json.dumps({"groups": groups}, indent=2), "utf-8")
         if groups:
-            self.stdout.write(self.style.SUCCESS(f"Found {len(groups)} groups. Wrote {out}."))
+            self.stdout.write(
+                self.style.SUCCESS(f"Found {len(groups)} groups. Wrote {out}.")
+            )
         else:
             self.stdout.write("No near-duplicates detected.")

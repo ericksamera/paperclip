@@ -12,7 +12,9 @@ from .adapter import BaseAdapter, SimpleORMAdapter
 
 
 # ---- OpenAI client (modern SDK) ----
-def _openai_chat(messages: list[dict[str, str]], model: str, temperature: float = 0.2) -> str:
+def _openai_chat(
+    messages: list[dict[str, str]], model: str, temperature: float = 0.2
+) -> str:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not configured.")
@@ -21,7 +23,9 @@ def _openai_chat(messages: list[dict[str, str]], model: str, temperature: float 
     except Exception as e:
         raise RuntimeError("The 'openai' package is not installed.") from e
     client = OpenAI(api_key=api_key, base_url=os.getenv("OPENAI_BASE_URL"))
-    resp = client.chat.completions.create(model=model, temperature=temperature, messages=messages)
+    resp = client.chat.completions.create(
+        model=model, temperature=temperature, messages=messages
+    )
     return resp.choices[0].message.content or ""
 
 
@@ -73,7 +77,9 @@ class QAEngine:
         raw = f"{collection_id}|{question}|{','.join(map(str, seed_ids))}"
         return "qa:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:40]
 
-    def ask(self, collection_id: int, question: str, mode: str = "hybrid") -> dict[str, Any]:
+    def ask(
+        self, collection_id: int, question: str, mode: str = "hybrid"
+    ) -> dict[str, Any]:
         # 1) scope to collection
         all_ids = self.adapter.collection_capture_ids(collection_id)
         if not all_ids:
@@ -128,7 +134,11 @@ class QAEngine:
                 contexts.append(context_block)
                 citations.append(
                     Citation(
-                        n=n_counter, id=meta.id, title=meta.title, year=meta.year, doi=meta.doi
+                        n=n_counter,
+                        id=meta.id,
+                        title=meta.title,
+                        year=meta.year,
+                        doi=meta.doi,
                     )
                 )
                 used_chunks.append({"n": n_counter, "id": meta.id, "text": ch})

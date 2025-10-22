@@ -23,6 +23,7 @@ from .router import (  # noqa: F401
 
 # --------------------------- Lazy default registration ---------------------------
 
+
 def _ensure_default_rules() -> None:
     """
     Some call-sites/tests may clear the registry. If the registry is empty at the
@@ -39,7 +40,10 @@ def _ensure_default_rules() -> None:
     with suppress(Exception):
         from .pmc import parse_pmc, extract_pmc_meta  # noqa: F401
     with suppress(Exception):
-        from .sciencedirect import parse_sciencedirect, extract_sciencedirect_meta  # noqa: F401
+        from .sciencedirect import (
+            parse_sciencedirect,
+            extract_sciencedirect_meta,
+        )  # noqa: F401
     with suppress(Exception):
         from .wiley import parse_wiley, extract_wiley_meta  # noqa: F401
     with suppress(Exception):
@@ -60,6 +64,7 @@ def _ensure_default_meta_rules() -> None:
 
 
 # --------------------------- Public, friendly API ---------------------------
+
 
 def extract_references(url: str | None, dom_html: str) -> list[dict[str, object]]:
     """

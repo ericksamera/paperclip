@@ -39,7 +39,10 @@ def _coerce_tables(obj: Any) -> List[Table]:
                             source_link=str(t.get("source_link") or "") or None,
                             columns=[str(x) for x in (t.get("columns") or [])],
                             rows=[[str(x) for x in r] for r in (t.get("rows") or [])],
-                            records=[{str(k): str(v) for k, v in d.items()} for d in (t.get("records") or [])],
+                            records=[
+                                {str(k): str(v) for k, v in d.items()}
+                                for d in (t.get("records") or [])
+                            ],
                         )
                     )
     return out
@@ -76,9 +79,11 @@ def parse_html_to_server_parsed(
                 title=r.title,
                 doi=r.doi,
                 url=r.url,
-                issued_year=(int(r.issued_year) if str(r.issued_year).isdigit() else None)
-                if getattr(r, "issued_year", None) not in (None, "")
-                else None,
+                issued_year=(
+                    (int(r.issued_year) if str(r.issued_year).isdigit() else None)
+                    if getattr(r, "issued_year", None) not in (None, "")
+                    else None
+                ),
                 authors=r.authors,
                 csl=r.csl,
                 container_title=r.container_title,
@@ -111,7 +116,9 @@ def parse_html_to_server_parsed(
             "csl": csl,
         },
         abstract=(
-            [{"title": None, "paragraphs": [csl.get("abstract")]}] if csl.get("abstract") else []
+            [{"title": None, "paragraphs": [csl.get("abstract")]}]
+            if csl.get("abstract")
+            else []
         ),
         body=(
             [{"title": "Body", "paragraphs": [markdown or content_html]}]

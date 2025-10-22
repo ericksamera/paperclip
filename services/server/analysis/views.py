@@ -31,7 +31,9 @@ class RunNowView(View):
         ts = timezone.now().strftime("%Y%m%d-%H%M%S")
         out_dir = settings.ANALYSIS_DIR / f"run-{ts}"
         out_dir.mkdir(parents=True, exist_ok=True)
-        run = AnalysisRun.objects.create(status="PENDING", progress=0, out_dir=str(out_dir), log="")
+        run = AnalysisRun.objects.create(
+            status="PENDING", progress=0, out_dir=str(out_dir), log=""
+        )
         queued = submit_analysis(int(run.pk))
         messages.success(
             request, f"Analysis run {int(run.pk)} - {'QUEUED' if queued else 'STARTED'}"
@@ -82,13 +84,19 @@ class GraphEmbedView(View):
     def get(self, request):
         run_id = request.GET.get("run")
         run = (
-            AnalysisRun.objects.filter(pk=run_id).first() if run_id else AnalysisRun.objects.first()
+            AnalysisRun.objects.filter(pk=run_id).first()
+            if run_id
+            else AnalysisRun.objects.first()
         )
         if not run:
-            return HttpResponse("<html><body>No graph yet.</body></html>", content_type="text/html")
+            return HttpResponse(
+                "<html><body>No graph yet.</body></html>", content_type="text/html"
+            )
         p = Path(run.out_dir) / "graph.json"
         if not p.exists():
-            return HttpResponse("<html><body>No graph yet.</body></html>", content_type="text/html")
+            return HttpResponse(
+                "<html><body>No graph yet.</body></html>", content_type="text/html"
+            )
         data_json = p.read_text("utf-8")
         return render(request, self.template_name, {"data_json": data_json, "run": run})
 

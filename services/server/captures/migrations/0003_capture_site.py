@@ -23,5 +23,7 @@ class Migration(migrations.Migration):
             name="site",
             field=models.CharField(max_length=255, blank=True),
         ),
-        migrations.RunPython(forwards_fill_site, reverse_code=migrations.RunPython.noop),
+        migrations.RunPython(
+            forwards_fill_site, reverse_code=migrations.RunPython.noop
+        ),
     ]

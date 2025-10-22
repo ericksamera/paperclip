@@ -56,7 +56,9 @@ class WileyPaneParserTests(SimpleTestCase):
         # Year / volume / pages
         self.assertEqual(r.get("year"), 2015)
         self.assertEqual(r.get("volume"), "6")
-        self.assertEqual(r.get("pages"), "1274")  # only pageFirst present → pages == "1274"
+        self.assertEqual(
+            r.get("pages"), "1274"
+        )  # only pageFirst present → pages == "1274"
         # DOI from the hidden span
         self.assertEqual(r.get("doi"), "10.3389/fmicb.2015.01274")
         self.assertEqual(r.get("url"), "https://doi.org/10.3389/fmicb.2015.01274")

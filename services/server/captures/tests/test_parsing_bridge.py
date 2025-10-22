@@ -66,7 +66,9 @@ class HeadMetaTests(SimpleTestCase):
 class RobustParseUnitTests(SimpleTestCase):
     def test_robust_parse_merges_keywords_and_journal_and_builds_preview(self) -> None:
         rv = robust_parse(
-            url="https://example.org/foo", content_html=CONTENT_HTML, dom_html=DOM_WITH_META
+            url="https://example.org/foo",
+            content_html=CONTENT_HTML,
+            dom_html=DOM_WITH_META,
         )
         meta = rv.get("meta_updates") or {}
         sections = rv.get("content_sections") or {}
@@ -92,5 +94,11 @@ class RobustParseUnitTests(SimpleTestCase):
         meta = rv.get("meta_updates") or {}
         self.assertEqual(
             meta.get("authors"),
-            ["E. Larcombe", "M. E. Alexander", "D. Snellgrove", "F. L. Henriquez", "K. A. Sloman"],
+            [
+                "E. Larcombe",
+                "M. E. Alexander",
+                "D. Snellgrove",
+                "F. L. Henriquez",
+                "K. A. Sloman",
+            ],
         )

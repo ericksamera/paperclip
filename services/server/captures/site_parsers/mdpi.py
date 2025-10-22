@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from typing import cast
 
 from bs4 import BeautifulSoup, Tag
 
@@ -25,8 +24,10 @@ _NONCONTENT_RX = re.compile(
     re.I,
 )
 
+
 def _txt(x: str | None) -> str:
     return collapse_spaces(x)
+
 
 def _p_texts(host: Tag) -> list[str]:
     """Collect visible paragraph-like text under an MDPI block."""
@@ -50,17 +51,23 @@ def _p_texts(host: Tag) -> list[str]:
                 out.append(tt)
     return out
 
+
 # -------------------------- Abstract --------------------------
 def _extract_abstract_mdpi(soup: BeautifulSoup) -> str | None:
     # 1) Canonical MDPI abstract host
-    host = soup.select_one("section#html-abstract, section.html-abstract, div.art-abstract")
+    host = soup.select_one(
+        "section#html-abstract, section.html-abstract, div.art-abstract"
+    )
     if host:
         paras = _p_texts(host)
         if paras:
             return " ".join(paras)
     # 2) Heading "Abstract"
-    head = soup.find(lambda t: isinstance(t, Tag) and t.name in {"h2", "h3", "h4"}
-                     and re.fullmatch(r"\s*abstract\s*", heading_text(t), re.I))
+    head = soup.find(
+        lambda t: isinstance(t, Tag)
+        and t.name in {"h2", "h3", "h4"}
+        and re.fullmatch(r"\s*abstract\s*", heading_text(t), re.I)
+    )
     if head:
         # take sibling container or paragraphs until next heading
         container = head.find_parent(["section", "div"]) or head.parent
@@ -69,6 +76,7 @@ def _extract_abstract_mdpi(soup: BeautifulSoup) -> str | None:
             if paras:
                 return " ".join(paras)
     return None
+
 
 # -------------------------- Keywords --------------------------
 def _extract_keywords_mdpi(soup: BeautifulSoup) -> list[str]:
@@ -81,14 +89,19 @@ def _extract_keywords_mdpi(soup: BeautifulSoup) -> list[str]:
             if t and not re.match(r"^\s*Keywords?:\s*$", t, re.I):
                 items.append(t)
         if items:
-            return dedupe_keep_order([re.sub(r"^\s*Keywords?\s*:\s*", "", i, flags=re.I) for i in items])
+            return dedupe_keep_order(
+                [re.sub(r"^\s*Keywords?\s*:\s*", "", i, flags=re.I) for i in items]
+            )
     # Fallback: any inline "Keywords:" text
     m = soup.find(string=re.compile(r"^\s*Keywords?\s*:", re.I))
     if isinstance(m, str):
         text = re.sub(r"^\s*Keywords?\s*:\s*", "", m, flags=re.I)
-        parts = [p.strip(" .,:;/") for p in re.split(r"[;,/]|[\r\n]+", text) if p.strip()]
+        parts = [
+            p.strip(" .,:;/") for p in re.split(r"[;,/]|[\r\n]+", text) if p.strip()
+        ]
         return dedupe_keep_order(parts)
     return []
+
 
 # -------------------------- Sections (nested) --------------------------
 def _parse_mdpi_section(sec: Tag) -> dict[str, object] | None:
@@ -96,7 +109,11 @@ def _parse_mdpi_section(sec: Tag) -> dict[str, object] | None:
     h = sec.find(["h2", "h3", "h4"])
     title = heading_text(h) if h else ""
     # Skip non-content & Abstract/References duplicates
-    if not title or _NONCONTENT_RX.search(title) or re.fullmatch(r"\s*abstract\s*", title, re.I):
+    if (
+        not title
+        or _NONCONTENT_RX.search(title)
+        or re.fullmatch(r"\s*abstract\s*", title, re.I)
+    ):
         # We still might keep paragraphs if no title but real text exists
         title = title or ""
     # Paragraphs that belong to this section
@@ -114,7 +131,12 @@ def _parse_mdpi_section(sec: Tag) -> dict[str, object] | None:
         node["paragraphs"] = paras
     if children:
         node["children"] = children
-    return node if (node.get("title") or node.get("paragraphs") or node.get("children")) else None
+    return (
+        node
+        if (node.get("title") or node.get("paragraphs") or node.get("children"))
+        else None
+    )
+
 
 def _extract_sections_mdpi(soup: BeautifulSoup) -> list[dict[str, object]]:
     """
@@ -147,7 +169,9 @@ def _extract_sections_mdpi(soup: BeautifulSoup) -> list[dict[str, object]]:
     out: list[dict[str, object]] = []
     for sec in top_secs:
         node = _parse_mdpi_section(sec)
-        if node and (node.get("title") or node.get("paragraphs") or node.get("children")):
+        if node and (
+            node.get("title") or node.get("paragraphs") or node.get("children")
+        ):
             # Skip Abstract/References here; abstract is handled separately, references by the ref parser
             if re.fullmatch(r"\s*abstract\s*", str(node.get("title") or ""), re.I):
                 continue
@@ -155,6 +179,7 @@ def _extract_sections_mdpi(soup: BeautifulSoup) -> list[dict[str, object]]:
                 continue
             out.append(node)
     return dedupe_section_nodes(out)
+
 
 # -------------------------- References --------------------------
 def _reference_items_mdpi(soup: BeautifulSoup) -> list[Tag]:
@@ -165,7 +190,9 @@ def _reference_items_mdpi(soup: BeautifulSoup) -> list[Tag]:
     # 1) citeproc style: <div class="csl-bib-body"><div class="csl-entry">...</div>...</div>
     bib = soup.select_one("div.csl-bib-body, section.csl-bib-body")
     if bib:
-        items = [d for d in bib.find_all("div", class_=re.compile(r"\bcsl-entry\b", re.I))]
+        items = [
+            d for d in bib.find_all("div", class_=re.compile(r"\bcsl-entry\b", re.I))
+        ]
         if items:
             return items
 
@@ -194,6 +221,7 @@ def _reference_items_mdpi(soup: BeautifulSoup) -> list[Tag]:
             return items
     return []
 
+
 def _extract_one_ref(node: Tag) -> dict[str, object] | None:
     # Raw line
     raw = _txt(node.get_text(" ", strip=True))
@@ -202,7 +230,9 @@ def _extract_one_ref(node: Tag) -> dict[str, object] | None:
     # DOI: prefer anchor href/text
     doi = ""
     for a in node.find_all("a", href=True):
-        m = DOI_RE.search(a.get("href", "")) or DOI_RE.search(_txt(a.get_text(" ", strip=True)))
+        m = DOI_RE.search(a.get("href", "")) or DOI_RE.search(
+            _txt(a.get_text(" ", strip=True))
+        )
         if m:
             doi = m.group(0)
             break
@@ -216,6 +246,7 @@ def _extract_one_ref(node: Tag) -> dict[str, object] | None:
         base["issued_year"] = my.group(0)
     return augment_from_raw(base)
 
+
 def parse_mdpi(_url: str, dom_html: str) -> list[dict[str, object]]:
     """Extract references from MDPI pages (robust across templates)."""
     soup = BeautifulSoup(dom_html or "", "html.parser")
@@ -227,6 +258,7 @@ def parse_mdpi(_url: str, dom_html: str) -> list[dict[str, object]]:
             out.append(ref)
     return out
 
+
 # -------------------------- public entry (meta/sections) --------------------------
 def extract_mdpi_meta(_url: str, dom_html: str) -> dict[str, object]:
     soup = BeautifulSoup(dom_html or "", "html.parser")
@@ -234,6 +266,7 @@ def extract_mdpi_meta(_url: str, dom_html: str) -> dict[str, object]:
     keywords = _extract_keywords_mdpi(soup)
     sections = _extract_sections_mdpi(soup)
     return {"abstract": abstract, "keywords": keywords, "sections": sections}
+
 
 # -------------------------- registrations --------------------------
 # Host + common path patterns
