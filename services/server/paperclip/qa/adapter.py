@@ -1,25 +1,23 @@
-# services/server/paperclip/qa/adapter.py
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Iterable, Sequence, Set
+
+from django.db.models import Q
+
+from captures.models import Capture, Collection
+from captures.reduced_view import read_reduced_view  # uses artifacts on disk
+
 """
 QA adapter: isolates the QA engine from your models and search layer.
 
-What changed:
-- Uses your canonical retriever: captures.search.search_ids_for_query(
-      question, restrict_to_ids=set(...), mode=..., limit=...
-  )
-  so collection scoping is handled inside the search rails.
-- If that isn't available, falls back to your semantic/text functions and
-  intersects results with the collection.
-- Safe final fallback: plain FTS + intersection (no fragile ORM 'abstract' filters).
-- Chunk text comes from reduced view + keywords for better RAG context.
+Behavior:
+- Prefer your canonical retriever in captures.search:
+    search_ids_for_query(question, restrict_to_ids=..., mode=..., limit=...)
+  If it isn't available or has a different signature, try common alternates,
+  then safely fall back to simple ORM filtering intersected with the collection.
+- Chunk text for RAG: reduced view (title, abstract/body) + keywords + meta.
 """
-
-from __future__ import annotations
-
-from collections.abc import Iterable
-from dataclasses import dataclass
-
-from captures.models import Capture, Collection
-from captures.reduced_view import read_reduced_view
 
 PK = int | str
 
@@ -71,7 +69,6 @@ class SimpleORMAdapter(BaseAdapter):
     def capture_meta(self, capture_id: PK) -> CaptureMeta:
         c = Capture.objects.get(pk=capture_id)
         title = (c.title or "").strip() or "(untitled)"
-        # year is often a CharField; coerce if numeric
         year_val: int | None = None
         try:
             if c.year:
@@ -97,87 +94,29 @@ class SimpleORMAdapter(BaseAdapter):
             abs_txt = sections.get("abstract")
             if isinstance(abs_txt, str) and abs_txt.strip():
                 parts.append(abs_txt.strip())
+
+            # include first body-ish paras
             paras = sections.get("abstract_or_body")
             if isinstance(paras, list) and paras:
                 parts.append(" ".join([str(p) for p in paras[:6] if p]))
 
+        # keywords from meta
         meta = c.meta or {}
         kw = meta.get("keywords") or []
-        if isinstance(kw, list) and kw:
+        if isinstance(kw, (list, tuple)):
             parts.append(" ".join([str(k) for k in kw if k]))
 
-        if len(parts) <= 1:  # no abstract/body picked up
-            csl = c.csl or {}
-            if meta.get("abstract"):
-                parts.append(str(meta["abstract"]))
-            elif isinstance(csl, dict) and csl.get("abstract"):
-                parts.append(str(csl["abstract"]))
+        # lightweight CSL/extra abstracts if present
+        for key in ("csl", "extra", "notes"):
+            v = meta.get(key)
+            if isinstance(v, dict):
+                ab = v.get("abstract") or v.get("Abstract")
+                if isinstance(ab, str) and ab.strip():
+                    parts.append(ab.strip())
 
         return "\n\n".join([p for p in parts if p])
 
-    # ---- retrieval ----
-    def _intersect_ordered(
-        self, ranked_ids: list[PK], scope: Iterable[PK], limit: int
-    ) -> list[PK]:
-        S = {str(x) for x in scope}
-        out = [pk for pk in ranked_ids if str(pk) in S]
-        return out[: max(1, int(limit))]
-
-    def _via_search_ids_for_query(
-        self, question: str, restrict_to_ids: Iterable[PK], limit: int, mode: str
-    ) -> list[PK]:
-        """
-        Preferred path: your canonical retriever that already supports restrict_to_ids.
-        """
-        try:
-            from captures.search import search_ids_for_query  # type: ignore
-        except Exception:
-            return []
-        ranked = list(
-            search_ids_for_query(
-                question,
-                restrict_to_ids=set(restrict_to_ids),
-                mode=mode,
-                limit=limit,
-            )
-        )
-        return ranked or []
-
-    def _via_semantic_or_fts(
-        self, question: str, restrict_to_ids: Iterable[PK], limit: int, mode: str
-    ) -> list[PK]:
-        """
-        Fallback path: use project rails without restrict, then intersect.
-        """
-        q = (question or "").strip()
-        if not q:
-            return []
-        # try semantic/hybrid first
-        try:
-            if mode == "text":
-                from captures.search import search_ids as fts_search
-
-                ranked = list(fts_search(q, limit=max(2000, limit)))
-            elif mode == "semantic":
-                from captures.semantic import search_ids_semantic
-
-                ranked = list(search_ids_semantic(q, k=max(2000, limit)))
-            else:
-                from captures.semantic import rrf_hybrid_ids
-
-                ranked = list(rrf_hybrid_ids(q, limit=max(2000, limit)))
-            if ranked:
-                return self._intersect_ordered(ranked, restrict_to_ids, limit)
-        except Exception:
-            pass
-        # plain FTS as the final fallback
-        try:
-            from captures.search import search_ids as fts_search
-        except Exception:
-            return []
-        ranked = list(fts_search(q, limit=max(2000, limit)))
-        return self._intersect_ordered(ranked, restrict_to_ids, limit)
-
+    # ---- hybrid search ----
     def hybrid_search(
         self,
         question: str,
@@ -185,13 +124,76 @@ class SimpleORMAdapter(BaseAdapter):
         limit: int,
         mode: str = "hybrid",
     ) -> list[PK]:
-        # 1) Prefer the canonical retriever with restrict_to_ids
-        ranked = self._via_search_ids_for_query(
-            question, restrict_to_ids, limit, mode=mode.lower()
+        restrict: Set[str] = {str(x) for x in restrict_to_ids}
+
+        # 1) Try canonical search rails in captures.search with several function names
+        try:
+            from importlib import import_module
+
+            cs = import_module("captures.search")
+            candidates: list[str] = [
+                "search_ids_for_query",  # preferred
+                "search_ids",
+                "hybrid_search",
+                "semantic_search_ids",
+                "semantic_search",  # may return objs; we coerce to ids
+            ]
+            for name in candidates:
+                fn = getattr(cs, name, None)
+                if not callable(fn):
+                    continue
+                try:
+                    # Attempt with rich kwargs first
+                    res = fn(
+                        question,
+                        restrict_to_ids=restrict,
+                        limit=limit,
+                        mode=mode,
+                    )
+                except TypeError:
+                    # Fallback to simpler signatures
+                    try:
+                        res = fn(question, restrict, limit)
+                    except TypeError:
+                        res = fn(question)
+
+                # Coerce to a list of IDs and intersect with restrict
+                ids = [str(getattr(r, "id", r)) for r in (res or [])]
+                ids = [i for i in ids if i in restrict] if restrict else ids
+                if ids:
+                    # Preserve input types where possible
+                    return _coerce_ids_to_native(ids, desired=restrict, limit=limit)
+        except Exception:
+            pass
+
+        # 2) Safe final fallback: OR over a few text-ish fields and intersect with restrict
+        q = (
+            Q(title__icontains=question)
+            | Q(meta__abstract__icontains=question)
+            | Q(meta__keywords__icontains=question)
         )
-        if ranked:
-            return ranked
-        # 2) Then semantic/hybrid/text rails with intersection
-        return self._via_semantic_or_fts(
-            question, restrict_to_ids, limit, mode=mode.lower()
-        )
+        qs = Capture.objects.filter(q)
+        if restrict:
+            qs = qs.filter(id__in=list(restrict))
+        ids = list(qs.values_list("id", flat=True)[: max(1, int(limit))])
+        return list(ids)
+
+
+def _coerce_ids_to_native(
+    ids: Sequence[str], desired: Set[str], limit: int
+) -> list[PK]:
+    """
+    Keep IDs in their native type where possible: if the DB holds UUIDs as strings,
+    leave them as strings; if they are integers, attempt int() coercion.
+    """
+    out: list[PK] = []
+    for i in ids[: max(1, int(limit))]:
+        try:
+            # Only coerce if it looks like a pure int (avoid UUIDs)
+            if i.isdigit():
+                out.append(int(i))
+            else:
+                out.append(i)
+        except Exception:
+            out.append(i)
+    return out

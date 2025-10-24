@@ -1,28 +1,78 @@
 // services/server/paperclip/static/captures/library/dom.js
-// Canonical DOM/event helpers used across Library modules.
+// Canonical DOM + utility helpers used across Library modules.
 
-export function qs(sel, root = document) {
-  return root.querySelector(sel);
-}
+export const $  = (sel, root = document) => root.querySelector(sel);
+export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-export function qsa(sel, root = document) {
-  return Array.from(root.querySelectorAll(sel));
-}
+// Back-compat export names used by some files
+export const qs  = $;
+export const qsa = $$;
 
 export function on(el, ev, fn, opts) {
-  el.addEventListener(ev, fn, opts);
-  return () => el.removeEventListener(ev, fn, opts);
+  el && el.addEventListener(ev, fn, opts);
+  return () => el && el.removeEventListener(ev, fn, opts);
 }
 
 export function trigger(el, type, detail = {}) {
-  el.dispatchEvent(new CustomEvent(type, { detail, bubbles: true }));
+  el?.dispatchEvent(new CustomEvent(type, { detail, bubbles: true }));
 }
 
+// Canonical event names
 export const ROWS_CHANGED = "pc:rows-changed";
-export const SELECTION = "pc:selection";
+export const SELECTION    = "pc:selection";
 
-// Mini toast fallback if Window.Toast is not present.
-// Supports { message, actionText, duration, onAction, onClose }.
+// ---- Utilities ---------------------------------------------------------------
+
+export function escapeHtml(s) {
+  const d = document.createElement("div");
+  d.innerText = s ?? "";
+  return d.innerHTML;
+}
+
+export function buildQs(next = {}) {
+  const u = new URL(location.href);
+  for (const [k, v] of Object.entries(next)) {
+    if (v === null || v === undefined || v === "") u.searchParams.delete(k);
+    else u.searchParams.set(k, String(v));
+  }
+  return u.pathname + (u.search ? u.search : "");
+}
+
+export function csrfToken() {
+  // Prefer hidden input if present (Django template)
+  const inDom = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+  if (inDom) return inDom;
+  // Fallback to cookie
+  const m = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
+
+export function keepOnScreen(el) {
+  try {
+    const r = el.getBoundingClientRect();
+    const dx = Math.max(0, r.right - (window.innerWidth - 8));
+    const dy = Math.max(0, r.bottom - (window.innerHeight - 8));
+    if (dx) el.style.left = Math.max(8, r.left - dx) + "px";
+    if (dy) el.style.top  = Math.max(8, r.top  - dy) + "px";
+  } catch (_) {}
+}
+
+export function currentCollectionId() {
+  const fromDom = document.querySelector(".z-left .z-link.active[data-collection-id]")?.dataset.collectionId;
+  if (fromDom) return fromDom;
+  const p = new URL(location.href).searchParams.get("col");
+  return p || "all";
+}
+
+export function scanCollections() {
+  return $$(".z-left .z-link[data-collection-id]").map(a => ({
+    id: a.dataset.collectionId,
+    label: a.querySelector(".z-label")?.textContent?.trim() || ""
+  }));
+}
+
+// ---- Toast (fallback if a site-wide Toast isn’t present) ---------------------
+
 function _miniToast(opts = {}) {
   const {
     message = "",
@@ -62,50 +112,40 @@ function _miniToast(opts = {}) {
     alignItems: "center",
     pointerEvents: "auto",
     maxWidth: "480px",
+    font: "500 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
   });
-  el.innerHTML = `
-    <div class="pc-toast__msg" style="flex:1;line-height:1.35">${message}</div>
-    ${
-      actionText
-        ? `<button class="pc-toast__btn">${actionText}</button>`
-        : ""
-    }
-    <button class="pc-toast__btn pc-toast__btn--ghost" title="Dismiss">×</button>
-  `;
-  wrap.appendChild(el);
+  el.innerHTML = escapeHtml(message);
 
-  const btnAction = actionText ? el.querySelector(".pc-toast__btn") : null;
-  const btnClose = el.querySelector(".pc-toast__btn--ghost");
+  if (actionText) {
+    const btn = document.createElement("button");
+    btn.className = "btn btn--subtle";
+    btn.type = "button";
+    btn.textContent = actionText;
+    btn.onclick = () => { try { onAction?.(); } finally { close(); } };
+    el.appendChild(btn);
+  }
 
-  let closed = false;
   function close() {
-    if (closed) return;
-    closed = true;
     el.remove();
-    if (typeof onClose === "function") {
-      try {
-        onClose();
-      } catch {}
-    }
+    try { onClose?.(); } catch (_) {}
   }
 
-  if (btnAction) {
-    btnAction.addEventListener("click", () => {
-      if (typeof onAction === "function") {
-        try {
-          onAction();
-        } catch {}
-      }
-      close();
-    });
-  }
-  btnClose.addEventListener("click", close);
-
-  const t = duration && duration > 0 ? setTimeout(close, duration) : null;
-  return { close, __pc_origin: "mini", _t: t };
+  wrap.appendChild(el);
+  const t = setTimeout(close, duration);
+  el.addEventListener("mouseenter", () => clearTimeout(t), { once: true });
 }
 
-export function toast(opts = {}) {
-  const show = window.Toast?.show || _miniToast;
-  return show(opts);
+export function toast(opts) {
+  if (window.Toast?.show) return window.Toast.show(opts);
+  return _miniToast(opts);
 }
+
+// Expose a small, stable global for classic scripts (harmless if unused)
+if (!window.PCDOM) window.PCDOM = {};
+Object.assign(window.PCDOM, {
+  $, $$, qs, qsa, on, trigger,
+  ROWS_CHANGED, SELECTION,
+  escapeHtml, buildQs, csrfToken,
+  keepOnScreen, currentCollectionId, scanCollections,
+  toast
+});

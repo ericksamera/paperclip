@@ -1,4 +1,12 @@
-/* Zotero-like three-pane layout */
+/* Paperclip — Library UI (complete replacement)
+   - Three-pane layout
+   - Table + selection + pending delete
+   - Columns drawer
+   - Context menus, drag, modal, segmented control
+   - Theme-aware (dark + light)
+*/
+
+/* ---------------- Layout ---------------- */
 .z-shell {
   --left-w: 260px;
   --right-w: 360px;
@@ -6,326 +14,302 @@
   display: grid;
   grid-template-columns: var(--left-w) 1fr var(--right-w);
   grid-template-rows: auto 1fr;
-  gap: 0;
   height: calc(100vh - 56px);
   min-height: 480px;
 }
 
-/* Toolbar */
+/* ---------------- Toolbar ---------------- */
 .z-toolbar {
   grid-column: 1 / -1;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 10px; border:1px solid var(--line); border-bottom:0;
+  padding: 8px 10px;
+  border: 1px solid var(--line); border-bottom: 0;
   background: var(--panel-strong);
-  border-top-left-radius:10px; border-top-right-radius:10px;
+  border-top-left-radius: 10px; border-top-right-radius: 10px;
 }
-.z-search { display:flex; gap:8px; align-items:center }
-.z-input  { background: var(--panel); border:1px solid var(--line); color:var(--fg); padding:6px 10px; border-radius:8px; min-width:28ch }
-.z-actions{ display:flex; gap:8px }
+.z-search { display: flex; gap: 8px; align-items: center; position: relative; }
+.z-input  { background: var(--panel); border: 1px solid var(--line); color: var(--fg); padding: 6px 10px; border-radius: 8px; min-width: 28ch }
+.z-actions{ display: flex; gap: 8px }
 
+/* ---------------- Panes ---------------- */
 .z-left, .z-center, .z-right { border-top: 0; }
-
-/* Left pane — slightly smaller fonts */
 .z-left {
-  border:1px solid var(--line); border-right:0; border-bottom-left-radius:10px;
-  overflow:auto; background: var(--panel); padding:8px; font-size:13px;
+  border: 1px solid var(--line); border-right: 0; border-bottom-left-radius: 10px;
+  overflow: auto; background: var(--panel); padding: 8px; font-size: 13px;
 }
+.z-center {
+  border: 1px solid var(--line); border-bottom-right-radius: 10px; border-bottom-left-radius: 10px;
+  overflow: auto; background: var(--panel);
+}
+.z-right { border: 1px solid var(--line); border-left: 0; border-bottom-right-radius: 10px; overflow: auto; background: var(--panel); padding: 10px }
 
-/* Group header (collapsible) */
-.z-group { margin-bottom:10px }
-.z-group-header { display:flex; align-items:center; justify-content:space-between; gap:4px }
-.z-group-title { font-size:11.5px; color:var(--muted); letter-spacing:.02em; margin:6px 0; cursor:pointer; user-select:none; display:flex; align-items:center; gap:6px }
-.z-caret { display:inline-block; transition: transform .15s ease }
+/* ---------------- Left rail: groups & lists ---------------- */
+.z-group { margin-bottom: 10px }
+.z-group-header { display: flex; align-items: center; justify-content: space-between; gap: 4px }
+.z-group-title { font-size: 11.5px; color: var(--muted); letter-spacing: .02em; margin: 6px 0; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px }
+.z-caret { display: inline-block; transition: transform .15s ease }
 .z-group.collapsed .z-caret { transform: rotate(-90deg) }
+.z-list { display: flex; flex-direction: column; gap: 0 }
+.z-group.collapsed .z-list { display: none }
 
-/* Lists */
-.z-list { display:flex; flex-direction:column; gap:0 }
-.z-group.collapsed .z-list { display:none }
-
-/* “Add” icon button next to group title */
+/* Add icon button */
 .z-icon-btn {
-  border:1px solid var(--line);
+  border: 1px solid var(--line);
   background: color-mix(in oklab, var(--panel-strong) 92%, var(--fg) 8%);
   color: var(--fg);
-  padding:2px 8px; border-radius:999px; font-weight:700; cursor:pointer; line-height:1.2;
+  padding: 2px 8px; border-radius: 999px; font-weight: 700; cursor: pointer; line-height: 1.2;
 }
 .z-icon-btn:hover { filter: brightness(1.05) }
 
-/* Full-bleed list items inside padded rail */
+/* Full-bleed item inside padded rail */
 .z-link {
-  position:relative; display:flex; justify-content:space-between; align-items:center;
-  padding:6px 8px;
-  margin: 0 -8px;                               /* <— remove vertical gaps between items */
-  border-radius:8px;
-  text-decoration:none; color: var(--fg); overflow:hidden;
+  position: relative; display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 8px; margin: 0 -8px; border-radius: 8px; text-decoration: none; color: var(--fg); overflow: hidden;
 }
-.z-link:hover { background: color-mix(in oklab, var(--panel) 80%, var(--fg) 6%) }
-.z-link.active { background: color-mix(in oklab, var(--panel-strong) 85%, var(--fg) 5%); outline:1px solid var(--line) }
-.z-count { opacity:.75; font-variant-numeric:tabular-nums }
+.z-link:hover  { background: color-mix(in oklab, var(--panel) 80%, var(--fg) 6%) }
+.z-link.active { background: color-mix(in oklab, var(--panel-strong) 85%, var(--fg) 5%); outline: 1px solid var(--line) }
+.z-count { opacity: .75; font-variant-numeric: tabular-nums }
 
-/* Years histogram bar */
-.z-link-year .z-yearbar { position:absolute; left:0; top:0; bottom:0; background: color-mix(in oklab, var(--accent) 25%, var(--panel) 75%); opacity:.4; width:0 }
-.z-link-year.active .z-yearbar { background: color-mix(in oklab, var(--accent) 35%, var(--panel) 65%); opacity:.6 }
-.z-link-year .z-label, .z-link-year .z-count { position:relative; z-index:1 }
+/* Year histogram bar */
+.z-link-year .z-yearbar { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in oklab, var(--accent) 25%, var(--panel) 75%); opacity: .4; width: 0 }
+.z-link-year.active .z-yearbar { background: color-mix(in oklab, var(--accent) 35%, var(--panel) 65%); opacity: .6 }
+.z-link-year .z-label, .z-link-year .z-count { position: relative; z-index: 1 }
 
-/* Center: table — scrollable; sticky header */
-.z-center {
-  border:1px solid var(--line); border-bottom-right-radius:10px; border-bottom-left-radius:10px;
-  overflow:auto; background: var(--panel);
-}
-.pc-table { width:100%; border-collapse:separate; border-spacing:0; font-size:12.5px }
+/* ---------------- Table ---------------- */
+.pc-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px }
 .pc-table thead th {
-  position:sticky; top:0; z-index:2; background: var(--panel-strong); color: var(--fg);
-  padding:8px 10px; text-align:left; border-bottom:1px solid var(--line)
+  position: sticky; top: 0; z-index: 2; background: var(--panel-strong); color: var(--fg);
+  padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line)
 }
-.pc-table thead th .th-arrow { margin-left:6px; opacity:.75; font-size:11px }
-.pc-table thead th:has(.th-arrow) { font-weight:600; }
-.pc-table thead th:has(.th-arrow) .th-arrow { opacity:.95; }
-.pc-table td { padding:8px 10px; vertical-align:top; border-bottom:1px solid var(--line) }
-.pc-col-title { width:auto }
-.pc-col-tight { white-space:nowrap }
-.pc-title { font-weight:600; color: var(--fg); text-decoration:none }
-.pc-title:hover { text-decoration:underline }
-.pc-link { font-size:11px; color: var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
-.th-link, .th-link:visited { color: var(--fg); text-decoration:none }
-.th-link:hover { text-decoration:underline }
-.pc-authors-inline { display:inline-block; max-width:420px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.pc-table thead th .th-arrow { margin-left: 6px; opacity: .75; font-size: 11px }
+.pc-table thead th:has(.th-arrow) { font-weight: 600 }
+.pc-table thead th:has(.th-arrow) .th-arrow { opacity: .95 }
+.pc-table td { padding: 8px 10px; vertical-align: top; border-bottom: 1px solid var(--line) }
+.pc-col-title { width: auto }
+.pc-col-tight { white-space: nowrap }
+.pc-title { font-weight: 600; color: var(--fg); text-decoration: none }
+.pc-title:hover { text-decoration: underline }
+.pc-link { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.th-link, .th-link:visited { color: var(--fg); text-decoration: none }
+.th-link:hover { text-decoration: underline }
+.pc-authors-inline { display: inline-block; max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 
-/* Selection */
-.pc-row { cursor:pointer; transition:background 120ms ease, outline-color 120ms ease }
-.pc-row:hover { background: color-mix(in oklab, var(--panel) 75%, var(--fg) 6%) }
-.pc-row[aria-selected="true"] { background: color-mix(in oklab, var(--panel-strong) 80%, var(--accent) 20%); outline:1px solid color-mix(in oklab, var(--accent) 35%, var(--line) 65%) }
+/* ---------------- Selection & pending delete ---------------- */
 
-/* Right info */
-.z-right { border:1px solid var(--line); border-left:0; border-bottom-right-radius:10px; overflow:auto; background: var(--panel); padding:10px }
-.z-info-empty { color:var(--muted) }
-.z-info h3 { margin:0 0 6px 0 }
-.z-meta { font-size:12.5px; color:var(--muted); margin-bottom:8px }
-.z-kws { display:flex; gap:6px; flex-wrap:wrap }
-.z-kw { font-size:12px; padding:2px 6px; border:1px solid var(--line); border-radius:999px }
-
-/* Icon-only button used for the Columns trigger */
-.btn--icon {
-  padding: 0;
-  width: 32px; height: 32px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 999px;
+/* Theme tokens (work across dark+light) */
+:root {
+  --pc-sel-bg: color-mix(in oklab, var(--accent) 18%, var(--panel) 82%);
+  --pc-sel-bd: color-mix(in oklab, var(--accent) 45%, var(--line) 55%);
+  --pc-row-hover: color-mix(in oklab, var(--panel) 75%, var(--fg) 6%);
+  --pc-pending-tint: color-mix(in oklab, var(--danger, #ef4444) 12%, transparent);
 }
-/* Ensure the inline SVG inherits theme color */
-.btn--icon svg { display: block; width: 20px; height: 20px; fill: currentColor; }
-
-/* Screen-reader only text helper */
-.sr-only {
-  position: absolute !important;
-  width: 1px; height: 1px;
-  margin: -1px; padding: 0; border: 0;
-  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+:root[data-theme="light"] {
+  --pc-sel-bg: color-mix(in oklab, var(--accent) 12%, #ffffff 88%);
+  --pc-sel-bd: color-mix(in oklab, var(--accent) 40%, var(--line) 60%);
+  --pc-row-hover: color-mix(in oklab, #000 4%, #fff 96%);
+  --pc-pending-tint: color-mix(in oklab, var(--danger, #ef4444) 10%, #fff 90%);
 }
 
-/* header icon behaves like text but is clickable */
-.pc-col-gear .icon-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0;        /* no button padding */
+/* Hover + pointer */
+#pc-body tr.pc-row { cursor: pointer; transition: background 120ms ease, outline-color 120ms ease }
+#pc-body tr.pc-row:hover { background: var(--pc-row-hover) }
+
+/* Selected (ARIA or legacy classes) */
+#pc-body tr.pc-row[aria-selected="true"],
+#pc-body tr.pc-row.pc-row--selected,
+#pc-body tr.pc-row.is-selected,
+#pc-body tr.pc-row.selected {
+  background: var(--pc-sel-bg);
+  outline: 1px solid var(--pc-sel-bd);
 }
-.pc-col-gear .icon-trigger:focus { outline: 2px solid var(--focus, #6aa3ff); outline-offset: 2px; }
-.pc-col-gear .icon-trigger svg { width: 20px; height: 20px; fill: currentColor; }
 
+/* Pending delete (single source of truth) */
+#pc-body td.pc-col-title { position: relative } /* anchor for the badge */
 
-/* Splitters */
-.z-splitter { position:absolute; top:40px; bottom:0; width:6px; cursor:col-resize; z-index:10 }
-.z-splitter-left { left:calc(var(--left-w) - 3px) }
-.z-splitter-right { right:calc(var(--right-w) - 3px) }
+#pc-body tr.pc-row.pc-row--pending {
+  opacity: .45;
+  filter: grayscale(25%);
+  background: var(--pc-pending-tint);
+  transition: opacity .18s ease, filter .18s ease, background .18s ease;
+  pointer-events: none;
+}
+#pc-body tr.pc-row.pc-row--pending .pc-title { text-decoration: line-through }
+#pc-body tr.pc-row.pc-row--pending a[href],
+#pc-body tr.pc-row.pc-row--pending button { pointer-events: none }
 
-/* Columns drawer */
-.pc-drawer { position: fixed; inset: 0; z-index: 1000; display: none; }
-.pc-drawer.open { display: block; }
-.pc-drawer .backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.35); }
+/* Small "Pending delete" pill on the first column */
+#pc-body tr.pc-row.pc-row--pending td.pc-col-title::after {
+  content: "Pending delete";
+  position: absolute; top: 6px; right: 8px;
+  padding: 2px 6px; font-size: 11px; font-weight: 600; border-radius: 4px;
+  background: color-mix(in oklab, var(--danger, #ef4444) 18%, transparent);
+  border: 1px solid color-mix(in oklab, var(--danger, #ef4444) 40%, var(--line) 60%);
+}
+
+/* Disable interaction during pending state */
+#pc-body tr.pc-row[aria-disabled="true"] { pointer-events: none; cursor: not-allowed }
+
+/* ---------------- Right info ---------------- */
+.z-info-empty { color: var(--muted) }
+.z-info h3 { margin: 0 0 6px 0 }
+.z-meta { font-size: 12.5px; color: var(--muted); margin-bottom: 8px }
+.z-kws { display: flex; gap: 6px; flex-wrap: wrap }
+.z-kw { font-size: 12px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 999px }
+
+/* ---------------- Header gear (icon behaves like text) ---------------- */
+.btn--icon { padding: 0; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px }
+.btn--icon svg { display: block; width: 20px; height: 20px; fill: currentColor }
+.pc-col-gear .icon-trigger { display: inline-flex; align-items: center; justify-content: center; line-height: 1; cursor: pointer; padding: 0 }
+.pc-col-gear .icon-trigger:focus { outline: 2px solid var(--focus, #6aa3ff); outline-offset: 2px }
+.pc-col-gear .icon-trigger svg { width: 20px; height: 20px; fill: currentColor }
+
+/* ---------------- Splitters ---------------- */
+.z-splitter { position: absolute; top: 40px; bottom: 0; width: 6px; cursor: col-resize; z-index: 10 }
+.z-splitter-left  { left: calc(var(--left-w) - 3px) }
+.z-splitter-right { right: calc(var(--right-w) - 3px) }
+
+/* ---------------- Columns drawer ---------------- */
+.pc-drawer { position: fixed; inset: 0; z-index: 1000; display: none }
+.pc-drawer.open { display: block }
+.pc-drawer .backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.35) }
 .pc-drawer .panel {
-  position: absolute; top: 0; right: 0; bottom: 0;
-  width: 360px; max-width: 92vw;
-  background: var(--panel);
-  border-left: 1px solid var(--line);
+  position: absolute; top: 0; right: 0; bottom: 0; width: 360px; max-width: 92vw;
+  background: var(--panel); border-left: 1px solid var(--line);
   box-shadow: -8px 0 24px rgba(0,0,0,.35);
-  padding: 12px;
-  transform: translateX(100%);
-  transition: transform .18s ease;
+  padding: 12px; transform: translateX(100%); transition: transform .18s ease;
 }
-.pc-drawer.open .panel { transform: translateX(0); }
-.pc-cols-list { list-style: none; margin: 6px 0 10px 0; padding: 0; }
-.pc-cols-item { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-radius: 8px; }
-.pc-cols-item.dragging { opacity: .6; }
-.pc-cols-item .handle { cursor: grab; user-select: none; opacity: .8; font-weight: 900; }
-.pc-cols-item[data-fixed="1"] .handle { opacity: .35; cursor: default; }
-.pc-cols-item .label { flex: 1; }
-.pc-cols-item input[type="checkbox"] { transform: translateY(1px); }
+.pc-drawer.open .panel { transform: translateX(0) }
+.pc-cols-list { list-style: none; margin: 6px 0 10px 0; padding: 0 }
+.pc-cols-item { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-radius: 8px }
+.pc-cols-item.dragging { opacity: .6 }
+.pc-cols-item .handle { cursor: grab; user-select: none; opacity: .8; font-weight: 900 }
+.pc-cols-item[data-fixed="1"] .handle { opacity: .35; cursor: default }
+.pc-cols-item .label { flex: 1 }
+.pc-cols-item input[type="checkbox"] { transform: translateY(1px) }
 
-/* Context menu */
+/* ---------------- Context menu + submenus ---------------- */
 .pc-context {
-  position: absolute;
-  min-width: 220px;
+  position: absolute; min-width: 220px;
   background: var(--pc-menu-bg, rgba(28, 32, 38, 0.98));
   color: var(--pc-menu-fg, #e6edf3);
   border: 1px solid var(--pc-menu-bd, #2e3640);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-  z-index: 9999;
-  display: none;
-  user-select: none;
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  z-index: 9999; display: none; user-select: none;
 }
-.pc-context .pc-menu { list-style: none; margin: 6px 0; padding: 4px 0; }
-.pc-context .pc-menu li { padding: 8px 12px; cursor: default; white-space: nowrap; }
-.pc-context .pc-menu li:hover { background: rgba(255,255,255,0.06); }
-.pc-context .pc-menu li.sep { margin: 6px 0; padding: 0; border-top: 1px solid rgba(255,255,255,0.08); }
-.pc-context .pc-menu li.danger { color: #ff7b72; }
-.pc-context .pc-menu li.has-sub { position: relative; }
+.pc-context .pc-menu { list-style: none; margin: 6px 0; padding: 4px 0 }
+.pc-context .pc-menu li { padding: 8px 12px; cursor: default; white-space: nowrap }
+.pc-context .pc-menu li:hover { background: rgba(255,255,255,0.06) }
+.pc-context .pc-menu li.sep { margin: 6px 0; padding: 0; border-top: 1px solid rgba(255,255,255,0.08) }
+.pc-context .pc-menu li.danger { color: #ff7b72 }
+.pc-context .pc-menu li.has-sub { position: relative }
 
-/* Submenus */
 .pc-submenu {
-  position: absolute;
-  min-width: 220px; max-height: 300px; overflow: auto;
+  position: absolute; min-width: 220px; max-height: 300px; overflow: auto;
   background: var(--pc-menu-bg, rgba(28, 32, 38, 0.98));
   color: var(--pc-menu-fg, #e6edf3);
   border: 1px solid var(--pc-menu-bd, #2e3640);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-  z-index: 10000;
-  display: none;
-  user-select: none;
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  z-index: 10000; display: none; user-select: none;
 }
-.pc-submenu .pc-subitem { padding: 8px 12px; cursor: default; }
-.pc-submenu .pc-subitem:hover { background: rgba(255,255,255,0.06); }
-.pc-submenu .pc-subitem.disabled { opacity: .6; }
+.pc-submenu .pc-subitem { padding: 8px 12px; cursor: default }
+.pc-submenu .pc-subitem:hover { background: rgba(255,255,255,0.06) }
+.pc-submenu .pc-subitem.disabled { opacity: .6 }
 
 /* Drag ghost */
 .pc-drag-ghost {
-  position: fixed;
-  left: -9999px; top: -9999px;
-  padding: 6px 10px;
-  font-weight: 600;
-  border-radius: 14px;
-  background: rgba(28, 32, 38, 0.9);
-  color: white;
-  border: 1px solid rgba(255,255,255,0.1);
+  position: fixed; left: -9999px; top: -9999px;
+  padding: 6px 10px; font-weight: 600; border-radius: 14px;
+  background: rgba(28,32,38,0.9); color: #fff; border: 1px solid rgba(255,255,255,0.1);
 }
 
 /* Collection drop highlight */
-.dnd-over,
-.dnd-over .z-label {
-  background: rgba(88, 166, 255, 0.18) !important;
-  color: #c9e1ff !important;
-  border-radius: 6px;
-}
+.dnd-over, .dnd-over .z-label { background: rgba(88,166,255,0.18) !important; color: #c9e1ff !important; border-radius: 6px }
 
-/* Light theme overrides */
+/* Light theme overrides (menus + DnD) */
 :root[data-theme="light"] .pc-context,
 :root[data-theme="light"] .pc-submenu {
-  --pc-menu-bg: #ffffff;
-  --pc-menu-fg: #111827;
-  --pc-menu-bd: #e5e7eb;
-  color-scheme: light;
+  --pc-menu-bg: #ffffff; --pc-menu-fg: #111827; --pc-menu-bd: #e5e7eb; color-scheme: light;
 }
-:root[data-theme="light"] .pc-drag-ghost { background: rgba(255,255,255,0.95); color: #111827; border-color: #e5e7eb; }
-:root[data-theme="light"] .dnd-over,
-:root[data-theme="light"] .dnd-over .z-label { background: rgba(59, 130, 246, 0.20) !important; color: #1f2937 !important; }
+:root[data-theme="light"] .pc-drag-ghost { background: rgba(255,255,255,0.95); color: #111827; border-color: #e5e7eb }
+:root[data-theme="light"] .dnd-over, :root[data-theme="light"] .dnd-over .z-label { background: rgba(59,130,246,0.20) !important; color: #1f2937 !important }
 
-/* Danger button override */
-.btn--danger { background: var(--danger) !important; border-color: color-mix(in oklab, var(--danger) 65%, var(--line) 35%) !important; color: #fff !important; }
-.btn--danger:hover { filter: brightness(1.06); }
-:root[data-theme="light"] .btn--danger { background: color-mix(in oklab, var(--danger) 92%, var(--panel) 8%) !important; color: #fff !important; }
+/* ---------------- Danger button ---------------- */
+.btn--danger { background: var(--danger) !important; border-color: color-mix(in oklab, var(--danger) 65%, var(--line) 35%) !important; color: #fff !important }
+.btn--danger:hover { filter: brightness(1.06) }
+:root[data-theme="light"] .btn--danger { background: color-mix(in oklab, var(--danger) 92%, var(--panel) 8%) !important; color: #fff !important }
 
-/* --- Minimal modal --- */
-.pc-modal {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.45);
-  display: none;
-  align-items: center; justify-content: center;
-  z-index: 100000;
-}
+/* ---------------- Minimal modal ---------------- */
+.pc-modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; z-index: 100000 }
 .pc-modal .dialog {
   width: min(420px, 92vw);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px;
   box-shadow: 0 8px 32px rgba(0,0,0,.45);
-  /* Prevent platform/UA button theming inside the modal */
   color-scheme: light dark;
 }
 .pc-modal .dialog h3 { margin: 0 0 8px 0 }
 .pc-modal .dialog .row { margin: 8px 0 }
-.pc-modal .dialog .actions {
-  display: flex; gap: 8px; justify-content: flex-end;
-}
+.pc-modal .dialog .actions { display: flex; gap: 8px; justify-content: flex-end }
 
-/* NEW: force button colors inside modal (Firefox/Windows fix) */
-.pc-modal .dialog .btn {
-  background: color-mix(in oklab, var(--panel-strong) 92%, var(--fg) 8%);
-  border-color: var(--line);
-  color: var(--fg);
-}
-:root[data-theme="light"] .pc-modal .dialog .btn {
-  background: color-mix(in oklab, var(--panel) 98%, var(--fg) 2%);
-}
-.pc-modal .dialog .btn--primary {
-  background: var(--accent) !important;
-  border-color: color-mix(in oklab, var(--accent) 65%, var(--line) 35%) !important;
-  color: #fff !important;
-}
-.pc-modal .dialog .btn:disabled { opacity: .55; filter: grayscale(0); }
+/* Force button colors inside modal (Firefox/Windows fix) */
+.pc-modal .dialog .btn { background: color-mix(in oklab, var(--panel-strong) 92%, var(--fg) 8%); border-color: var(--line); color: var(--fg) }
+:root[data-theme="light"] .pc-modal .dialog .btn { background: color-mix(in oklab, var(--panel) 98%, var(--fg) 2%) }
+.pc-modal .dialog .btn--primary { background: var(--accent) !important; border-color: color-mix(in oklab, var(--accent) 65%, var(--line) 35%) !important; color: #fff !important }
+.pc-modal .dialog .btn:disabled { opacity: .55 }
 
-/* ---- Live search spinner ---- */
-.z-search { position: relative; }
+/* ---------------- Live search spinner ---------------- */
 .z-search.is-loading::after {
-  content: "";
-  position: absolute; right: -22px; width: 14px; height: 14px; top: 50%; transform: translateY(-50%);
-  border-radius: 50%;
-  border: 2px solid var(--muted); border-top-color: transparent;
-  animation: pc-spin .8s linear infinite;
+  content: ""; position: absolute; right: -22px; width: 14px; height: 14px; top: 50%; transform: translateY(-50%);
+  border-radius: 50%; border: 2px solid var(--muted); border-top-color: transparent; animation: pc-spin .8s linear infinite;
 }
-@keyframes pc-spin { to { transform: rotate(360deg); } }
+@keyframes pc-spin { to { transform: rotate(360deg) } }
 
-/* ---- Search mode segmented control ---- */
-.z-mode { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:4px }
-
-/* Segmented pill */
+/* ---------------- Segmented control ---------------- */
+.z-mode { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: 4px }
 .segmented {
-  display: inline-flex;
-  align-items: stretch;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  overflow: hidden;
-  background: color-mix(in oklab, var(--panel) 96%, var(--fg) 4%);
-  box-shadow: var(--shadow);
+  display: inline-flex; align-items: stretch;
+  border: 1px solid var(--line); border-radius: 999px; overflow: hidden;
+  background: color-mix(in oklab, var(--panel) 96%, var(--fg) 4%); box-shadow: var(--shadow);
 }
-.segmented .seg-btn {
-  border: 0;
-  background: transparent;
-  padding: 4px 10px;
-  font-weight: 700;
-  cursor: pointer;
-  color: var(--fg);
-  line-height: 1.2;
-}
-.segmented .seg-btn + .seg-btn {
-  border-left: 1px solid color-mix(in oklab, var(--line) 85%, var(--panel) 15%);
-}
-.segmented .seg-btn.active,
-.segmented .seg-btn[aria-pressed="true"] {
-  background: var(--accent);
-  color: #fff;
+.segmented .seg-btn { border: 0; background: transparent; padding: 4px 10px; font-weight: 700; cursor: pointer; color: var(--fg); line-height: 1.2 }
+.segmented .seg-btn + .seg-btn { border-left: 1px solid color-mix(in oklab, var(--line) 85%, var(--panel) 15%) }
+.segmented .seg-btn.active, .segmented .seg-btn[aria-pressed="true"] { background: var(--accent); color: #fff }
+.z-mode-info {
+  width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: color-mix(in oklab, var(--panel-strong) 92%, var(--fg) 8%);
+  font-weight: 800; cursor: help; box-shadow: var(--shadow);
 }
 
-.z-mode-info {
-  width: 20px; height: 20px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  background: color-mix(in oklab, var(--panel-strong) 92%, var(--fg) 8%);
-  font-weight: 800;
-  cursor: help;
-  box-shadow: var(--shadow);
+/* ---------------- A11y helpers ---------------- */
+.sr-only { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%) }
+
+/* --- Selection & pending delete polish (light/dark) --- */
+#pc-body tr.pc-row[aria-selected="true"] {
+  background: rgba(80,160,255,.12);
+  outline: 1px solid rgba(80,160,255,.38);
+}
+:root[data-theme="light"] #pc-body tr.pc-row[aria-selected="true"] {
+  background: rgba(24,119,242,.12);          /* lighter, not neon */
+  outline-color: rgba(24,119,242,.35);
+}
+
+/* Pending delete: subtle red wash + disabled */
+#pc-body tr.pc-row.pc-row--pending {
+  opacity: .45;
+  filter: grayscale(.25);
+  background: color-mix(in oklab, var(--danger, #ef4444) 10%, transparent);
+  transition: opacity .18s ease, filter .18s ease, background .18s ease;
+}
+#pc-body tr.pc-row.pc-row--pending .pc-title { text-decoration: line-through; }
+#pc-body tr.pc-row.pc-row--pending a[href],
+#pc-body tr.pc-row.pc-row--pending button { pointer-events: none; }
+
+/* "Pending delete" pill on first column (title col must be positioned) */
+#pc-body td.pc-col-title { position: relative; }
+#pc-body tr.pc-row.pc-row--pending td.pc-col-title::after {
+  content: "Pending delete";
+  position: absolute; top: 6px; right: 8px;
+  padding: 2px 6px; font-size: 11px; font-weight: 600; border-radius: 4px;
+  background: color-mix(in oklab, var(--danger, #ef4444) 18%, transparent);
+  border: 1px solid color-mix(in oklab, var(--danger, #ef4444) 40%, var(--panel, #1e1e1e) 60%);
 }

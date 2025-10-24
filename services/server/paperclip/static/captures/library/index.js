@@ -20,6 +20,9 @@ import { initYearsWidget } from "./years_hist.js";
   const shell = document.getElementById("z-shell");
   if (!shell) return;
 
+  // Let diagnostics know the main bundle executed
+  try { window.__pcIndexBooted = true; } catch {}
+
   // Left rail first (snappier)
   initGroups();
   initYearsWidget();

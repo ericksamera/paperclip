@@ -1,72 +1,92 @@
 // services/server/paperclip/static/captures/library/bulk_delete.js
-import { qsa, on, trigger, ROWS_CHANGED, SELECTION, toast } from "./dom.js";
-import { post } from "./events.js"; // existing helper for POSTs
+// Bulk delete with a single toast + Undo; idempotent wiring.
 
-const UNDO_WINDOW_MS = 5000; // toast duration == delete flush window
+import { qsa, on, toast } from "./dom.js";
+import { EVENTS, onSelectionChange, emitRowsChanged } from "./events.js";
+import { postForm } from "./http.js";
+
+const UNDO_WINDOW_MS = 5000;
 
 export function initBulkDelete() {
+  if (window.__pcBulkDeleteWired) return; // prevent double-binding
+  window.__pcBulkDeleteWired = true;
+
   const btn = document.getElementById("pc-bulk-delete");
   if (!btn) return;
 
-  on(btn, "click", () => {
-    const selRows = qsa("tr[data-id].pc-row--selected");
-    if (!selRows.length) return;
+  const selectedRows = () =>
+    qsa("#pc-body tr.pc-row[aria-selected='true'][data-id]");
 
-    const ids = selRows.map((tr) => tr.getAttribute("data-id")).filter(Boolean);
+  function setBtnState() {
+    const n = selectedRows().length;
+    btn.disabled = n === 0;
+    btn.textContent = n ? `Delete (${n})` : "Delete selected";
+  }
+
+  // Keep the button in sync
+  onSelectionChange(setBtnState);
+  document.addEventListener(EVENTS.ROWS_CHANGED, setBtnState, { capture: true });
+  setBtnState();
+
+  // Only one visible toast per operation
+  let activeToast = null;
+
+  on(btn, "click", async () => {
+    const rows = selectedRows();
+    if (!rows.length) return;
+
+    const ids = rows.map(r => r.getAttribute("data-id")).filter(Boolean);
     if (!ids.length) return;
 
-    // Mark pending in the UI
-    selRows.forEach((tr) => tr.classList.add("pc-row--pending"));
+    // Mark pending in the UI (CSS grays + disables)
+    rows.forEach(r => {
+      r.classList.add("pc-row--pending");
+      r.setAttribute("aria-disabled", "true");
+    });
 
     let canceled = false;
-
-    function cancel() {
+    const cancel = () => {
       canceled = true;
-      // Restore rows
-      selRows.forEach((tr) => tr.classList.remove("pc-row--pending"));
-    }
+      rows.forEach(r => {
+        r.classList.remove("pc-row--pending");
+        r.removeAttribute("aria-disabled");
+      });
+      setBtnState();
+    };
 
-    // When the toast disappears (either auto or manual dismiss), if not canceled, flush now.
-    function flushNow() {
+    const flushNow = async () => {
       if (canceled) return;
-      post("/captures/bulk-delete/", { ids })
-        .then(() => {
-          // Remove rows from DOM
-          selRows.forEach((tr) => tr.remove());
-          trigger(document, ROWS_CHANGED);
-          toast({
-            message: `Deleted ${ids.length} item${ids.length > 1 ? "s" : ""}.`,
-            duration: 2000,
-          });
-        })
-        .catch(() => {
-          // If something went wrong, clear pending and tell the user
-          selRows.forEach((tr) => tr.classList.remove("pc-row--pending"));
-          toast({ message: "Delete failed.", duration: 3000 });
-        });
+      try {
+        const entries = ids.map(id => ["ids[]", id]);
+        const resp = await postForm("/captures/bulk-delete/", entries);
+        if (!resp) return;               // redirect handled
+        if (!resp.ok) throw new Error(String(resp.status));
+
+        rows.forEach(r => r.remove());
+        emitRowsChanged({ reason: "bulk-delete", count: ids.length });
+
+        toast({ message: `Deleted ${ids.length} item${ids.length > 1 ? "s" : ""}.` });
+      } catch (err) {
+        console.error("[bulk_delete] flush failed:", err);
+        // Roll back UI on error
+        cancel();
+        toast({ message: "Delete failed.", duration: 3000 });
+      } finally {
+        activeToast = null;
+      }
+    };
+
+    // Avoid duplicate toasts if something triggered twice
+    if (activeToast) {
+      return;
     }
 
-    toast({
-      message: `Deleting ${ids.length} item${ids.length > 1 ? "s" : ""} in ${Math.round(
-        UNDO_WINDOW_MS / 1000
-      )}s — Undo?`,
+    activeToast = toast({
+      message: `Deleting ${ids.length} item${ids.length > 1 ? "s" : ""} in 5s — Undo?`,
       actionText: "Undo",
       duration: UNDO_WINDOW_MS,
       onAction: cancel,
-      onClose: () => {
-        // Auto-close or user dismissed: if not undone, flush now
-        flushNow();
-      },
+      onClose: flushNow,
     });
-  });
-
-  // Selection changes control button state (canonical event)
-  document.addEventListener(SELECTION, () => {
-    const selCount = qsa("tr[data-id].pc-row--selected").length;
-    if (selCount > 0) {
-      btn.removeAttribute("disabled");
-    } else {
-      btn.setAttribute("disabled", "disabled");
-    }
   });
 }

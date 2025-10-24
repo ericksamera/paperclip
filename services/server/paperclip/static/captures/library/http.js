@@ -1,15 +1,16 @@
+// services/server/paperclip/static/captures/library/http.js
 import { csrfToken } from "./dom.js";
 
 export async function csrfFetch(url, opts = {}) {
-  const headers = new Headers(opts.headers || {});
+  const { headers: h = {}, ...rest } = opts;
+  const headers = new Headers(h);
   headers.set("X-CSRFToken", csrfToken());
 
-const { headers: _ignored, ...rest } = opts;
   const resp = await fetch(url, {
     credentials: "same-origin",
     redirect: "follow",
-    ...rest,
     headers,
+    ...rest,
   });
 
   if (resp.redirected) {

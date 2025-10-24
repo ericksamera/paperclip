@@ -174,3 +174,67 @@ def read_reduced_view(capture_id: str) -> ReducedView:
             return _coerce_reduced(data)
 
     return _empty_reduced()
+
+
+# ---- Worker-facing wrapper: rebuild_reduced_view -----------------------------
+# Accepts a capture_id so the background job can call us safely.
+def rebuild_reduced_view(capture_id: str) -> None:
+    """
+    Worker-compatible wrapper that (re)creates the canonical reduced view.
+
+    It reads precomputed artifacts when present (server_parsed.json and the
+    bridge content sections). If they are missing, it will rebuild the bridge
+    from stored HTML artifacts and then write the reduced projection.
+
+    Always writes CANONICAL_REDUCED_BASENAME (server_output_reduced.json).
+    """
+
+    # Local imports to avoid circulars at module import time
+    try:
+        from paperclip.artifacts import read_json_artifact, write_json_artifact
+    except Exception:
+        return  # ultra-defensive: do nothing if artifacts helpers are unavailable
+
+    # 1) Try to use existing normalized parse + bridge payloads
+    server_parsed: Dict[str, Any] = read_json_artifact(
+        str(capture_id), "server_parsed.json", {}
+    )
+    bridge: Dict[str, Any] = read_json_artifact(str(capture_id), "bridge.json", {})
+
+    # 2) If either is missing, try to rebuild the bridge from stored HTML
+    if not bridge or "content_sections" not in bridge:
+        try:
+            # Defer heavy imports
+            from .ingest import _bridge_extraction
+            from paperclip.artifacts import read_json_artifact as _readj
+
+            # emulate the tiny "extraction" dict the ingest produced
+            extraction = _readj(str(capture_id), "extraction.json", {})
+            dom_html = _readj(str(capture_id), "dom.html", "")  # may be missing (ok)
+            # _bridge_extraction returns {"meta_updates":..., "content_sections":...}
+            bridged = _bridge_extraction(
+                url=(extraction.get("meta") or {}).get("url"),
+                fb_meta=(extraction.get("meta") or {}),
+                fb_secs=(extraction.get("sections") or {}),
+                site=(server_parsed.get("site") or {}),
+                dom_html=dom_html or "",
+            )
+            if isinstance(bridged, dict):
+                bridge = bridged
+        except Exception:
+            bridge = bridge or {"content_sections": {}, "meta_updates": {}}
+
+    # 3) Build reduced view from what we have (always tolerant)
+    reduced = build_reduced_view(
+        content=(bridge.get("content_sections") or {}),
+        meta=(server_parsed.get("metadata") or {}),
+        references=(server_parsed.get("references") or []),
+        title=(server_parsed.get("title") or ""),
+    )
+
+    # 4) Persist the canonical reduced projection
+    try:
+        write_json_artifact(str(capture_id), CANONICAL_REDUCED_BASENAME, reduced)
+    except Exception:
+        # Never crash the worker over a write failure.
+        pass

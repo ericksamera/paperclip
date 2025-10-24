@@ -1,292 +1,171 @@
 // services/server/paperclip/static/captures/library/columns_panels.js
-import { $, $$, on } from "./dom.js";
-import { clearSelection, openCurrent, copyDoi } from "./selection.js";
+// Columns drawer (show/hide + reorder) and basic panel toggles.
+// No imports from selection.js — keep responsibilities separate.
 
-/* ───────────────────────── Column prefs ───────────────────────── */
+import { $, $$, qs, qsa, on } from "./dom.js";
 
-const ALL_COLS = ["title", "authors", "year", "journal", "doi", "added", "refs"];
-const LABEL = {
-  title: "Title",
-  authors: "Authors",
-  year: "Year",
-  journal: "Journal",
-  doi: "DOI",
-  added: "Added",
-  refs: "Refs",
-};
+// Local storage keys
+const COL_ORDER_KEY = "pc-col-order";
+const COL_VIS_KEY   = "pc-col-visible";
 
-const DEFAULT_COLS = {
-  order: [...ALL_COLS],
-  show: { title: true, authors: true, year: true, journal: true, doi: false, added: true, refs: true },
-  widths: { authors: "16", year: "6", journal: "24", doi: "24", added: "10", refs: "6" },
-};
-
-// Read + normalize older saved shapes (no order, etc.)
-function readCols() {
-  let cfg;
-  try {
-    cfg = JSON.parse(localStorage.getItem("pcCols") || "") || DEFAULT_COLS;
-  } catch (_) {
-    cfg = DEFAULT_COLS;
-  }
-  // Ensure all keys exist and order is sane
-  cfg.order = Array.isArray(cfg.order) ? cfg.order.filter(k => ALL_COLS.includes(k)) : [...ALL_COLS];
-  // add any missing keys at the end (forward‑compat)
-  for (const k of ALL_COLS) if (!cfg.order.includes(k)) cfg.order.push(k);
-  // never hide title
-  cfg.show = cfg.show || {};
-  cfg.show.title = true;
-  for (const k of ALL_COLS) if (typeof cfg.show[k] === "undefined") cfg.show[k] = true;
-  cfg.widths = cfg.widths || {};
-  return cfg;
+function readLS(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
 }
-function saveCols(cfg) {
-  try { localStorage.setItem("pcCols", JSON.stringify(cfg)); } catch (_) {}
+function writeLS(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
 }
 
-// Reorder the DOM for header + all rows to match the given 'order'
-function reorderTable(order) {
-  const table = $("#pc-table");
-  if (!table) return;
+function applyVisibility(vis) {
+  // vis is a dict { columnKey: true/false }
+  qsa("[data-col-key]").forEach((el) => {
+    const k = el.getAttribute("data-col-key");
+    if (!k) return;
+    const on = vis[k] !== false; // default visible
+    el.style.display = on ? "" : "none";
+  });
+}
 
-  const safeOrder = order.filter(k => ALL_COLS.includes(k));
-  const finalOrder = ["title", ...safeOrder.filter(k => k !== "title")];
+function applyOrder(order) {
+  if (!Array.isArray(order) || !order.length) return;
+  const head = document.querySelector("thead tr");
+  const body = document.getElementById("pc-body");
+  if (!head || !body) return;
 
-  const theadRow = table.querySelector("thead tr");
-  const bodyRows = $$("#pc-body tr.pc-row");
+  // Reorder THs
+  order.forEach((k) => {
+    const th = head.querySelector(`th[data-col-key="${CSS.escape(k)}"]`);
+    if (th) head.appendChild(th);
+  });
 
-  function applyToRow(tr) {
-    const cells = {};
-    tr.querySelectorAll("[data-col]").forEach((td) => {
-      cells[td.getAttribute("data-col")] = td;
+  // Reorder each row's TDs to match
+  body.querySelectorAll("tr.pc-row").forEach((tr) => {
+    order.forEach((k) => {
+      const td = tr.querySelector(`td[data-col-key="${CSS.escape(k)}"]`);
+      if (td) tr.appendChild(td);
     });
-
-    // Always keep the gear column (if present) as the last cell
-    const gear = tr.querySelector(".pc-col-gear");
-    if (gear && gear.parentElement === tr) tr.appendChild(gear);
-
-    // Re-append known columns in saved order
-    for (const key of finalOrder) {
-      if (cells[key]) tr.appendChild(cells[key]);
-    }
-  }
-
-  if (theadRow) applyToRow(theadRow);
-  bodyRows.forEach(applyToRow);
-}
-
-
-// Show/hide + widths + reorder
-function applyCols(cfg) {
-  // 1) Reorder table to saved order
-  reorderTable(cfg.order);
-
-  // 2) Show/hide
-  for (const key of ALL_COLS) {
-    const onFlag = key === "title" ? true : !!cfg.show[key];
-    $$(`[data-col="${key}"]`).forEach((el) => { el.style.display = onFlag ? "" : "none"; });
-  }
-
-  // 3) Widths (in ch)
-  for (const [key, val] of Object.entries(cfg.widths || {})) {
-    const ch = String(val || "").trim();
-    $$(`[data-col="${key}"]`).forEach((el) => (el.style.width = ch ? ch + "ch" : ""));
-  }
-}
-
-/* ───────────────────────── Drawer UI ───────────────────────── */
-
-function drawer() { return $("#pc-cols-drawer"); }
-function listEl() { return $("#pc-cols-list"); }
-function isOpen() { return drawer()?.classList.contains("open"); }
-
-function openDrawer() {
-  const d = drawer();
-  if (!d) return;
-  d.classList.add("open");
-  d.setAttribute("aria-hidden", "false");
-}
-
-function closeDrawer() {
-  const d = drawer();
-  if (!d) return;
-  d.classList.remove("open");
-  d.setAttribute("aria-hidden", "true");
-}
-
-function buildListItem(key, cfg) {
-  const li = document.createElement("li");
-  li.className = "pc-cols-item";
-  li.dataset.key = key;
-
-  const fixed = key === "title";
-  if (fixed) li.dataset.fixed = "1";
-  li.draggable = !fixed;
-
-  // Only start drag when grabbing the handle (prevents accidental drags on checkbox/label)
-  li.addEventListener("dragstart", (e) => {
-    if (!e.target.closest(".handle") || fixed) { e.preventDefault(); return; }
-    li.classList.add("dragging");
-    e.dataTransfer.effectAllowed = "move";
-    try { e.dataTransfer.setData("text/plain", key); } catch (_) {}
   });
-  li.addEventListener("dragend", () => li.classList.remove("dragging"));
+}
 
-  li.innerHTML = `
-    <span class="handle" title="Drag to reorder" aria-hidden="true">☰</span>
-    <input type="checkbox" ${fixed ? "checked disabled" : (cfg.show[key] ? "checked" : "")} data-col-toggle="${key}">
-    <span class="label">${LABEL[key] || key}</span>
+function currentColumns() {
+  const headers = Array.from(document.querySelectorAll("thead th[data-col-key]"));
+  return headers.map((th) => th.getAttribute("data-col-key")).filter(Boolean);
+}
+
+function buildDrawer() {
+  let drawer = document.getElementById("pc-cols-drawer");
+  if (drawer) return drawer;
+
+  drawer = document.createElement("div");
+  drawer.className = "pc-drawer";
+  drawer.id = "pc-cols-drawer";
+  drawer.innerHTML = `
+    <div class="backdrop" data-close="1"></div>
+    <div class="panel" role="dialog" aria-modal="true" aria-labelledby="pc-cols-title">
+      <h3 id="pc-cols-title" style="margin:0 0 8px 0">Columns</h3>
+      <ul class="pc-cols-list" id="pc-cols-list"></ul>
+      <div style="display:flex; gap:8px; justify-content:flex-end">
+        <button type="button" class="btn" id="pc-cols-close">Close</button>
+      </div>
+    </div>
   `;
+  document.body.appendChild(drawer);
 
-  // Toggle handler
-  const cb = li.querySelector("input[type=checkbox]");
-  on(cb, "change", () => {
-    if (fixed) return;
-    cfg.show[key] = !!cb.checked;
-    saveCols(cfg);
-    applyCols(cfg);
+  // Basic interactions
+  const close = () => drawer.classList.remove("open");
+  drawer.querySelector(".backdrop")?.addEventListener("click", close);
+  drawer.querySelector("#pc-cols-close")?.addEventListener("click", close);
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+  return drawer;
+}
+
+function hydrateList(drawer, order, vis) {
+  const ul = drawer.querySelector("#pc-cols-list");
+  ul.innerHTML = "";
+  const cols = currentColumns();
+
+  const safeOrder = order && order.length ? order : cols.slice();
+  const finalOrder = safeOrder.filter((k) => cols.includes(k)); // drop unknown
+
+  finalOrder.forEach((k, i) => {
+    const li = document.createElement("li");
+    li.className = "pc-cols-item";
+    li.setAttribute("draggable", "true");
+    li.innerHTML = `
+      <span class="handle" title="Drag to reorder">≡</span>
+      <span class="label">${k}</span>
+      <input type="checkbox" ${vis?.[k] === false ? "" : "checked"} aria-label="Toggle ${k}">
+    `;
+    li.dataset.key = k;
+    ul.appendChild(li);
+
+    // Drag reorder
+    li.addEventListener("dragstart", () => { li.classList.add("dragging"); });
+    li.addEventListener("dragend", () => {
+      li.classList.remove("dragging");
+      const keys = Array.from(ul.querySelectorAll(".pc-cols-item")).map((n) => n.dataset.key);
+      writeLS(COL_ORDER_KEY, keys);
+      applyOrder(keys);
+    });
   });
 
-  return li;
-}
-
-function getDragAfterElement(container, y) {
-  const items = [...container.querySelectorAll(".pc-cols-item:not(.dragging)")];
-  return items.reduce(
-    (closest, child) => {
-      const box = child.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
-      return offset < 0 && offset > closest.offset ? { offset, element: child } : closest;
-    },
-    { offset: Number.NEGATIVE_INFINITY, element: null }
-  ).element;
-}
-
-function initColsDrawerUI() {
-  const cfg = readCols();
-
-  // Populate list in saved order
-  const list = listEl();
-  if (!list) return;
-  list.innerHTML = "";
-  for (const key of cfg.order) {
-    list.appendChild(buildListItem(key, cfg));
-  }
-
-  // Drag & drop within the list
-  on(list, "dragover", (e) => {
+  // Dragover to reinsert above/below
+  ul.addEventListener("dragover", (e) => {
     e.preventDefault();
-    const dragging = list.querySelector(".pc-cols-item.dragging");
-    if (!dragging) return;
-    const after = getDragAfterElement(list, e.clientY);
-    if (after == null) list.appendChild(dragging);
-    else list.insertBefore(dragging, after);
+    const cur = ul.querySelector(".pc-cols-item.dragging");
+    if (!cur) return;
+    const after = Array.from(ul.querySelectorAll(".pc-cols-item:not(.dragging)"))
+      .find((n) => e.clientY <= n.getBoundingClientRect().top + n.offsetHeight / 2);
+    if (after) ul.insertBefore(cur, after); else ul.appendChild(cur);
   });
 
-  on(list, "drop", () => {
-    // Persist new order from DOM
-    const domOrder = [...list.querySelectorAll(".pc-cols-item")].map((li) => li.dataset.key);
-    // Pin title to the first position for table layout stability
-    const next = ["title", ...domOrder.filter((k) => k !== "title")];
-    cfg.order = next.filter((k) => ALL_COLS.includes(k));
-    saveCols(cfg);
-    applyCols(cfg);
+  // Visibility toggles
+  ul.addEventListener("change", (e) => {
+    const li = e.target.closest(".pc-cols-item");
+    if (!li) return;
+    const k = li.dataset.key;
+    const checked = e.target.checked;
+    const next = { ...(vis || {}) };
+    next[k] = !!checked;
+    writeLS(COL_VIS_KEY, next);
+    applyVisibility(next);
   });
-
-  // Reset
-  const resetBtn = $("#pc-cols-reset");
-  on(resetBtn, "click", () => {
-    saveCols(DEFAULT_COLS);
-    applyCols(DEFAULT_COLS);
-    initColsDrawerUI(); // rebuild list to reflect defaults
-  });
-
-  // Initial apply (ensures drawer reflects current table)
-  applyCols(cfg);
 }
-
-/* ───────────────────────── Splitters & pane toggles ───────────────────────── */
-
-// Same UX as before (kept intact so nothing else breaks)
-function makeSplitter(id, varName, minPx, maxPx, storeKey) {
-  const shell = document.getElementById("z-shell");
-  const el = document.getElementById(id);
-  if (!el || !shell) return;
-  let dragging = false, startX = 0, startW = 0;
-  on(el, "mousedown", (e) => {
-    dragging = true;
-    startX = e.clientX;
-    startW = parseInt(getComputedStyle(shell).getPropertyValue(varName), 10) || 0;
-    document.body.style.userSelect = "none";
-  });
-  on(window, "mousemove", (e) => {
-    if (!dragging) return;
-    let delta = e.clientX - startX;
-    let next = varName === "--right-w" ? (startW - delta) : (startW + delta);
-    next = Math.max(minPx, Math.min(maxPx, next));
-    shell.style.setProperty(varName, next + "px");
-  });
-  on(window, "mouseup", () => {
-    if (!dragging) return;
-    dragging = false;
-    document.body.style.userSelect = "";
-    const cur = getComputedStyle(shell).getPropertyValue(varName).trim();
-    localStorage.setItem(storeKey, cur);
-  });
-  const saved = localStorage.getItem(storeKey);
-  if (saved) shell.style.setProperty(varName, saved);
-}
-
-/* ───────────────────────── Public init ───────────────────────── */
 
 export function initPanelsAndColumns() {
-  // Drawer wiring
-  const triggers = $$("#pc-cols-toggle, #pc-cols-toggle-table, [data-act='toggle-columns']");
-  const closeBtn = $("#pc-cols-close");
-  const backdrop = $("#pc-cols-drawer-backdrop");
+  const toggleBtn = document.getElementById("pc-cols-toggle");
+  if (!toggleBtn) return;
 
-  triggers.forEach(btn => on(btn, "click", () => {
-    openDrawer();
-    initColsDrawerUI();
-  }));
-  on(closeBtn, "click", closeDrawer);
-  on(backdrop, "click", closeDrawer);
-  on(window, "keydown", (e) => { if (e.key === "Escape" && isOpen()) { e.preventDefault(); closeDrawer(); } });
+  const drawer = buildDrawer();
 
-  // Apply on tbody swaps (search/paging/infinite scroll)
-  on(document, "pc:rows-updated", () => applyCols(readCols()));
+  const savedOrder = readLS(COL_ORDER_KEY, null);
+  const savedVis   = readLS(COL_VIS_KEY,   {});
+  if (savedOrder) applyOrder(savedOrder);
+  applyVisibility(savedVis);
 
-  // Left/Right toggles (unchanged)
-  const shell = document.getElementById("z-shell");
-  const toggleRightBtn = document.getElementById("z-toggle-right");
-  const toggleLeftBtn  = document.getElementById("z-toggle-left");
+  hydrateList(drawer, savedOrder, savedVis);
 
-  function openRight() { shell?.style.setProperty("--right-w", localStorage.getItem("pc-right-w") || "360px"); }
-  function closeRight(){ localStorage.setItem("pc-right-w", getComputedStyle(shell).getPropertyValue("--right-w").trim() || "360px"); shell?.style.setProperty("--right-w", "0px"); }
-  function openLeft(){  shell?.style.setProperty("--left-w", localStorage.getItem("pc-left-w") || "260px"); localStorage.setItem("pc-left-hidden", "0"); }
-  function closeLeft(){ localStorage.setItem("pc-left-w",  getComputedStyle(shell).getPropertyValue("--left-w").trim() || "260px"); shell?.style.setProperty("--left-w", "0px"); localStorage.setItem("pc-left-hidden", "1"); }
-
-  on(toggleRightBtn, "click", () => {
-    const w = getComputedStyle(shell).getPropertyValue("--right-w").trim();
-    (w === "0px" || w === "0") ? openRight() : closeRight();
-  });
-  on(toggleLeftBtn, "click", () => {
-    const w = getComputedStyle(shell).getPropertyValue("--left-w").trim();
-    (w === "0px" || w === "0") ? openLeft() : closeLeft();
+  // Open/close
+  on(toggleBtn, "click", (e) => {
+    e.preventDefault();
+    hydrateList(drawer, readLS(COL_ORDER_KEY, currentColumns()), readLS(COL_VIS_KEY, {}));
+    drawer.classList.add("open");
   });
 
-  // Splitters + persisted left hidden state
-  makeSplitter("z-splitter-left",  "--left-w",  160, 480, "pc-left-w");
-  makeSplitter("z-splitter-right", "--right-w", 0,   560, "pc-right-w");
-  if (localStorage.getItem("pc-left-hidden") === "1") shell?.style.setProperty("--left-w", "0px");
-
-  // Hotkeys (unchanged)
-  on(window, "keydown", (e) => {
-    const tag = (e.target && (e.target.tagName || "")).toLowerCase();
-    const typing = tag === "input" || tag === "textarea" || e.target.isContentEditable;
-    if (!typing && e.key.toLowerCase() === "c") { e.preventDefault(); (triggers[0] || document.body).click(); return; }
+  // Keyboard shortcut: C opens columns (kept here so selection.js stays focused)
+  window.addEventListener("keydown", (e) => {
+    const t = (e.target && (e.target.tagName || "")).toLowerCase();
+    const typing = t === "input" || t === "textarea" || e.target?.isContentEditable;
+    if (typing) return;
+    if (!drawer.classList.contains("open") && e.key.toLowerCase() === "c") {
+      e.preventDefault();
+      hydrateList(drawer, readLS(COL_ORDER_KEY, currentColumns()), readLS(COL_VIS_KEY, {}));
+      drawer.classList.add("open");
+    }
   });
 
-  // First load: apply saved prefs
-  applyCols(readCols());
+  // Re-hydrate the list whenever headers change (rare, but safe)
+  document.addEventListener(EVENTS.ROWS_CHANGED, () => {
+    hydrateList(drawer, readLS(COL_ORDER_KEY, currentColumns()), readLS(COL_VIS_KEY, {}));
+  }, { capture: true });
 }
