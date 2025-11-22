@@ -1,32 +1,22 @@
 # services/server/captures/dedup.py
 from __future__ import annotations
 
-from contextlib import suppress
 
 from datasketch import MinHash, MinHashLSH
 
 from captures.models import Capture
-from captures.reduced_view import read_reduced_view
-from analysis.text import tokenize
+from captures.text_assembly import build_doc_text
+from captures.text_utils import tokenize
 
 
 def _text_for(c: Capture) -> str:
     """
-    Build a representative text for a capture:
-      • title + doi
-      • meta.abstract (if present)
-      • first ~80 preview paragraphs from reduced view (if present)
+    Canonical representative text for a capture used by MinHash/LSH dedup.
+
+    Delegates to captures.text_assembly.build_doc_text so that dedup, search,
+    and analysis all share the same notion of “document text”.
     """
-    bits = [c.title or "", c.doi or ""]
-    meta = c.meta or {}
-    if meta.get("abstract"):
-        bits.append(str(meta["abstract"]))
-    with suppress(Exception):
-        view = read_reduced_view(str(c.id))
-        paras = (view.get("sections") or {}).get("abstract_or_body") or []
-        if isinstance(paras, list) and paras:
-            bits.append(" ".join(paras[:80]))
-    return " ".join(bits)
+    return build_doc_text(c)
 
 
 def _minhash(text: str, num_perm: int = 128) -> MinHash:

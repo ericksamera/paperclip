@@ -7,6 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 from bs4 import BeautifulSoup, Tag
 
 from . import register, register_meta
+
+from paperclip.utils import norm_doi
+
 from .base import (
     augment_from_raw,
     collapse_spaces,
@@ -58,13 +61,17 @@ def _clean_para_text(s: str) -> str:
 
 
 def _normalize_doi(s: str | None) -> str | None:
+    """
+    BMC-specific DOI normalizer that delegates to paperclip.utils.norm_doi.
+
+    Handles URL/query-encoded DOIs first (unquote), then lets norm_doi
+    strip prefixes / punctuation and validate the token.
+    """
     if not s:
         return None
-    val = unquote(s).strip()
-    # Trim prefixes and trailing punctuation
-    val = re.sub(r"^(?:doi:|https?://(?:dx\.)?doi\.org/)", "", val, flags=re.I)
-    val = val.strip().rstrip(" .;,")
-    return val.lower() if val else None
+    val = unquote(s or "").strip()
+    doi = norm_doi(val)
+    return doi or None
 
 
 def _extract_doi_from_anchor(a: Tag) -> str | None:

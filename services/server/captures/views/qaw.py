@@ -11,7 +11,7 @@ from typing import Any
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404, render
 
-from analysis.text import STOP
+from captures.text_utils import STOP
 from captures.models import Capture, Collection
 from captures.reduced_view import read_reduced_view
 

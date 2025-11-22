@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import re
 from contextlib import contextmanager, suppress
-from typing import Any, Mapping
 
 from django.db import connection as _default_connection
 
-from captures.keywords import split_keywords
-from captures.text_assembly import assemble_body_text
-from captures.types import CSL
+from captures.text_assembly import build_doc_text
 
 _FTS = "capture_fts"
 
@@ -96,21 +93,18 @@ def upsert_capture(capture) -> None:
 
 
 def _build_row(c) -> tuple[str, str, str, str, str]:
-    meta: Mapping[str, Any] = c.meta or {}
-    csl: CSL | Mapping[str, Any] = c.csl or {}
+    """
+    Single source of truth for FTS row content.
 
-    # Build the "body" = meta/csl + reduced-view preview + keywords
-    kw = meta.get("keywords") or []
-    if isinstance(kw, str):
-        kw = split_keywords(kw)
-
-    body = assemble_body_text(
-        capture_id=str(c.id),
-        meta=meta,
-        csl=csl,
-        keywords=kw if isinstance(kw, (list, tuple)) else [],
-    )
-    return (str(c.id), (c.title or ""), body, (c.url or ""), (c.doi or ""))
+    Uses captures.text_assembly.build_doc_text so FTS, dedup, and semantic
+    search all share the same notion of “document text”.
+    """
+    pk = str(c.id)
+    title = c.title or ""
+    body = build_doc_text(c) or ""
+    url = c.url or ""
+    doi = c.doi or ""
+    return (pk, title, body, url, doi)
 
 
 def _fts_sanitize_query(q: str) -> str:

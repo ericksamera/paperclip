@@ -94,3 +94,65 @@ def assemble_body_text(
         parts.extend(kws)
 
     return " ".join([p for p in parts if p])
+
+
+def build_doc_text(capture: Any) -> str:
+    """
+    Canonical “document text” for a Capture-like object.
+
+    Used by:
+      • analysis.graph_build.collect_docs (Doc.text)
+      • captures.dedup._text_for (MinHash dedup input)
+      • any other downstream consumer that wants a single blob per capture
+
+    Composition:
+      • title (or meta.title / csl.title fallback)
+      • DOI (if present)
+      • assembled body text (reduced-view preview + meta/CSL + keywords)
+    """
+    if capture is None:
+        return ""
+
+    # Duck-typed fields (works for Capture and simple stand-ins in tests)
+    title = getattr(capture, "title", "") or ""
+    doi = getattr(capture, "doi", "") or ""
+
+    meta: Mapping[str, Any] = getattr(capture, "meta", None) or {}
+    csl: CSL | Mapping[str, Any] = getattr(capture, "csl", None) or {}
+
+    if not title:
+        # fall back to meta/csl title if model.title missing
+        t: Any = meta.get("title")
+        if not t and isinstance(csl, Mapping):
+            t = csl.get("title")
+        if isinstance(t, list):
+            # CSL may store title as [str]
+            t = next((s for s in t if s), "")
+        title = str(t or "")
+
+    # Keywords from meta (same behavior as FTS indexing)
+    kw = meta.get("keywords") or []
+    if isinstance(kw, str):
+        kw_list = split_keywords(kw)
+    elif isinstance(kw, (list, tuple)):
+        kw_list = [str(k) for k in kw if k]
+    else:
+        kw_list = []
+
+    capture_id = str(getattr(capture, "id", "") or "")
+    body = assemble_body_text(
+        capture_id=capture_id,
+        meta=meta,
+        csl=csl,
+        keywords=kw_list,
+    )
+
+    parts: list[str] = []
+    if title:
+        parts.append(title)
+    if doi:
+        parts.append(str(doi))
+    if body:
+        parts.append(body)
+
+    return " ".join(parts)

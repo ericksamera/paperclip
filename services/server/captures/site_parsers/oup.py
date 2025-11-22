@@ -16,6 +16,7 @@ from .base import (
     extract_from_li,
     heading_text,
 )
+from paperclip.utils import norm_doi
 
 """
 Oxford Academic (OUP) parser
@@ -62,10 +63,8 @@ def _normalize_doi(s: str | None) -> str | None:
     if not s:
         return None
     val = unquote(s).strip()
-    # Trim common prefixes and trailing punctuation
-    val = re.sub(r"^(?:doi:|https?://(?:dx\.)?doi\.org/)", "", val, flags=re.I)
-    val = val.strip().rstrip(" .;,")
-    return val.lower() if val else None
+    d = norm_doi(val)
+    return d or None
 
 
 def _extract_doi_from_anchor(a: Tag) -> str | None:

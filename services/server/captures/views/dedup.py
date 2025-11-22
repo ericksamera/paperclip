@@ -11,7 +11,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from captures.models import Capture, Reference
+from paperclip.ingest import merge_captures
+from captures.models import Capture
 from captures.reduced_view import read_reduced_view
 
 from .common import _journal_full
@@ -152,9 +153,10 @@ def dedup_merge(request):
 
     primary = get_object_or_404(Capture, pk=primary_id)
     from django.conf import settings as _s
+    from captures.search import upsert_capture as _upsert
 
     # transactional merge
-    removed = []
+    removed: list[str] = []
     with transaction.atomic():
         for oid in others:
             if oid == primary_id:
@@ -162,17 +164,20 @@ def dedup_merge(request):
             dup = Capture.objects.filter(pk=oid).first()
             if not dup:
                 continue
-            # move refs
-            Reference.objects.filter(capture_id=dup.id).update(capture=primary)
-            # move collections
-            for col in dup.collections.all():
-                col.captures.add(primary)
-            # delete dup
-            dup.delete()
+
+            # Use the shared merge helper: refs + artifacts + collections
+            merge_captures(primary, dup)
             removed.append(str(oid))
-            # remove dup artifacts folder
+
+            # Remove dup artifacts folder on disk (UI behavior)
             with suppress(Exception):
                 shutil.rmtree((_s.ARTIFACTS_DIR / str(oid)), ignore_errors=True)
+
+            # Delete the loser row
+            dup.delete()
+
+        # Re-index the primary after merging everything into it
+        _upsert(primary)
 
     # mark this group as handled
     ignored = _ignored_set()

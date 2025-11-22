@@ -5,7 +5,9 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.I)
+from paperclip.utils import norm_doi
+
+DOI_RE = re.compile(r"10\.\d{1,9}/[^\s\"'<>]+", re.I)
 
 
 def _pick(soup: BeautifulSoup, names: list[str]) -> str | None:
@@ -29,24 +31,33 @@ def extract_head_meta(dom_html: str) -> dict[str, Any]:
     out: dict[str, Any] = {}
     if not dom_html:
         return out
+
     soup = BeautifulSoup(dom_html, "html.parser")
+
+    # Title
     title = _pick(
         soup, ["citation_title", "dc.title", "dcterms.title", "prism.title"]
     ) or (soup.title.get_text(strip=True) if soup.title else None)
     if title:
         out["title"] = title
         out["title_source"] = "citation"  # best effort
-    doi = _pick(
+
+    # DOI (normalized)
+    doi_raw = _pick(
         soup, ["citation_doi", "prism.doi", "dc.identifier", "dcterms.identifier"]
     )
-    if not doi:
+    if not doi_raw:
         # try any DOI-like in meta content
         metas = " ".join(m.get("content", "") for m in soup.find_all("meta"))
         m = DOI_RE.search(metas)
         if m:
-            doi = m.group(0)
-    if doi:
-        out["doi"] = doi
+            doi_raw = m.group(0)
+
+    if doi_raw:
+        doi_norm = norm_doi(doi_raw)
+        out["doi"] = doi_norm or doi_raw.strip()
+
+    # Year
     year = _year_from(
         _pick(
             soup,
@@ -61,4 +72,5 @@ def extract_head_meta(dom_html: str) -> dict[str, Any]:
     )
     if year:
         out["issued_year"] = year
+
     return out

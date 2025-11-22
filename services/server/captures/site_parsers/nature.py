@@ -16,6 +16,7 @@ from .base import (
     extract_from_li,
     heading_text,
 )
+from paperclip.utils import norm_doi
 
 """
 Nature site parser: robust abstract/keywords/sections extraction + references.
@@ -65,14 +66,16 @@ def _clean_para_text(s: str) -> str:
 
 
 def _normalize_doi(s: str | None) -> str | None:
+    """
+    Nature-specific DOI normalizer that delegates to paperclip.utils.norm_doi.
+
+    Unquotes percent-encoded URLs, then uses the canonical DOI normalizer.
+    """
     if not s:
         return None
-    val = unquote(s).strip()
-    # Trim common prefixes and trailing punctuation
-    val = re.sub(r"^(?:doi:|https?://(?:dx\.)?doi\.org/)", "", val, flags=re.I)
-    val = val.strip().rstrip(" .;,")
-    # DOIs are case-insensitive; normalize to lower for consistency
-    return val.lower() if val else None
+    val = unquote(s or "").strip()
+    doi = norm_doi(val)
+    return doi or None
 
 
 def _extract_doi_from_anchor(a: Tag) -> str | None:

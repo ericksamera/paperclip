@@ -3,64 +3,74 @@ from __future__ import annotations
 
 from typing import Any
 
-from captures.artifacts import build_server_parsed
-from captures.parsing_bridge import robust_parse
-from captures.reduced_view import CANONICAL_REDUCED_BASENAME, build_reduced_view
+from captures.models import Capture
 from paperclip.artifacts import write_json_artifact, write_text_artifact
+from paperclip.ingest import _robust_parse, _write_canonical_artifacts
 
 
 def build_and_write_all(
-    capture_id: str, *, url: str | None, dom_html: str, extraction: dict[str, Any]
+    capture_id: str,
+    *,
+    url: str | None,
+    dom_html: str,
+    extraction: dict[str, Any],
 ) -> dict[str, Any]:
-    # 1) Verbatim inputs
+    """
+    Dev/CLI helper for (re)building artifacts for an *existing* Capture.
+
+    This is a thin wrapper around the same helpers used by ingest_capture, so
+    it writes the same artifact set:
+
+      - page.html / dom.html / content.html
+      - extraction.json / bridge.json
+      - server_parsed.json + doc.json
+      - server_output_reduced.json (CANONICAL_REDUCED_BASENAME) + view.json
+
+    It assumes a Capture row already exists with this id.
+    """
+    cap = Capture.objects.filter(pk=capture_id).first()
+    if cap is None:
+        raise ValueError(f"No Capture found with id={capture_id!r}")
+
+    # Optionally refresh URL/meta/CSL from the provided payload
+    if url:
+        cap.url = url
+
+    meta_in = extraction.get("meta") or {}
+    csl_in = extraction.get("csl") or {}
+
+    if meta_in:
+        cap.meta = meta_in
+    if csl_in:
+        cap.csl = csl_in
+
+    cap.save(update_fields=["url", "meta", "csl"])
+
+    # 1) Verbatim artifacts (HTML snapshots + raw extraction)
     if dom_html:
+        # Original snapshot
         write_text_artifact(capture_id, "page.html", dom_html)
-    if extraction.get("content_html"):
-        write_text_artifact(capture_id, "content.html", extraction["content_html"])
-    # 2) Bridge: strong head meta + preview paragraphs (no reparse later)
-    bridge = robust_parse(
-        url=url,
-        content_html=extraction.get("content_html") or "",
-        dom_html=dom_html,
+        # Parser-friendly alias used by rebuild_reduced_view
+        write_text_artifact(capture_id, "dom.html", dom_html)
+
+    content_html = extraction.get("content_html") or ""
+    if content_html:
+        write_text_artifact(capture_id, "content.html", content_html)
+
+    write_json_artifact(capture_id, "extraction.json", extraction)
+
+    # 2) Bridge: strong head meta + preview/sections (same as ingest_capture)
+    bridge = _robust_parse(
+        url=cap.url or "",
+        content_html=content_html,
+        dom_html=dom_html or "",
     )
-    # 3) Canonical normalization (single parse into typed schema)
-    server_parsed = build_server_parsed(
-        _capture_stub(capture_id, extraction), extraction
-    )
-    write_json_artifact(capture_id, "server_parsed.json", server_parsed)
-    # 4) Reduced projection for the UI (canonical only; no legacy alias)
-    reduced = build_reduced_view(
-        content=bridge.get("content_sections"),
-        meta=server_parsed.get("metadata") or {},
-        references=server_parsed.get("references") or [],
-        title=server_parsed.get("title") or "",
-    )
-    write_json_artifact(capture_id, CANONICAL_REDUCED_BASENAME, reduced)
-    return {"bridge": bridge, "server_parsed": server_parsed, "reduced": reduced}
+    write_json_artifact(capture_id, "bridge.json", bridge)
 
+    # 3) Canonical parse + reduced view + legacy aliases
+    server_parsed = _write_canonical_artifacts(cap, bridge, extraction)
 
-def _capture_stub(capture_id: str, extraction: dict[str, Any]) -> Any:
-    """
-    Minimal object with attributes the parser package expects:
-    id, title/url/doi/year, and a lightweight references manager.
-    The parser only reads attributes; keep it tiny.
-    """
-
-    class _C:
-        id = capture_id
-        title = (extraction.get("meta") or {}).get("title") or ""
-        url = (extraction.get("meta") or {}).get("url") or ""
-        doi = (extraction.get("meta") or {}).get("doi") or ""
-        year = str((extraction.get("meta") or {}).get("issued_year") or "")
-
-        def __getattr__(self, name: str) -> Any:
-            if name == "references":
-
-                class _R:
-                    def all(self) -> list[Any]:
-                        return []
-
-                return _R()
-            raise AttributeError(name)
-
-    return _C()
+    return {
+        "bridge": bridge,
+        "server_parsed": server_parsed,
+    }

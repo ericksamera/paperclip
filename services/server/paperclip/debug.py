@@ -12,7 +12,6 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
 
-from analysis.models import AnalysisRun
 from captures.models import Capture, Reference
 
 
@@ -44,6 +43,5 @@ def wipe_all(request: HttpRequest) -> HttpResponse:
     with transaction.atomic():
         Reference.objects.all().delete()
         Capture.objects.all().delete()
-        AnalysisRun.objects.all().delete()
     messages.success(request, "All ingested data and artifacts removed.")
     return redirect("library")

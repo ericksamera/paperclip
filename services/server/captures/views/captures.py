@@ -178,13 +178,13 @@ def capture_enrich_refs(_request: HttpRequest, pk: str) -> HttpResponse:
     w.writerow(["ref_raw", "doi_in", "doi_out", "title_out"])
     for r in refs_mgr.all():
         doi_in = norm_doi(getattr(r, "doi", "") or "")
-        enriched = enrich_reference_via_crossref(r)
+        enriched = enrich_reference_via_crossref(r) or {}
         w.writerow(
             [
                 (getattr(r, "raw", "") or "")[:120],
                 doi_in or "",
-                (getattr(enriched, "doi", "") or ""),
-                (getattr(enriched, "title", "") or "")[:120],
+                str(enriched.get("doi") or ""),
+                str(enriched.get("title") or "")[:120],
             ]
         )
     return HttpResponse(out.getvalue(), content_type="text/csv; charset=utf-8")

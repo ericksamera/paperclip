@@ -46,7 +46,7 @@ INSTALLED_APPS = [
     "corsheaders",
     # Use AppConfig so ready() runs (FTS hooks, sqlite pragmas)
     "captures.app.CapturesConfig",
-    "analysis",
+    # "analysis",
 ]
 # Append optional apps only if importable
 if _app_available("rest_framework"):

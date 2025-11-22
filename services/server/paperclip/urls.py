@@ -4,7 +4,7 @@ from django.urls import include, path
 from django.views.generic import RedirectView
 from rest_framework.routers import DefaultRouter
 
-from analysis import views as analysis_views
+# from analysis import views as analysis_views
 from captures import views as cap_views
 from paperclip.api import CaptureViewSet, enrich_doi, healthz
 from paperclip.debug import clear_cache, wipe_all
@@ -96,21 +96,21 @@ urlpatterns = [
         cap_views.capture_artifact,
         name="artifact",
     ),
-    # Analysis (Graph)
-    path("runs/", analysis_views.RunsListView.as_view(), name="analysis_runs"),
-    path("graph/", analysis_views.LatestGraphView.as_view(), name="analysis_graph"),
-    path(
-        "graph/embed/",
-        analysis_views.GraphEmbedView.as_view(),
-        name="analysis_graph_embed",
-    ),
-    path("runs/run-now/", analysis_views.RunNowView.as_view(), name="analysis_run_now"),
-    path("analysis/run/", analysis_views.RunNowView.as_view(), name="analysis_run"),
-    path(
-        "runs/<int:pk>/progress.json",
-        analysis_views.RunProgressView.as_view(),
-        name="analysis_progress",
-    ),
+    ## Analysis (Graph)
+    # path("runs/", analysis_views.RunsListView.as_view(), name="analysis_runs"),
+    # path("graph/", analysis_views.LatestGraphView.as_view(), #name="analysis_graph"),
+    # path(
+    #    "graph/embed/",
+    #    analysis_views.GraphEmbedView.as_view(),
+    #    name="analysis_graph_embed",
+    # ),
+    # path("runs/run-now/", analysis_views.RunNowView.as_view(), #name="analysis_run_now"),
+    # path("analysis/run/", analysis_views.RunNowView.as_view(), #name="analysis_run"),
+    # path(
+    #    "runs/<int:pk>/progress.json",
+    #    analysis_views.RunProgressView.as_view(),
+    #    name="analysis_progress",
+    # ),
     # API
     path("api/", include(router.urls)),
     path("api/healthz/", healthz, name="healthz"),

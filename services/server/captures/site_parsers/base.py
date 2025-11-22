@@ -12,8 +12,24 @@ from paperclip.utils import norm_doi  # noqa: F401 (kept for future helpers)
 # ======================================================================================
 # Shared regexes and tiny normalizers
 # ======================================================================================
-DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"<>]+", re.I)
+DOI_RE = re.compile(r"10\.\d{1,9}/[^\s\"'<>]+", re.I)
 YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+
+
+def extract_doi_from_text(text: str | None) -> str | None:
+    """
+    Extract and normalize the first DOI-looking token from a string.
+
+    Returns a lowercase DOI or None when nothing DOI-ish is found.
+    """
+    if not text:
+        return None
+    m = DOI_RE.search(text)
+    if not m:
+        return None
+    candidate = m.group(0)
+    doi = norm_doi(candidate)
+    return doi or None
 
 
 def collapse_spaces(s: str | None) -> str:
@@ -290,23 +306,40 @@ def authors_initials_first_to_surname_initials(auths: list[str]) -> list[str]:
 # Generic <li> reference helpers (used by PMC/generic)
 # ======================================================================================
 def extract_from_li(li: Tag) -> dict[str, str]:
+    """
+    Generic <li> → reference dict helper.
+
+    - raw: best-effort plain text of the reference line
+    - doi: first DOI-looking token we can find (normalized via norm_doi)
+    - issued_year: 4-digit year when present
+    """
     cite = li.find("cite")
     raw = (
         cite.get_text(" ", strip=True) if cite else li.get_text(" ", strip=True)
     ) or ""
-    href_doi = ""
+
+    doi_val = ""
+
+    # Prefer DOI from hrefs on anchors, then fall back to anchor text and raw text
     for a in li.find_all("a", href=True):
-        m = DOI_RE.search(a["href"])
-        if m:
-            href_doi = m.group(0)
+        href = a.get("href") or ""
+        d = extract_doi_from_text(href)
+        if d:
+            doi_val = d
             break
-    text_doi = ""
-    m = DOI_RE.search(raw)
-    if m:
-        text_doi = m.group(0)
+        # sometimes the DOI is only in the anchor text
+        d = extract_doi_from_text(a.get_text(" ", strip=True))
+        if d:
+            doi_val = d
+            break
+
+    if not doi_val:
+        doi_val = extract_doi_from_text(raw) or ""
+
     my = YEAR_RE.search(raw)
     year = my.group(0) if my else ""
-    return {"raw": raw, "doi": href_doi or text_doi, "issued_year": year}
+
+    return {"raw": raw, "doi": doi_val, "issued_year": year}
 
 
 # ======================================================================================

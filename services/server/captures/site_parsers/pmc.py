@@ -17,7 +17,7 @@ from .base import (
     heading_text,
     split_keywords_block,
 )
-
+from paperclip.utils import norm_doi
 
 """
 PubMed Central (PMC) parser
@@ -61,9 +61,9 @@ def _txt(s: str | None) -> str:
 def _normalize_doi(s: str | None) -> str | None:
     if not s:
         return None
-    d = unquote(s).strip()
-    d = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", "", d, flags=re.I)
-    return d.strip(" .;,").lower() or None
+    val = unquote(s).strip()
+    d = norm_doi(val)
+    return d or None
 
 
 def _is_junk_text(s: str) -> bool:

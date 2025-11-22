@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Any, Mapping
 from urllib.parse import urlparse, urlunparse
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 
@@ -17,6 +16,7 @@ from paperclip.artifacts import (
     write_json_artifact,
     write_text_artifact,
 )
+from paperclip.conf import AUTO_ENRICH, ENRICH_ON_CAPTURE
 from paperclip.jobs import submit_enrichment
 from paperclip.utils import norm_doi
 
@@ -76,6 +76,51 @@ def _robust_parse(
     return _rp(url=url, content_html=content_html, dom_html=dom_html)
 
 
+def _bridge_extraction(
+    *,
+    url: str | None,
+    fb_meta: Mapping[str, Any],
+    fb_secs: Mapping[str, Any],
+    site: Any,
+    dom_html: str,
+) -> dict[str, Any]:
+    """
+    Rebuild a bridge payload for older captures when bridge.json is missing.
+
+    Used only by captures.reduced_view.rebuild_reduced_view as a fallback:
+      - tries robust_parse(dom_html)
+      - falls back to stored meta/sections if needed
+    """
+    try:
+        # We don't have content_html here; rely on full DOM snapshot.
+        bridge = _robust_parse(url=url or "", content_html="", dom_html=dom_html or "")
+    except Exception:
+        bridge = {}
+
+    if not isinstance(bridge, dict):
+        bridge = {}
+
+    meta_updates = dict(bridge.get("meta_updates") or {})
+    content_sections = bridge.get("content_sections") or {}
+
+    # If robust_parse didn't give us sections, fall back to stored sections.
+    if not isinstance(content_sections, Mapping) or not content_sections:
+        if isinstance(fb_secs, Mapping):
+            content_sections = dict(fb_secs or {})
+        else:
+            content_sections = {}
+
+    # Prefer keywords from robust_parse; if missing, use fallback meta keywords.
+    if "keywords" not in meta_updates and isinstance(fb_meta, Mapping):
+        kws = fb_meta.get("keywords")
+        if kws:
+            meta_updates["keywords"] = kws
+
+    bridge["meta_updates"] = meta_updates
+    bridge["content_sections"] = content_sections
+    return bridge
+
+
 def _host(url: str) -> str:
     try:
         host = (urlparse(url).hostname or "").replace("www.", "")
@@ -114,26 +159,118 @@ def _norm_url_for_dup(url: str) -> str:
 def _ref_kwargs(
     r: Mapping[str, Any], *, capture: Capture, csl_ok: bool = True
 ) -> dict[str, Any]:
+    """
+    Normalize a raw reference mapping into kwargs for captures.Reference.
+
+    Responsibilities:
+    - Normalize DOI via paperclip.utils.norm_doi.
+    - Coerce issued_year/year to a simple string.
+    - Resolve container_title / journal field naming.
+    - Ensure authors is always a list[str].
+    - Optionally keep client-provided CSL; ignore site-parser CSL by default.
+    """
+    # Raw text (best-effort original)
+    raw = str(r.get("raw") or "")
+
+    # --- DOI ---
+    doi_raw = str(r.get("doi") or "").strip()
+    doi_norm = norm_doi(doi_raw)
+    # Store the canonical DOI if we can; otherwise fall back to the raw string
+    doi = doi_norm or doi_raw
+
+    # --- Year ---
+    # Accept either 'issued_year' or 'year' and coerce to a simple string
+    year_val = r.get("issued_year", r.get("year", ""))
+    if isinstance(year_val, (int, float)):
+        try:
+            issued_year = str(int(year_val))
+        except Exception:
+            issued_year = str(year_val)
+    else:
+        issued_year = str(year_val or "").strip()
+
+    # --- Container / journal title ---
+    container_title = ""
+    for key in ("container_title", "container-title", "journal", "journal_title"):
+        v = r.get(key)
+        if v:
+            container_title = str(v).strip()
+            if container_title:
+                break
+
+    # --- Authors -> list[str] ---
+    authors_raw = r.get("authors") or []
+    if isinstance(authors_raw, (list, tuple, set)):
+        authors = [str(a).strip() for a in authors_raw if str(a).strip()]
+    elif isinstance(authors_raw, str):
+        authors = [authors_raw.strip()] if authors_raw.strip() else []
+    else:
+        authors = []
+
+    # --- CSL (client-provided only; site parsers generally shouldn't inject CSL) ---
+    csl = r.get("csl") if (csl_ok and isinstance(r.get("csl"), dict)) else {}
+
     return {
         "capture": capture,
-        "ref_id": (r.get("id") or ""),
-        "raw": r.get("raw", ""),
-        "doi": r.get("doi", ""),
-        "title": r.get("title", ""),
-        "issued_year": str(r.get("issued_year") or ""),
-        "container_title": r.get("container_title", ""),
-        "authors": (r.get("authors") or []),
-        "csl": (r.get("csl", {}) if csl_ok else {}),
-        "volume": r.get("volume", ""),
-        "issue": r.get("issue", ""),
-        "pages": r.get("pages", ""),
-        "publisher": r.get("publisher", ""),
-        "issn": r.get("issn", ""),
-        "isbn": r.get("isbn", ""),
-        "bibtex": r.get("bibtex", ""),
-        "apa": r.get("apa", ""),
-        "url": r.get("url", ""),
+        "ref_id": str(r.get("id") or ""),
+        "raw": raw,
+        "doi": doi,
+        "title": str(r.get("title") or ""),
+        "issued_year": issued_year,
+        "container_title": container_title,
+        "authors": authors,
+        "csl": csl,
+        "volume": str(r.get("volume") or ""),
+        "issue": str(r.get("issue") or ""),
+        "pages": str(r.get("pages") or ""),
+        "publisher": str(r.get("publisher") or ""),
+        "issn": str(r.get("issn") or ""),
+        "isbn": str(r.get("isbn") or ""),
+        "bibtex": str(r.get("bibtex") or ""),
+        "apa": str(r.get("apa") or ""),
+        "url": str(r.get("url") or ""),
     }
+
+
+def _write_canonical_artifacts(
+    cap: Capture, bridge: Mapping[str, Any], extraction: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Build and persist server_parsed + reduced view for a capture.
+
+    Writes:
+      - server_parsed.json   (canonical)
+      - doc.json             (legacy alias)
+      - server_output_reduced.json / CANONICAL_REDUCED_BASENAME
+      - view.json            (legacy alias)
+    """
+    server_parsed = _build_server_parsed(cap, extraction)
+
+    # Canonical parse + legacy alias for older tools/tests
+    write_json_artifact(str(cap.id), "server_parsed.json", server_parsed)
+    write_json_artifact(str(cap.id), "doc.json", server_parsed)
+
+    reduced = build_reduced_view(
+        content=bridge.get("content_sections") or {},
+        meta=server_parsed.get("metadata") or (cap.meta or {}),
+        references=[
+            {
+                "raw": r.raw,
+                "doi": r.doi,
+                "issued_year": r.issued_year,
+                "apa": r.apa,
+                "title": r.title,
+            }
+            for r in Reference.objects.filter(capture=cap).order_by("id")
+        ],
+        title=server_parsed.get("title") or cap.title or "",
+    )
+
+    # Canonical reduced view + legacy alias
+    write_json_artifact(str(cap.id), CANONICAL_REDUCED_BASENAME, reduced)
+    write_json_artifact(str(cap.id), "view.json", reduced)
+
+    return server_parsed
 
 
 def _read_paragraphs_for_score(cap_id: str) -> list[str]:
@@ -336,6 +473,39 @@ def _copy_artifact_if_missing(winner: Capture, donor: Capture, basename: str) ->
     w_p.write_bytes(d_p.read_bytes())
 
 
+def merge_captures(winner: Capture, loser: Capture) -> None:
+    """
+    Merge `loser` into `winner` without deleting `loser`.
+
+    Shared between:
+      - automatic ingest duplicate handling
+      - manual Dedup UI merges
+
+    Responsibilities:
+      - union references from loser into winner (dedup by DOI/raw)
+      - copy canonical artifacts if winner lacks them
+      - ensure winner belongs to all collections loser belonged to
+    """
+    # Union references (deduping by DOI/raw)
+    _merge_references_into(winner, loser)
+
+    # Copy canonical artifacts the winner lacks
+    for base in (
+        "server_parsed.json",
+        CANONICAL_REDUCED_BASENAME,
+        "page.html",
+        "content.html",
+        "bridge.json",
+        "extraction.json",
+        "dom.html",
+    ):
+        _copy_artifact_if_missing(winner, loser, base)
+
+    # Ensure winner is in all of loser's collections
+    for col in loser.collections.all():
+        col.captures.add(winner)
+
+
 def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
     """
     Main entry point used by the API.
@@ -369,11 +539,18 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
             csl=csl_in or {},
         )
 
-    # 2) Persist verbatim artifacts (page/content snapshots)
+    # 2) Persist verbatim + bridge/extraction artifacts
     if dom_html:
+        # Original snapshot
         write_text_artifact(str(cap.id), "page.html", dom_html)
+        # Parser-friendly alias used by rebuild_reduced_view
+        write_text_artifact(str(cap.id), "dom.html", dom_html)
     if content_html:
         write_text_artifact(str(cap.id), "content.html", content_html)
+
+    # Store the raw extraction + bridge so workers can rebuild reduced views robustly
+    write_json_artifact(str(cap.id), "extraction.json", extraction)
+    write_json_artifact(str(cap.id), "bridge.json", bridge)
 
     # 3) Head/meta + preview/sections (fast path) — merge strong meta into model
     meta_updates = bridge.get("meta_updates") or {}
@@ -395,9 +572,9 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
             cap.site = _host(cap.url or "") or ""
         cap.save(update_fields=["title", "doi", "year", "meta", "site"])
 
-    # 3.5) Synchronous Crossref normalization for the main capture (if DOI present).
-    # Keeps downstream exports stable (journal short names, etc.).
-    if norm_doi(cap.doi or (cap.meta or {}).get("doi")):
+    # 3.5) Synchronous Crossref normalization for the main capture (if enabled & DOI present).
+    # Controlled by paperclip.conf.ENRICH_ON_CAPTURE.
+    if ENRICH_ON_CAPTURE and norm_doi(cap.doi or (cap.meta or {}).get("doi")):
         try:
             from captures.xref import enrich_capture_via_crossref
 
@@ -433,33 +610,16 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
             Reference.objects.bulk_create(to_create, batch_size=200)
 
     # 6) Write canonical artifacts using the (possibly enriched) capture data
-    server_parsed = _build_server_parsed(cap, extraction)
-    write_json_artifact(str(cap.id), "server_parsed.json", server_parsed)
-
-    reduced = build_reduced_view(
-        content=bridge.get("content_sections") or {},
-        meta=server_parsed.get("metadata") or (cap.meta or {}),
-        references=[
-            {
-                "raw": r.raw,
-                "doi": r.doi,
-                "issued_year": r.issued_year,
-                "apa": r.apa,
-                "title": r.title,
-            }
-            for r in Reference.objects.filter(capture=cap).order_by("id")
-        ],
-        title=(server_parsed.get("title") or cap.title or ""),
-    )
-    write_json_artifact(str(cap.id), CANONICAL_REDUCED_BASENAME, reduced)
+    _write_canonical_artifacts(cap, bridge, extraction)
 
     # 7) Re-index FTS so search picks up abstract/keywords/reduced text immediately
     from captures.search import upsert_capture as _upsert
 
     _upsert(cap)
 
-    # 8) Optionally queue async enrichment for references (heavy) via background job
-    if getattr(settings, "PAPERCLIP_AUTO_ENRICH", True):
+    # 8) Optionally queue async enrichment for references (heavy) via background job.
+    # Controlled by paperclip.conf.AUTO_ENRICH.
+    if AUTO_ENRICH:
         submit_enrichment(str(cap.id))
 
     # ==============================
@@ -488,24 +648,14 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
             with transaction.atomic():
                 # If the new capture lost, try to *improve* the winner with missing artifacts/references
                 for lost in losers:
-                    # union references (dedup by DOI/raw)
-                    _merge_references_into(winner, lost)
-                    # copy artifacts the winner lacks
-                    for base in (
-                        "server_parsed.json",
-                        CANONICAL_REDUCED_BASENAME,
-                        "page.html",
-                        "content.html",
-                    ):
-                        _copy_artifact_if_missing(winner, lost, base)
-
-                # If winner is missing some simple fields and new capture had them, prefer winner's own fields
-                # already present; otherwise keep existing winner metadata.
+                    if lost.pk == winner.pk:
+                        continue
+                    merge_captures(winner, lost)
 
                 # Re-index winner after merge
                 _upsert(winner)
 
-                # Clean up losers
+                # Clean up loser Capture rows (artifacts remain on disk for now)
                 for lost in losers:
                     if lost.pk != winner.pk:
                         lost.delete()
