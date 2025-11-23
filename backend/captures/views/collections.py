@@ -1,22 +1,24 @@
 # services/server/captures/views/collections.py
 from __future__ import annotations
 
-import io
-import json
 import re
 import unicodedata
-import zipfile
 from typing import Any, Mapping
 
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from captures.models import Capture, Collection
-from captures.reduced_view import read_reduced_view
 from captures.types import CSL
 from paperclip.journals import get_short_journal_name
+
+from captures.services.collections import (
+    export_views_zip,
+    delete_collection,
+    assign_captures,
+)
 
 from .common import _author_list, _family_from_name, _journal_full
 
@@ -80,26 +82,11 @@ def collection_delete(request, pk: int):
     col = get_object_or_404(Collection, pk=pk)
     force = (request.POST.get("force") or "").strip() == "1"
 
-    has_children = col.children.exists()
-    has_items = col.captures.exists()
-
-    if (has_children or has_items) and not force:
-        msg = "Collection is not empty. Re-run with force=1 to delete."
+    ok, error = delete_collection(col, force=force)
+    if not ok:
         from django.http import HttpResponseBadRequest
 
-        return HttpResponseBadRequest(msg)
-
-    # If forcing, clear items and reparent children to the parent (if any) before delete
-    if force:
-        parent = col.parent
-        if has_items:
-            col.captures.clear()
-        if has_children:
-            for child in col.children.all():
-                child.parent = parent
-                child.save(update_fields=["parent"])
-
-    col.delete()
+        return HttpResponseBadRequest(error or "Collection is not empty.")
     return redirect("library")
 
 
@@ -110,46 +97,30 @@ def collection_assign(request, pk: int):
     ids = request.POST.getlist("ids")
     if not ids:
         return redirect(f"{reverse('library')}?col={col.id}")
-    qs = Capture.objects.filter(id__in=ids)
-    if op == "remove":
-        col.captures.remove(*qs)
-    else:
-        col.captures.add(*qs)
+
+    assign_captures(col, ids, op)
     return redirect(f"{reverse('library')}?col={col.id}")
 
 
-def collection_download_views(request, cid: str):
+def collection_download_views(
+    request: HttpRequest, pk: str | None = None
+) -> HttpResponse:
     """
-    Download a zip of all reduced views for the given collection id.
-    Global (all) exports are disabled by default, behind a setting.
+    Download a zip of reduced views:
+
+      - If pk provided: only that collection's captures
+      - If no pk: all captures
     """
-    from django.conf import settings
-    from django.http import HttpResponseBadRequest
-
-    allow_global = bool(getattr(settings, "ALLOW_GLOBAL_VIEW_EXPORTS", False))
-    if cid == "all" and not allow_global:
-        return HttpResponseBadRequest(
-            "Global view export is disabled. Choose a collection to export its views."
-        )
-
-    if cid == "all":
-        caps = Capture.objects.all()
-        label = "all-items"
+    if pk is not None:
+        col = get_object_or_404(Collection, pk=pk)
+        caps = col.captures.all().order_by("-created_at")
+        filename = (col.slug or col.name or "collection").strip() or "collection"
+        filename = f"{filename}.zip"
     else:
-        col = get_object_or_404(Collection, pk=int(cid))
-        caps = col.captures.all()
-        label = f"collection-{col.id}"
+        caps = Capture.objects.all().order_by("-created_at")
+        filename = "all_captures_views.zip"
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for c in caps:
-            view = read_reduced_view(str(c.id))
-            if not view:
-                continue
-            slug = _slug_for_capture(c)
-            arcname = f"{slug}__{c.id}.json"
-            zf.writestr(arcname, json.dumps(view, ensure_ascii=False, indent=2))
-    buf.seek(0)
-    resp = HttpResponse(buf.read(), content_type="application/zip")
-    resp["Content-Disposition"] = f'attachment; filename="{label}-views.zip"'
+    data = export_views_zip(caps)
+    resp = HttpResponse(data, content_type="application/zip")
+    resp["Content-Disposition"] = f'attachment; filename="{filename}"'
     return resp

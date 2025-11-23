@@ -11,7 +11,6 @@ from captures.models import Capture, Reference
 from captures.reduced_view import CANONICAL_REDUCED_BASENAME, build_reduced_view
 from captures.site_parsers import extract_references
 from paperclip.artifacts import (
-    artifact_path,
     read_json_artifact,
     write_json_artifact,
     write_text_artifact,
@@ -19,6 +18,12 @@ from paperclip.artifacts import (
 from paperclip.conf import AUTO_ENRICH, ENRICH_ON_CAPTURE
 from paperclip.jobs import submit_enrichment
 from paperclip.utils import norm_doi
+
+from captures.references.ingest import ref_kwargs
+from captures.references.merge import merge_captures
+
+from captures.ingest import robust_parse as _robust_parse
+
 
 """
 Ingest pipeline with server-side duplicate guarding.
@@ -68,59 +73,6 @@ def _build_server_parsed(
     return _sp(capture, extraction)
 
 
-def _robust_parse(
-    *, url: str | None, content_html: str, dom_html: str
-) -> dict[str, Any]:
-    from captures.parsing_bridge import robust_parse as _rp
-
-    return _rp(url=url, content_html=content_html, dom_html=dom_html)
-
-
-def _bridge_extraction(
-    *,
-    url: str | None,
-    fb_meta: Mapping[str, Any],
-    fb_secs: Mapping[str, Any],
-    site: Any,
-    dom_html: str,
-) -> dict[str, Any]:
-    """
-    Rebuild a bridge payload for older captures when bridge.json is missing.
-
-    Used only by captures.reduced_view.rebuild_reduced_view as a fallback:
-      - tries robust_parse(dom_html)
-      - falls back to stored meta/sections if needed
-    """
-    try:
-        # We don't have content_html here; rely on full DOM snapshot.
-        bridge = _robust_parse(url=url or "", content_html="", dom_html=dom_html or "")
-    except Exception:
-        bridge = {}
-
-    if not isinstance(bridge, dict):
-        bridge = {}
-
-    meta_updates = dict(bridge.get("meta_updates") or {})
-    content_sections = bridge.get("content_sections") or {}
-
-    # If robust_parse didn't give us sections, fall back to stored sections.
-    if not isinstance(content_sections, Mapping) or not content_sections:
-        if isinstance(fb_secs, Mapping):
-            content_sections = dict(fb_secs or {})
-        else:
-            content_sections = {}
-
-    # Prefer keywords from robust_parse; if missing, use fallback meta keywords.
-    if "keywords" not in meta_updates and isinstance(fb_meta, Mapping):
-        kws = fb_meta.get("keywords")
-        if kws:
-            meta_updates["keywords"] = kws
-
-    bridge["meta_updates"] = meta_updates
-    bridge["content_sections"] = content_sections
-    return bridge
-
-
 def _host(url: str) -> str:
     try:
         host = (urlparse(url).hostname or "").replace("www.", "")
@@ -154,82 +106,6 @@ def _norm_url_for_dup(url: str) -> str:
         )
     except Exception:  # pragma: no cover
         return (url or "").strip()
-
-
-def _ref_kwargs(
-    r: Mapping[str, Any], *, capture: Capture, csl_ok: bool = True
-) -> dict[str, Any]:
-    """
-    Normalize a raw reference mapping into kwargs for captures.Reference.
-
-    Responsibilities:
-    - Normalize DOI via paperclip.utils.norm_doi.
-    - Coerce issued_year/year to a simple string.
-    - Resolve container_title / journal field naming.
-    - Ensure authors is always a list[str].
-    - Optionally keep client-provided CSL; ignore site-parser CSL by default.
-    """
-    # Raw text (best-effort original)
-    raw = str(r.get("raw") or "")
-
-    # --- DOI ---
-    doi_raw = str(r.get("doi") or "").strip()
-    doi_norm = norm_doi(doi_raw)
-    # Store the canonical DOI if we can; otherwise fall back to the raw string
-    doi = doi_norm or doi_raw
-
-    # --- Year ---
-    # Accept either 'issued_year' or 'year' and coerce to a simple string
-    year_val = r.get("issued_year", r.get("year", ""))
-    if isinstance(year_val, (int, float)):
-        try:
-            issued_year = str(int(year_val))
-        except Exception:
-            issued_year = str(year_val)
-    else:
-        issued_year = str(year_val or "").strip()
-
-    # --- Container / journal title ---
-    container_title = ""
-    for key in ("container_title", "container-title", "journal", "journal_title"):
-        v = r.get(key)
-        if v:
-            container_title = str(v).strip()
-            if container_title:
-                break
-
-    # --- Authors -> list[str] ---
-    authors_raw = r.get("authors") or []
-    if isinstance(authors_raw, (list, tuple, set)):
-        authors = [str(a).strip() for a in authors_raw if str(a).strip()]
-    elif isinstance(authors_raw, str):
-        authors = [authors_raw.strip()] if authors_raw.strip() else []
-    else:
-        authors = []
-
-    # --- CSL (client-provided only; site parsers generally shouldn't inject CSL) ---
-    csl = r.get("csl") if (csl_ok and isinstance(r.get("csl"), dict)) else {}
-
-    return {
-        "capture": capture,
-        "ref_id": str(r.get("id") or ""),
-        "raw": raw,
-        "doi": doi,
-        "title": str(r.get("title") or ""),
-        "issued_year": issued_year,
-        "container_title": container_title,
-        "authors": authors,
-        "csl": csl,
-        "volume": str(r.get("volume") or ""),
-        "issue": str(r.get("issue") or ""),
-        "pages": str(r.get("pages") or ""),
-        "publisher": str(r.get("publisher") or ""),
-        "issn": str(r.get("issn") or ""),
-        "isbn": str(r.get("isbn") or ""),
-        "bibtex": str(r.get("bibtex") or ""),
-        "apa": str(r.get("apa") or ""),
-        "url": str(r.get("url") or ""),
-    }
 
 
 def _write_canonical_artifacts(
@@ -415,97 +291,6 @@ def _candidate_duplicates(new_cap: Capture, bridge: Mapping[str, Any]) -> list[C
     return out
 
 
-def _merge_references_into(winner: Capture, from_cap: Capture) -> None:
-    """
-    Move references from 'from_cap' to 'winner', deduping on normalized DOI then raw.
-    """
-    existing = Reference.objects.filter(capture=winner).only("id", "doi", "raw")
-    existing_doi = {norm_doi(r.doi) for r in existing if r.doi}
-    existing_raw = {(r.raw or "").strip().lower() for r in existing if r.raw}
-
-    to_create: list[Reference] = []
-    for r in Reference.objects.filter(capture=from_cap).order_by("id"):
-        doi_key = norm_doi(r.doi)
-        raw_key = (r.raw or "").strip().lower()
-        if (doi_key and doi_key in existing_doi) or (
-            not doi_key and raw_key in existing_raw
-        ):
-            continue
-        to_create.append(
-            Reference(
-                capture=winner,
-                ref_id=r.ref_id,
-                raw=r.raw,
-                doi=r.doi,
-                title=r.title,
-                issued_year=r.issued_year,
-                container_title=r.container_title,
-                authors=r.authors,
-                csl=r.csl,
-                volume=r.volume,
-                issue=r.issue,
-                pages=r.pages,
-                publisher=r.publisher,
-                issn=r.issn,
-                isbn=r.isbn,
-                bibtex=r.bibtex,
-                apa=r.apa,
-                url=r.url,
-            )
-        )
-
-    if to_create:
-        Reference.objects.bulk_create(to_create, batch_size=200)
-
-
-def _copy_artifact_if_missing(winner: Capture, donor: Capture, basename: str) -> None:
-    """
-    Copy donor's artifact into winner if winner lacks it.
-    """
-    w_p = artifact_path(str(winner.id), basename)
-    if w_p.exists():
-        return
-    d_p = artifact_path(str(donor.id), basename)
-    if not d_p.exists():
-        return
-    # Simple byte copy
-    w_p.parent.mkdir(parents=True, exist_ok=True)
-    w_p.write_bytes(d_p.read_bytes())
-
-
-def merge_captures(winner: Capture, loser: Capture) -> None:
-    """
-    Merge `loser` into `winner` without deleting `loser`.
-
-    Shared between:
-      - automatic ingest duplicate handling
-      - manual Dedup UI merges
-
-    Responsibilities:
-      - union references from loser into winner (dedup by DOI/raw)
-      - copy canonical artifacts if winner lacks them
-      - ensure winner belongs to all collections loser belonged to
-    """
-    # Union references (deduping by DOI/raw)
-    _merge_references_into(winner, loser)
-
-    # Copy canonical artifacts the winner lacks
-    for base in (
-        "server_parsed.json",
-        CANONICAL_REDUCED_BASENAME,
-        "page.html",
-        "content.html",
-        "bridge.json",
-        "extraction.json",
-        "dom.html",
-    ):
-        _copy_artifact_if_missing(winner, loser, base)
-
-    # Ensure winner is in all of loser's collections
-    for col in loser.collections.all():
-        col.captures.add(winner)
-
-
 def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
     """
     Main entry point used by the API.
@@ -576,9 +361,9 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
     # Controlled by paperclip.conf.ENRICH_ON_CAPTURE.
     if ENRICH_ON_CAPTURE and norm_doi(cap.doi or (cap.meta or {}).get("doi")):
         try:
-            from captures.xref import enrich_capture_via_crossref
+            from captures.references.xref_service import enrich_capture
 
-            upd = enrich_capture_via_crossref(cap)
+            upd = enrich_capture(cap)
         except Exception:  # pragma: no cover
             upd = None
         if upd:
@@ -588,7 +373,7 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
 
     # 4) Client-provided references
     for r in extraction.get("references") or []:
-        Reference.objects.create(**_ref_kwargs(r, capture=cap, csl_ok=True))
+        Reference.objects.create(**ref_kwargs(r, capture=cap, csl_ok=True))
 
     # 5) Site-level references (dedup against any client-provided)
     site_refs = extract_references(cap.url, dom_html)
@@ -605,7 +390,7 @@ def ingest_capture(payload: dict[str, Any]) -> tuple[Capture, dict[str, Any]]:
                 not doi_key and raw_key in existing_raw
             ):
                 continue
-            to_create.append(Reference(**_ref_kwargs(r, capture=cap, csl_ok=False)))
+            to_create.append(Reference(**ref_kwargs(r, capture=cap, csl_ok=False)))
         if to_create:
             Reference.objects.bulk_create(to_create, batch_size=200)
 

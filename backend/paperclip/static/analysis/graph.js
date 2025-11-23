@@ -14,7 +14,10 @@
     s.onload = function () {
       try {
         if (window.PCGraph) {
-          if (window.GRAPH_DATA && typeof window.PCGraph.bootGraphWithData === "function") {
+          if (
+            window.GRAPH_DATA &&
+            typeof window.PCGraph.bootGraphWithData === "function"
+          ) {
             window.PCGraph.bootGraphWithData(window.GRAPH_DATA);
           } else if (typeof window.PCGraph.bootGraph === "function") {
             window.PCGraph.bootGraph();

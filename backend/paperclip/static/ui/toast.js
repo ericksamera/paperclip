@@ -41,11 +41,7 @@
     el.className = "pc-toast";
     el.innerHTML = `
       <div class="pc-toast__msg">${message}</div>
-      ${
-        actionText
-          ? `<button class="pc-toast__btn">${actionText}</button>`
-          : ""
-      }
+      ${actionText ? `<button class="pc-toast__btn">${actionText}</button>` : ""}
       <button class="pc-toast__btn pc-toast__btn--ghost" title="Dismiss">×</button>
     `;
     wrap.appendChild(el);

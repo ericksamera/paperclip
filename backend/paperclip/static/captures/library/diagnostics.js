@@ -1,32 +1,54 @@
-// services/server/paperclip/static/captures/library/diagnostics.js
-(function () {
-  const WANT = new URL(location.href).searchParams.has("diag") ||
-               localStorage.getItem("pcDiag") === "1";
+// backend/paperclip/static/captures/library/diagnostics.js
+// Lightweight diagnostics overlay for the Library bundle.
+// Shows:
+//   - whether index.js booted
+//   - whether the selection ESM seems to have loaded
+//   - whether there are rows in #pc-body
+//   - whether a synthetic click toggles selection
 
-  // Minimal UI
+(function () {
+  const WANT =
+    new URL(location.href).searchParams.has("diag") ||
+    localStorage.getItem("pcDiag") === "1";
+
+  // --- UI shell --------------------------------------------------------------
+
   const box = document.createElement("div");
   box.id = "pc-diag";
   Object.assign(box.style, {
-    position: "fixed", top: "12px", right: "12px", zIndex: 999999,
-    background: "rgba(20,20,25,.92)", color: "#fff",
-    padding: "10px 12px", borderRadius: "8px", boxShadow: "0 10px 30px rgba(0,0,0,.35)",
+    position: "fixed",
+    top: "12px",
+    right: "12px",
+    zIndex: 999999,
+    background: "rgba(20,20,25,0.92)",
+    color: "#fff",
+    padding: "10px 12px",
+    borderRadius: "8px",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
     font: "500 12px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-    display: "none", minWidth: "260px"
+    display: "none",
+    minWidth: "260px",
   });
-  box.innerHTML = `<div style="opacity:.8;margin-bottom:6px">Paperclip diagnostics</div>`;
-  const list = document.createElement("div"); box.appendChild(list);
+  box.innerHTML =
+    '<div style="opacity:.8;margin-bottom:6px">Paperclip diagnostics</div>';
+
+  const list = document.createElement("div");
+  box.appendChild(list);
+
   function row(label, ok, hint = "") {
     const el = document.createElement("div");
     el.style.margin = "4px 0";
-    el.innerHTML = `<span style="opacity:.8">${label}</span> — <b style="color:${ok?'#7dff9e':'#ff8c8c'}">${ok?'OK':'FAIL'}</b>` +
-                   (hint ? `<div style="opacity:.75;margin-top:2px">${hint}</div>` : "");
+    el.innerHTML =
+      `<span style="opacity:.8">${label}</span> — ` +
+      `<b style="color:${ok ? "#7dff9e" : "#ff8c8c"}">${ok ? "OK" : "FAIL"}</b>` +
+      (hint ? `<div style="opacity:.75;margin-top:2px">${hint}</div>` : "");
     list.appendChild(el);
     if (!ok && box.style.display !== "block") {
       box.style.display = "block";
     }
   }
 
-  // Surface module import errors (e.g. "does not provide an export named")
+  // Surface module import/parse errors (e.g. “does not provide an export named”)
   window.addEventListener("error", (e) => {
     const msg = String(e?.message || "");
     if (/does not provide an export named|Unexpected token/.test(msg)) {
@@ -35,21 +57,31 @@
     }
   });
 
+  // --- Main check sequence ---------------------------------------------------
+
   document.addEventListener("DOMContentLoaded", async () => {
     if (WANT) box.style.display = "block";
     document.body.appendChild(box);
 
     // Did the main bundle run?
-    row("index.js booted", !!window.__pcIndexBooted,
-        !!window.__pcIndexBooted ? "" : "Main entry didn’t mark __pcIndexBooted.");
+    const booted = !!window.__pcIndexBooted;
+    row(
+      "index.js booted",
+      booted,
+      booted ? "" : "Main entry didn’t mark __pcIndexBooted."
+    );
 
     // Was selection module loaded?
     const selLoaded = !!window.__pcSelectionESM || !!window.__pcSelectionESMReady;
-    row("selection.js loaded", selLoaded,
-        selLoaded ? "" : "Look for an earlier import error in console.");
+    row(
+      "selection.js loaded",
+      selLoaded,
+      selLoaded ? "" : "Look for an earlier import error in console."
+    );
 
     // Quick click test (non-destructive)
-    const tb = document.getElementById("pc-body") || document.querySelector(".pc-table tbody");
+    const tb =
+      document.getElementById("pc-body") || document.querySelector(".pc-table tbody");
     const tr = tb && (tb.querySelector("tr.pc-row") || tb.querySelector("tr"));
     if (!tr) {
       row("table/rows present", false, "Couldn’t find #pc-body rows.");
@@ -57,16 +89,28 @@
     }
 
     const before = tr.getAttribute("aria-selected") || "false";
-    tr.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    tr.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true, view: window })
+    );
+
     setTimeout(async () => {
       const after = tr.getAttribute("aria-selected") || "false";
       const ok = before !== after && after === "true";
-      row("row click toggles selection", ok,
-          ok ? "" : "Selection wiring didn’t react to click.");
+      row(
+        "row click toggles selection",
+        ok,
+        ok ? "" : "Selection wiring didn’t react to click."
+      );
 
       // Clean up by clearing selection if API is present
-      try { const mod = await import("./selection.js");
-            if (mod?.clearSelection) mod.clearSelection(); } catch {}
+      try {
+        // NOTE: we now import from the canonical feature module,
+        // not the legacy shim ./selection.js.
+        const mod = await import("./features/selection.js");
+        if (mod?.clearSelection) mod.clearSelection();
+      } catch {
+        // ignore — diagnostics should never break the UI
+      }
     }, 60);
   });
 })();

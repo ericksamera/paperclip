@@ -26,7 +26,7 @@ def _app_available(mod: str) -> bool:
 # --- Base paths ---
 PROJECT_DIR = Path(__file__).resolve().parent
 SERVICE_DIR = PROJECT_DIR.parent
-MONOREPO_ROOT = SERVICE_DIR.parent.parent
+MONOREPO_ROOT = SERVICE_DIR.parent
 DATA_DIR = MONOREPO_ROOT / "data"
 (DATA_DIR / "artifacts").mkdir(parents=True, exist_ok=True)
 (DATA_DIR / "analysis").mkdir(parents=True, exist_ok=True)

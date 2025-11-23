@@ -23,24 +23,27 @@ function injectStyles() {
   .pcg-legend .pcg-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
   `;
   const s = document.createElement("style");
-  s.id = "pcg-controls-style"; s.textContent = css;
+  s.id = "pcg-controls-style";
+  s.textContent = css;
   document.head.appendChild(s);
 }
 
-function edgeLabel(key){
-  return ({
-    doc_citations: "Citations (doc↔doc)",
-    citations: "Citations",
-    references: "References (doc→ext)",
-    semantic: "Semantic (kNN)",
-    suggested: "Suggested",
-    mutual: "Mutual citations",
-    shared_refs: "Shared refs",
-    co_cited: "Co-cited",
-    topic_relations: "Topic relations",
-    topic_membership: "Topic membership",
-    edges: "Edges",
-  }[key] || key);
+function edgeLabel(key) {
+  return (
+    {
+      doc_citations: "Citations (doc↔doc)",
+      citations: "Citations",
+      references: "References (doc→ext)",
+      semantic: "Semantic (kNN)",
+      suggested: "Suggested",
+      mutual: "Mutual citations",
+      shared_refs: "Shared refs",
+      co_cited: "Co-cited",
+      topic_relations: "Topic relations",
+      topic_membership: "Topic membership",
+      edges: "Edges",
+    }[key] || key
+  );
 }
 
 export function initControls(view) {
@@ -70,13 +73,14 @@ export function initControls(view) {
 
   const edgeSel = cardEdges.querySelector("#pcg-edge");
   const hullsCb = cardEdges.querySelector("#pcg-hulls");
-  const extCb   = cardEdges.querySelector("#pcg-ext");
+  const extCb = cardEdges.querySelector("#pcg-ext");
 
   // Populate edge sets
   const sets = view.edgesAvailable();
   for (const k of sets) {
     const opt = document.createElement("option");
-    opt.value = k; opt.textContent = edgeLabel(k);
+    opt.value = k;
+    opt.textContent = edgeLabel(k);
     if (k === view.edgeKey) opt.selected = true;
     edgeSel.appendChild(opt);
   }
@@ -136,27 +140,34 @@ export function initControls(view) {
   `;
   host.appendChild(cardPhysics);
 
-  const charge   = cardPhysics.querySelector("#pcg-charge");
+  const charge = cardPhysics.querySelector("#pcg-charge");
   const chargeNr = cardPhysics.querySelector("#pcg-charge-num");
-  const link     = cardPhysics.querySelector("#pcg-link");
-  const linkNr   = cardPhysics.querySelector("#pcg-link-num");
-  const collide  = cardPhysics.querySelector("#pcg-collide");
-  const collideNr= cardPhysics.querySelector("#pcg-collide-num");
-  const btnFit   = cardPhysics.querySelector("#pcg-fit");
+  const link = cardPhysics.querySelector("#pcg-link");
+  const linkNr = cardPhysics.querySelector("#pcg-link-num");
+  const collide = cardPhysics.querySelector("#pcg-collide");
+  const collideNr = cardPhysics.querySelector("#pcg-collide-num");
+  const btnFit = cardPhysics.querySelector("#pcg-fit");
   const btnPause = cardPhysics.querySelector("#pcg-pause");
   const btnReset = cardPhysics.querySelector("#pcg-reset");
 
   function bindPair(rangeEl, numEl, onChange) {
-    const sync = (val) => { rangeEl.value = val; numEl.value = val; onChange(Number(val)); };
+    const sync = (val) => {
+      rangeEl.value = val;
+      numEl.value = val;
+      onChange(Number(val));
+    };
     rangeEl.addEventListener("input", () => sync(rangeEl.value));
     numEl.addEventListener("input", () => sync(numEl.value));
   }
   bindPair(charge, chargeNr, (v) => view.setCharge(v));
-  bindPair(link, linkNr,   (v) => view.setLinkDistance(v));
+  bindPair(link, linkNr, (v) => view.setLinkDistance(v));
   bindPair(collide, collideNr, (v) => view.setCollision(v));
 
   btnFit.addEventListener("click", () => view.fit());
-  btnPause.addEventListener("click", () => { const p = view.pause(); btnPause.textContent = p ? "Resume" : "Pause"; });
+  btnPause.addEventListener("click", () => {
+    const p = view.pause();
+    btnPause.textContent = p ? "Resume" : "Pause";
+  });
   btnReset.addEventListener("click", () => {
     edgeSel.value = edgeSel.options[0]?.value || view.edgeKey;
     hullsCb.checked = true;
@@ -181,17 +192,31 @@ export function initControls(view) {
   function renderLegend() {
     const info = view.clustersInfo();
     const wrap = cardLegend.querySelector("#pcg-legend");
-    wrap.innerHTML = info.map(i => `
+    wrap.innerHTML = info
+      .map(
+        (i) => `
       <div class="pcg-swatch" style="background:${i.color}"></div>
       <div class="pcg-name" title="${i.label}">${i.label}</div>
       <div class="pcg-count">${i.size}</div>
-    `).join("");
+    `
+      )
+      .join("");
   }
   renderLegend();
 
   // keyboard quickies
-  window.addEventListener("keydown", (e) => {
-    if (e.key === " ") { e.preventDefault(); btnPause.click(); }
-    if (e.key.toLowerCase() === "f") { e.preventDefault(); btnFit.click(); }
-  }, { passive: false });
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key === " ") {
+        e.preventDefault();
+        btnPause.click();
+      }
+      if (e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        btnFit.click();
+      }
+    },
+    { passive: false }
+  );
 }

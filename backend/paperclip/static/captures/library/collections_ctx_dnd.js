@@ -1,11 +1,15 @@
-// services/server/paperclip/static/captures/library/collections_ctx_dnd.js
+// captures/library/collections_ctx_dnd.js
 // Drag & drop rows → Collections + row context menu (“Add/Remove…”)
-// + Collections sidebar: “+ New”, right‑click (Open/Rename/Delete).
+// + Collections sidebar: “+ New”, right-click (Open/Rename/Delete).
 // Idempotent bindings; plays nicely with tbody swaps and other modules.
 
 import {
-  $, $$, on, csrfToken, toast, keepOnScreen,
-  currentCollectionId, scanCollections
+  on,
+  csrfToken,
+  toast,
+  keepOnScreen,
+  currentCollectionId,
+  scanCollections,
 } from "./dom.js";
 import { state } from "./state.js";
 
@@ -18,37 +22,68 @@ function tbody() {
     document.querySelector("tbody")
   );
 }
+
+function rowId(tr) {
+  if (!tr) return "";
+  return tr.getAttribute("data-id") || tr.dataset.id || tr.dataset.captureId || "";
+}
+
+// Canonical selected IDs: prefer shared state, fall back to DOM selection
 function selectedIds() {
-  return [...(state.selected || new Set())];
+  const ids = [];
+
+  if (state && state.selected instanceof Set && state.selected.size) {
+    for (const id of state.selected) {
+      if (id != null) ids.push(String(id));
+    }
+  }
+
+  if (!ids.length) {
+    const tb = tbody();
+    if (tb) {
+      tb.querySelectorAll(
+        "tr.pc-row[aria-selected='true'], tr.pc-row.pc-row--selected, tr.pc-row.is-selected"
+      ).forEach((tr) => {
+        const id = rowId(tr);
+        if (id) ids.push(id);
+      });
+    }
+  }
+
+  return ids;
 }
 
 async function assignIdsToCollection(ids, colId, op /* "add" | "remove" */) {
   if (!ids?.length || !colId) return;
+
   const fd = new FormData();
   fd.append("csrfmiddlewaretoken", csrfToken());
   fd.append("op", op);
-  ids.forEach(id => fd.append("ids", id));
+  ids.forEach((id) => fd.append("ids", id));
 
-  const resp = await fetch(`/collections/${colId}/assign/`, {
+  const resp = await fetch(`/collections/${encodeURIComponent(colId)}/assign/`, {
     method: "POST",
     body: fd,
     credentials: "same-origin",
     headers: { "X-CSRFToken": csrfToken() },
   });
 
-  if (resp.redirected) { location.href = resp.url; return; }
-  if (resp.ok) { location.reload(); return; }
-  toast(`${op === "add" ? "Add to" : "Remove from"} collection failed (HTTP ${resp.status}).`);
+  if (resp.redirected) {
+    location.href = resp.url;
+    return;
+  }
+  if (resp.ok) {
+    location.reload();
+    return;
+  }
+  toast(
+    `${op === "add" ? "Add to" : "Remove from"} collection failed (HTTP ${
+      resp.status
+    }).`
+  );
 }
 
 /* ───────────────── Drag & drop: rows → Collections ───────────────── */
-
-function ensureRowsDraggable() {
-  const tb = tbody(); if (!tb) return;
-  tb.querySelectorAll("tr.pc-row").forEach(tr => {
-    if (tr.getAttribute("draggable") !== "true") tr.setAttribute("draggable", "true");
-  });
-}
 
 // Simple “N selected” ghost image
 let ghostEl = null;
@@ -62,55 +97,135 @@ function makeGhost(count) {
   return g;
 }
 
-function wireRowDragEvents() {
-  const tb = tbody(); if (!tb) return;
-
-  on(tb, "dragstart", (e) => {
-    const tr = e.target.closest("tr.pc-row"); if (!tr) return;
-    // If dragging an unselected row, select just that row via the normal click path.
-    if (tr.getAttribute("aria-selected") !== "true") {
-      tr.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+function ensureRowsDraggable() {
+  const tb = tbody();
+  if (!tb) return;
+  tb.querySelectorAll("tr.pc-row").forEach((tr) => {
+    if (tr.getAttribute("draggable") !== "true") {
+      tr.setAttribute("draggable", "true");
     }
+  });
+}
+
+function wireRowDragEvents() {
+  const tb = tbody();
+  if (!tb || tb.__pcDndRowsBound) return;
+  tb.__pcDndRowsBound = true;
+
+  tb.addEventListener("dragstart", (e) => {
+    const tr = e.target.closest("tr.pc-row");
+    if (!tr) return;
+
+    // If dragging an unselected row, select it via the normal click path.
+    if (tr.getAttribute("aria-selected") !== "true") {
+      tr.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          button: 0,
+        })
+      );
+    }
+
     const ids = selectedIds();
-    e.dataTransfer.effectAllowed = "copyMove";
-    const payload = JSON.stringify({ type: "pc-ids", ids });
-    e.dataTransfer.setData("text/plain", payload);
-    e.dataTransfer.setData("application/json", payload);
-    try { e.dataTransfer.setDragImage(makeGhost(ids.length), 10, 10); } catch {}
+    if (!ids.length) return;
+
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "copyMove";
+      const payload = JSON.stringify({ type: "pc-ids", ids });
+      try {
+        e.dataTransfer.setData("application/json", payload);
+      } catch {}
+      try {
+        e.dataTransfer.setData("text/plain", payload);
+      } catch {}
+      try {
+        e.dataTransfer.setDragImage(makeGhost(ids.length), 10, 10);
+      } catch {}
+    }
+
     document.body.classList.add("pc-dragging");
   });
 
-  on(tb, "dragend", () => {
+  tb.addEventListener("dragend", () => {
     document.body.classList.remove("pc-dragging");
-    try { ghostEl?.remove(); } finally { ghostEl = null; }
+    if (ghostEl) {
+      try {
+        ghostEl.remove();
+      } catch {}
+      ghostEl = null;
+    }
   });
 }
 
-function addDndHandlersToCollectionAnchor(aEl, colId) {
-  on(aEl, "dragenter", (e) => { e.preventDefault(); aEl.classList.add("dnd-over"); });
-  on(aEl, "dragover",  (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
-  on(aEl, "dragleave", () => aEl.classList.remove("dnd-over"));
-  on(aEl, "drop", async (e) => {
-    e.preventDefault(); e.stopPropagation();
-    aEl.classList.remove("dnd-over");
-
-    let ids = selectedIds();
-    try {
-      const data = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("application/json");
-      const obj = JSON.parse(data || "{}");
-      if (obj?.type === "pc-ids" && Array.isArray(obj.ids) && obj.ids.length) ids = obj.ids;
-    } catch {}
-    if (ids.length) await assignIdsToCollection(ids, colId, "add");
-  });
+// Collections sidebar: drop targets (same pattern as current minimal DnD)
+function collectionItems() {
+  // “Collections” section in left nav: anchors with data-collection-id
+  return Array.from(
+    document.querySelectorAll(
+      ".z-left [data-collection-id], .z-left a[href*='/collections/']"
+    )
+  );
 }
 
 function wireCollectionsDnd() {
-  scanCollections().forEach(({ el, id }) => addDndHandlersToCollectionAnchor(el, id));
+  collectionItems().forEach((el) => {
+    if (!el || el.__pcDndColBound) return;
+    el.__pcDndColBound = true;
+
+    const colId =
+      el.getAttribute("data-collection-id") || el.dataset.collectionId || "";
+
+    if (!colId) return;
+
+    el.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      el.classList.add("dnd-over");
+    });
+
+    el.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    });
+
+    el.addEventListener("dragleave", () => {
+      el.classList.remove("dnd-over");
+    });
+
+    el.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      el.classList.remove("dnd-over");
+
+      let ids = [];
+      try {
+        const raw =
+          e.dataTransfer?.getData("application/json") ||
+          e.dataTransfer?.getData("text/plain") ||
+          "";
+        if (raw) {
+          const obj = JSON.parse(raw);
+          if (obj && obj.type === "pc-ids" && Array.isArray(obj.ids)) {
+            ids = obj.ids.map(String);
+          }
+        }
+      } catch {
+        // ignore; fallback below
+      }
+      if (!ids.length) ids = selectedIds();
+      if (!ids.length) return;
+
+      await assignIdsToCollection(ids, colId, "add");
+    });
+  });
 }
 
 /* ───────────────────── Row context menu ───────────────────── */
 
-let rowMenuEl = null, submenuAddEl = null, submenuRemoveEl = null;
+let rowMenuEl = null;
+let submenuAddEl = null;
+let submenuRemoveEl = null;
 
 function ensureRowMenu() {
   if (rowMenuEl) return;
@@ -125,61 +240,81 @@ function ensureRowMenu() {
   document.body.appendChild(submenuAddEl);
   document.body.appendChild(submenuRemoveEl);
 }
+
 function submenuHtml(items) {
   return `<ul class="pc-menu">
-    ${items.map(i => `<li class="pc-subitem" data-col="${i.id}">${i.label}</li>`).join("")}
+    ${items
+      .map((i) => `<li class="pc-subitem" data-col="${i.id}">${i.label}</li>`)
+      .join("")}
   </ul>`;
 }
+
 function populateSubmenu(host, op /* "add" | "remove" */) {
   const items = scanCollections();
   host.innerHTML = submenuHtml(items);
   host.style.display = "none";
-  host.querySelectorAll(".pc-subitem").forEach(li => {
-    li.addEventListener("click", async (e) => {
-      e.preventDefault(); e.stopPropagation();
-      const colId = li.getAttribute("data-col");
-      const ids = selectedIds();
-      if (ids.length && colId) await assignIdsToCollection(ids, colId, op);
-      hideRowMenu();
-    }, { once: true });
+  host.querySelectorAll(".pc-subitem").forEach((li) => {
+    li.addEventListener(
+      "click",
+      async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const colId = li.getAttribute("data-col");
+        const ids = selectedIds();
+        if (ids.length && colId) await assignIdsToCollection(ids, colId, op);
+        hideRowMenu();
+      },
+      { once: true }
+    );
   });
 }
+
 function openSubmenuFor(anchorLi) {
   const which = anchorLi?.dataset?.sub;
-  const host = (which === "add") ? submenuAddEl : (which === "remove" ? submenuRemoveEl : null);
+  const host =
+    which === "add" ? submenuAddEl : which === "remove" ? submenuRemoveEl : null;
   if (!host) return;
   const rMenu = rowMenuEl.getBoundingClientRect();
   const r = anchorLi.getBoundingClientRect();
   host.style.display = "block";
-  host.style.left = (rMenu.right - 2) + "px";
-  host.style.top  = r.top + "px";
+  host.style.left = rMenu.right - 2 + "px";
+  host.style.top = r.top + "px";
   keepOnScreen(host);
 }
+
 function hideSubmenus() {
-  if (submenuAddEl)   submenuAddEl.style.display = "none";
+  if (submenuAddEl) submenuAddEl.style.display = "none";
   if (submenuRemoveEl) submenuRemoveEl.style.display = "none";
 }
+
 function hideRowMenu() {
   if (rowMenuEl) rowMenuEl.style.display = "none";
   hideSubmenus();
 }
+
 function firstSelectedOrAny() {
-  return (tbody() || document).querySelector("tr.pc-row[aria-selected='true']") ||
-         (tbody() || document).querySelector("tr.pc-row");
+  const tb = tbody() || document;
+  return (
+    tb.querySelector("tr.pc-row[aria-selected='true']") || tb.querySelector("tr.pc-row")
+  );
 }
+
 function onRowMenuClick(e) {
   const act = e.target?.closest?.("[data-act]")?.getAttribute("data-act");
-  const tr  = firstSelectedOrAny();
+  const tr = firstSelectedOrAny();
   if (!act || !tr) return;
 
   if (act === "open") {
-    location.href = `/captures/${tr.dataset.id}/`;
+    const id = rowId(tr);
+    if (id) location.href = `/captures/${encodeURIComponent(id)}/`;
   } else if (act === "open-ext") {
     const href = tr.dataset.doiUrl || tr.dataset.url;
     if (href) window.open(href, "_blank", "noopener");
   } else if (act === "copy-doi") {
     const doi = tr.dataset.doi;
-    if (doi && navigator.clipboard?.writeText) navigator.clipboard.writeText(doi);
+    if (doi && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(doi);
+    }
   } else if (act === "remove-here") {
     const curCol = currentCollectionId();
     if (curCol) assignIdsToCollection(selectedIds(), curCol, "remove");
@@ -188,6 +323,7 @@ function onRowMenuClick(e) {
   }
   hideRowMenu();
 }
+
 function showRowMenu(x, y) {
   ensureRowMenu();
   const curCol = currentCollectionId();
@@ -198,42 +334,50 @@ function showRowMenu(x, y) {
       <li data-act="copy-doi">Copy DOI</li>
       <li class="sep"></li>
       <li class="has-sub" data-sub="add">Add to collection ▸</li>
-      ${curCol ? `<li data-act="remove-here">Remove from this collection</li>`
-               : `<li class="has-sub" data-sub="remove">Remove from collection ▸</li>`}
+      ${
+        curCol
+          ? `<li data-act="remove-here">Remove from this collection</li>`
+          : `<li class="has-sub" data-sub="remove">Remove from collection ▸</li>`
+      }
       <li class="sep"></li>
       <li class="danger" data-act="delete">Delete…</li>
     </ul>
   `;
+
   // Prepare submenus on each open (collections list can change)
   populateSubmenu(submenuAddEl, "add");
   if (!curCol) populateSubmenu(submenuRemoveEl, "remove");
 
   rowMenuEl.style.display = "block";
   rowMenuEl.style.left = x + "px";
-  rowMenuEl.style.top  = y + "px";
+  rowMenuEl.style.top = y + "px";
   keepOnScreen(rowMenuEl);
 
   // Hover to open submenus
-  rowMenuEl.querySelectorAll(".has-sub").forEach(li => {
-    li.addEventListener("mouseenter", () => { hideSubmenus(); openSubmenuFor(li); });
+  rowMenuEl.querySelectorAll(".has-sub").forEach((li) => {
+    li.addEventListener("mouseenter", () => {
+      hideSubmenus();
+      openSubmenuFor(li);
+    });
   });
 
-  // One‑shot close handlers
+  // One-shot close handlers
   rowMenuEl.addEventListener("click", onRowMenuClick, { once: true });
   document.addEventListener("click", hideRowMenu, { capture: true, once: true });
   window.addEventListener("scroll", hideRowMenu, { capture: true, once: true });
   window.addEventListener("resize", hideRowMenu, { capture: true, once: true });
 }
 
-/* ───────────── Collections sidebar: modal + right‑click ───────────── */
+/* ───────────── Collections sidebar: modal + right-click ───────────── */
 
-const modalEl     = document.getElementById("pc-modal");
-const modalTitle  = document.getElementById("pc-modal-title");
-const modalInput  = document.getElementById("pc-modal-input");
+const modalEl = document.getElementById("pc-modal");
+const modalTitle = document.getElementById("pc-modal-title");
+const modalInput = document.getElementById("pc-modal-input");
 const modalCancel = document.getElementById("pc-modal-cancel");
 const modalSubmit = document.getElementById("pc-modal-submit");
 
 let modalHandler = null;
+
 function openInputModal({ title, placeholder, initial, submitText, onSubmit }) {
   if (!modalEl) return; // template didn't include it
   modalTitle.textContent = title || "Input";
@@ -242,8 +386,9 @@ function openInputModal({ title, placeholder, initial, submitText, onSubmit }) {
   modalSubmit.textContent = submitText || "OK";
   modalHandler = onSubmit || null;
 
-  // UX: disable primary until there’s a value; Enter submits
-  function syncDisabled() { modalSubmit.disabled = !(modalInput.value.trim().length > 0); }
+  function syncDisabled() {
+    modalSubmit.disabled = !(modalInput.value.trim().length > 0);
+  }
   modalInput.removeEventListener("input", syncDisabled);
   modalInput.addEventListener("input", syncDisabled);
   modalInput.addEventListener("keydown", (e) => {
@@ -255,60 +400,98 @@ function openInputModal({ title, placeholder, initial, submitText, onSubmit }) {
   modalEl.setAttribute("aria-hidden", "false");
   setTimeout(() => modalInput?.focus(), 0);
 }
+
 function closeModal() {
   if (!modalEl) return;
   modalEl.style.display = "none";
   modalEl.setAttribute("aria-hidden", "true");
   modalHandler = null;
 }
+
 modalCancel?.addEventListener("click", closeModal);
-modalEl?.addEventListener("click", (e) => { if (e.target === modalEl) closeModal(); });
-window.addEventListener("keydown", (e) => { if (e.key === "Escape" && modalEl?.style.display === "flex") closeModal(); });
+modalEl?.addEventListener("click", (e) => {
+  if (e.target === modalEl) closeModal();
+});
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && modalEl?.style.display === "flex") closeModal();
+});
 modalSubmit?.addEventListener("click", async () => {
-  if (!modalHandler) { closeModal(); return; }
+  if (!modalHandler) {
+    closeModal();
+    return;
+  }
   const v = (modalInput.value || "").trim();
   const ok = await modalHandler(v);
   if (ok !== false) closeModal();
 });
 
-async function createCollection(name, parentId=null) {
+async function createCollection(name, parentId = null) {
   if (!name) return false;
   const fd = new FormData();
   fd.append("csrfmiddlewaretoken", csrfToken());
   fd.append("name", name);
   if (parentId) fd.append("parent", parentId);
   const resp = await fetch("/collections/create/", {
-    method: "POST", body: fd, credentials: "same-origin",
+    method: "POST",
+    body: fd,
+    credentials: "same-origin",
     headers: { "X-CSRFToken": csrfToken() },
   });
-  if (resp.redirected) { location.href = resp.url; return true; }
-  if (resp.ok) { location.reload(); return true; }
-  alert("Create failed (" + resp.status + ")."); return false;
+  if (resp.redirected) {
+    location.href = resp.url;
+    return true;
+  }
+  if (resp.ok) {
+    location.reload();
+    return true;
+  }
+  alert("Create failed (" + resp.status + ").");
+  return false;
 }
+
 async function renameCollection(id, name) {
   if (!id || !name) return false;
   const fd = new FormData();
   fd.append("csrfmiddlewaretoken", csrfToken());
   fd.append("name", name);
-  const resp = await fetch(`/collections/${id}/rename/`, {
-    method: "POST", body: fd, credentials: "same-origin",
+  const resp = await fetch(`/collections/${encodeURIComponent(id)}/rename/`, {
+    method: "POST",
+    body: fd,
+    credentials: "same-origin",
     headers: { "X-CSRFToken": csrfToken() },
   });
-  if (resp.redirected) { location.href = resp.url; return true; }
-  if (resp.ok) { location.reload(); return true; }
-  alert("Rename failed (" + resp.status + ")."); return false;
+  if (resp.redirected) {
+    location.href = resp.url;
+    return true;
+  }
+  if (resp.ok) {
+    location.reload();
+    return true;
+  }
+  alert("Rename failed (" + resp.status + ").");
+  return false;
 }
+
 async function deleteCollection(id) {
   if (!id) return false;
   const fd = new FormData();
   fd.append("csrfmiddlewaretoken", csrfToken());
-  const resp = await fetch(`/collections/${id}/delete/`, {
-    method: "POST", body: fd, credentials: "same-origin",
+  const resp = await fetch(`/collections/${encodeURIComponent(id)}/delete/`, {
+    method: "POST",
+    body: fd,
+    credentials: "same-origin",
     headers: { "X-CSRFToken": csrfToken() },
   });
-  if (resp.redirected) { location.href = resp.url; return true; }
-  if (resp.ok) { location.reload(); return true; }
-  alert("Delete failed (" + resp.status + ")."); return false;
+  if (resp.redirected) {
+    location.href = resp.url;
+    return true;
+  }
+  if (resp.ok) {
+    location.reload();
+    return true;
+  }
+  alert("Delete failed (" + resp.status + ").");
+  return false;
 }
 
 // “+” button → new collection dialog (idempotent)
@@ -317,7 +500,8 @@ function wireNewCollectionButton() {
   if (_wiredPlus) return;
   _wiredPlus = true;
   const btn = document.getElementById("pc-col-add-btn");
-  btn?.addEventListener("click", () => {
+  if (!btn) return;
+  btn.addEventListener("click", () => {
     openInputModal({
       title: "New collection",
       placeholder: "Name",
@@ -327,12 +511,15 @@ function wireNewCollectionButton() {
   });
 }
 
-// Right‑click on Collections (Open/Rename/Delete)
-let colMenuEl = null, colMenuTarget = null, _wiredLeft = false;
-function ensureColMenu(){
+// Right-click on Collections (Open/Rename/Delete)
+let colMenuEl = null;
+let colMenuTarget = null;
+let _wiredLeft = false;
+
+function ensureColMenu() {
   if (colMenuEl) return;
-  colMenuEl = document.createElement('div');
-  colMenuEl.className = 'pc-context';
+  colMenuEl = document.createElement("div");
+  colMenuEl.className = "pc-context";
   colMenuEl.innerHTML = `
     <ul class="pc-menu">
       <li data-act="open">Open</li>
@@ -342,58 +529,66 @@ function ensureColMenu(){
     </ul>
   `;
   document.body.appendChild(colMenuEl);
-  colMenuEl.addEventListener('click', onColMenuClick);
+  colMenuEl.addEventListener("click", onColMenuClick);
 
   // Close on any outside click/scroll/resize
-  window.addEventListener('click', (e) => { if (!colMenuEl.contains(e.target)) hideColMenu(); });
-  window.addEventListener('scroll', hideColMenu, { passive: true });
-  window.addEventListener('resize', hideColMenu);
+  window.addEventListener("click", (e) => {
+    if (!colMenuEl.contains(e.target)) hideColMenu();
+  });
+  window.addEventListener("scroll", hideColMenu, { passive: true });
+  window.addEventListener("resize", hideColMenu);
 }
 
-function onColMenuClick(e){
+function onColMenuClick(e) {
   const a = colMenuTarget;
   if (!a) return hideColMenu();
-  const id = a.getAttribute('data-collection-id');
-  const label = (a.querySelector('.z-label')?.textContent || '').trim();
-  const act = e.target.closest('[data-act]')?.getAttribute('data-act');
+  const id = a.getAttribute("data-collection-id");
+  const label = (a.querySelector(".z-label")?.textContent || "").trim();
+  const act = e.target.closest("[data-act]")?.getAttribute("data-act");
   if (!act) return;
 
-  if (act === 'open') {
-    window.location.href = a.href || a.getAttribute('href') || '#';
-  } else if (act === 'dashboard') {
+  if (act === "open") {
+    window.location.href = a.href || a.getAttribute("href") || "#";
+  } else if (act === "dashboard") {
     if (id) window.location.href = `/collections/${encodeURIComponent(id)}/dashboard/`;
-  } else if (act === 'rename') {
+  } else if (act === "rename") {
     openInputModal({
-      title: 'Rename collection',
+      title: "Rename collection",
       initial: label,
-      submitText: 'Save',
-      onSubmit: (val) => renameCollection(id, val)
+      submitText: "Save",
+      onSubmit: (val) => renameCollection(id, val),
     });
-  } else if (act === 'delete') {
+  } else if (act === "delete") {
     if (confirm(`Delete collection “${label}”? Items remain in All items.`)) {
       deleteCollection(id);
     }
   }
   hideColMenu();
 }
+
 function showColMenu(x, y, target) {
   ensureColMenu();
   colMenuTarget = target;
   colMenuEl.style.display = "block";
   colMenuEl.style.left = x + "px";
-  colMenuEl.style.top  = y + "px";
+  colMenuEl.style.top = y + "px";
   keepOnScreen(colMenuEl);
 }
+
 function hideColMenu() {
   if (colMenuEl) colMenuEl.style.display = "none";
   colMenuTarget = null;
 }
+
 function wireCollectionsRightClick() {
   if (_wiredLeft) return;
   _wiredLeft = true;
   const zLeft = document.getElementById("z-left");
-  zLeft?.addEventListener("contextmenu", (e) => {
-    const link = e.target.closest?.(".z-link[data-collection-id], [data-collection-id].z-link, [data-collection-id]");
+  if (!zLeft) return;
+  zLeft.addEventListener("contextmenu", (e) => {
+    const link = e.target.closest?.(
+      ".z-link[data-collection-id], [data-collection-id].z-link, [data-collection-id]"
+    );
     if (!link || !zLeft.contains(link)) return;
     e.preventDefault();
     e.stopPropagation(); // do not bubble to the global row context delegate
@@ -411,23 +606,29 @@ export function initCollectionsAndContextMenus() {
   wireRowDragEvents();
   wireCollectionsDnd();
 
-  // Re‑apply to new tbody whenever rows change (search/paging/inf‑scroll/delete).
+  // Re-apply to new tbody whenever rows change (search/paging/inf-scroll/delete).
   document.addEventListener("pc:rows-changed", () => {
     ensureRowsDraggable();
     wireRowDragEvents();
   });
 
-  // 2) Row context menu on right‑click — delegate to document so it survives tbody swaps.
+  // 2) Row context menu on right-click — delegate to document so it survives tbody swaps.
   if (!_docContextMenuUnsub) {
     _docContextMenuUnsub = on(document, "contextmenu", (e) => {
       const tr = e.target?.closest?.("tr.pc-row");
       const tb = tbody();
-      if (!tr || !tb || !tb.contains(tr)) return; // ignore non‑row right‑clicks (e.g., left rail)
+      if (!tr || !tb || !tb.contains(tr)) return; // ignore non-row right-clicks (e.g., left rail)
       e.preventDefault();
 
-      // If right‑clicking an unselected row, select it so actions apply intuitively.
+      // If right-clicking an unselected row, select it so actions apply intuitively.
       if (tr.getAttribute("aria-selected") !== "true") {
-        tr.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+        tr.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+          })
+        );
       }
       showRowMenu(e.clientX, e.clientY);
     });

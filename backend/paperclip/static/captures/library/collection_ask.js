@@ -18,7 +18,7 @@ function linkifyCitations(html, nToAnchorId) {
 // Very light paragraphs from \n\n blocks
 function paragraphs(htmlText) {
   const blocks = (htmlText || "").split(/\n{2,}/);
-  return blocks.map(b => `<p>${b.trim()}</p>`).join("");
+  return blocks.map((b) => `<p>${b.trim()}</p>`).join("");
 }
 
 function renderAnswer(outEl, payload) {
@@ -41,7 +41,9 @@ function renderAnswer(outEl, payload) {
     else byId.get(key).ns.push(c.n);
   }
   // stable order by the smallest marker number in that doc
-  const collapsed = Array.from(byId.values()).sort((a, b) => Math.min(...a.ns) - Math.min(...b.ns));
+  const collapsed = Array.from(byId.values()).sort(
+    (a, b) => Math.min(...a.ns) - Math.min(...b.ns)
+  );
 
   // Map every [n] -> anchor id for that doc (use the first n in that group)
   const nToAnchorId = {};
@@ -56,23 +58,31 @@ function renderAnswer(outEl, payload) {
   const bodyHtml = paragraphs(linked);
 
   // ---- Build sources list: “[1,2] Title (Year) • DOI” once per paper ----
-  const srcLis = collapsed.map(c => {
-    const marks = `[${c.ns.sort((a, b) => a - b).join(",")}]`;
-    const metaBits = [];
-    if (c.year) metaBits.push(`(${escapeHtml(String(c.year))})`);
-    if (c.doi) metaBits.push(`• ${escapeHtml(String(c.doi))}`);
-    const tail = metaBits.length ? ` <span class="pc-ask__src-tail">${metaBits.join(" ")}</span>` : "";
-    const anchorId = `pc-src-${Math.min(...c.ns)}`;
-    return `<li id="${anchorId}"><strong>${marks}</strong> ${escapeHtml(c.title || "")}${tail}</li>`;
-  }).join("");
+  const srcLis = collapsed
+    .map((c) => {
+      const marks = `[${c.ns.sort((a, b) => a - b).join(",")}]`;
+      const metaBits = [];
+      if (c.year) metaBits.push(`(${escapeHtml(String(c.year))})`);
+      if (c.doi) metaBits.push(`• ${escapeHtml(String(c.doi))}`);
+      const tail = metaBits.length
+        ? ` <span class="pc-ask__src-tail">${metaBits.join(" ")}</span>`
+        : "";
+      const anchorId = `pc-src-${Math.min(...c.ns)}`;
+      return `<li id="${anchorId}"><strong>${marks}</strong> ${escapeHtml(c.title || "")}${tail}</li>`;
+    })
+    .join("");
 
   outEl.innerHTML = `
     <div class="pc-ask__answer">${bodyHtml}</div>
-    ${collapsed.length ? `
+    ${
+      collapsed.length
+        ? `
       <div class="pc-ask__sources">
         <div class="pc-ask__sources-title">Sources</div>
         <ol class="pc-ask__sources-list">${srcLis}</ol>
-      </div>` : ""}
+      </div>`
+        : ""
+    }
   `;
 }
 
@@ -81,10 +91,10 @@ export function initCollectionAsk() {
   if (!card) return;
 
   const collectionId = card.dataset.collectionId;
-  const runBtn  = $("#pc-ask-run");
-  const textEl  = $("#pc-ask-text");
+  const runBtn = $("#pc-ask-run");
+  const textEl = $("#pc-ask-text");
   const modeSel = $("#pc-ask-mode");
-  const outEl   = $("#pc-ask-output");
+  const outEl = $("#pc-ask-output");
 
   async function ask() {
     const question = (textEl.value || "").trim();

@@ -5,7 +5,7 @@ from contextlib import suppress
 from celery import shared_task
 
 from captures.models import Capture
-from captures.xref import enrich_capture_via_crossref, enrich_reference_via_crossref
+from captures.references.xref_service import enrich_capture, enrich_reference
 from paperclip.conf import MAX_REFS_TO_ENRICH
 
 
@@ -16,7 +16,7 @@ def enrich_refs_task(capture_id: str) -> None:
         return
     # Capture-level enrichment
     with suppress(Exception):
-        upd = enrich_capture_via_crossref(cap)
+        upd = enrich_capture(cap)
         if upd:
             for k, v in upd.items():
                 setattr(cap, k, v)
@@ -29,7 +29,7 @@ def enrich_refs_task(capture_id: str) -> None:
         if not r.doi:
             continue
         with suppress(Exception):
-            upd = enrich_reference_via_crossref(r)
+            upd = enrich_reference(r)
             if upd:
                 for k, v in upd.items():
                     setattr(r, k, v)

@@ -11,13 +11,13 @@ def _find_dotenv_candidates() -> list[Path]:
     Search in this order:
       1) DOTENV_PATH / ENV_FILE / PAPERCLIP_ENV_FILE (if set)
       2) repo root:       <repo>/.env
-      3) service folder:  <repo>/services/server/.env
-      4) app folder:      <repo>/services/server/paperclip/.env
+      3) backend folder:  <repo>/backend/.env
+      4) app folder:      <repo>/backend/paperclip/.env
     """
     here = Path(__file__).resolve()
-    project = here.parent  # .../paperclip
-    service = project.parent  # .../services/server
-    repo = service.parent.parent  # .../<repo root>
+    project = here.parent  # .../backend/paperclip
+    service = project.parent  # .../backend
+    repo = service.parent  # .../<repo root>
 
     env_from_env = (
         os.getenv("DOTENV_PATH")
@@ -60,7 +60,7 @@ def _parse_dotenv_line(line: str) -> tuple[str, str] | None:
         val = val[1:-1]
 
     # Expand ${VAR} using existing environment
-    val = re.sub(r"\$\{([^}]+)\}", lambda m: os.environ.get(m.group(1), ""), val)
+    val = re.sub(r"\${([^}]+)}", lambda m: os.environ.get(m.group(1), ""), val)
     return key, val.strip()
 
 
@@ -88,6 +88,6 @@ def load_env() -> None:
                     k, v = pair
                     os.environ.setdefault(k, v)
             except Exception:
-                # Never break startup on a bad .env
+
                 pass
-        break  # stop after first existing .env is processed
+        break

@@ -8,7 +8,7 @@ import { initControls } from "./controls.js";
 
 /** Ensure we have d3@7 (upgrade if an older global d3 was already loaded). */
 async function ensureD3() {
-  const needs = (!window.d3 || !/^7\./.test(String(window.d3.version || "")));
+  const needs = !window.d3 || !/^7\./.test(String(window.d3.version || ""));
   if (!needs) return;
   await new Promise((resolve, reject) => {
     const s = document.createElement("script");
@@ -22,8 +22,16 @@ async function ensureD3() {
 /** Preferred edge-set order for the dropdown. */
 function availableEdgeKeys(graph) {
   const pref = [
-    "doc_citations","citations","references","semantic","suggested",
-    "mutual","shared_refs","co_cited","topic_relations","topic_membership"
+    "doc_citations",
+    "citations",
+    "references",
+    "semantic",
+    "suggested",
+    "mutual",
+    "shared_refs",
+    "co_cited",
+    "topic_relations",
+    "topic_membership",
   ];
   const keys = graph.edgesets ? Object.keys(graph.edgesets) : [];
   const out = [];
@@ -35,14 +43,24 @@ function availableEdgeKeys(graph) {
 function defaultEdgeKey(graph) {
   const avail = availableEdgeKeys(graph);
   if (avail.includes("doc_citations")) return "doc_citations";
-  if (avail.includes("citations"))     return "citations";
+  if (avail.includes("citations")) return "citations";
   return avail[0] || "edges";
 }
 
 // Pleasant, stable palette (Tableau-ish). We modulo by length.
 const PALETTE = [
-  "#60a5fa","#34d399","#f472b6","#f59e0b","#a78bfa","#22d3ee",
-  "#f87171","#10b981","#facc15","#ef4444","#84cc16","#06b6d4"
+  "#60a5fa",
+  "#34d399",
+  "#f472b6",
+  "#f59e0b",
+  "#a78bfa",
+  "#22d3ee",
+  "#f87171",
+  "#10b981",
+  "#facc15",
+  "#ef4444",
+  "#84cc16",
+  "#06b6d4",
 ];
 function colorForCluster(cid) {
   const i = Math.abs(parseInt(cid ?? 0, 10)) % PALETTE.length;
@@ -68,25 +86,29 @@ class GraphView {
     this.h = Math.max(400, root.clientHeight || 600);
 
     // --- SVG scaffold: wrap all layers in a pan/zoom group
-    this.svg   = d3.select(root).append("svg")
-      .attr("width", this.w).attr("height", this.h)
+    this.svg = d3
+      .select(root)
+      .append("svg")
+      .attr("width", this.w)
+      .attr("height", this.h)
       .attr("class", "pc-noselect");
-    this.gMain  = this.svg.append("g").attr("class", "g-main");
+    this.gMain = this.svg.append("g").attr("class", "g-main");
     this.gHulls = this.gMain.append("g").attr("class", "g-hulls");
     this.gEdges = this.gMain.append("g").attr("class", "g-edges");
     this.gNodes = this.gMain.append("g").attr("class", "g-nodes");
 
     // Enable pan **and** wheel zoom (bounded)
-    this.zoom = d3.zoom()
-      .scaleExtent([0.25, 8])                 // ← previously [1,1] (no zoom)
+    this.zoom = d3
+      .zoom()
+      .scaleExtent([0.25, 8]) // ← previously [1,1] (no zoom)
       .on("zoom", (ev) => {
         this.gMain.attr("transform", ev.transform);
       });
     this.svg.call(this.zoom).on("dblclick.zoom", null); // keep dblclick from zooming
 
     // --- data ---
-    this.nodes = (graph.nodes || []).map(n => ({ ...n }));
-    this.nodeIndex = new Map(this.nodes.map(n => [String(n.id), n])); // id → node
+    this.nodes = (graph.nodes || []).map((n) => ({ ...n }));
+    this.nodeIndex = new Map(this.nodes.map((n) => [String(n.id), n])); // id → node
 
     Layout.fitToViewport(this.nodes, this.w, this.h, 24);
 
@@ -99,47 +121,65 @@ class GraphView {
 
     // --- force sim ---
     this.sim = Layout.createSimulation(this.nodes, this.edges, {
-      width: this.w, height: this.h,
-      linkDistance: this.linkDistance, charge: this.charge, collision: this.collision,
+      width: this.w,
+      height: this.h,
+      linkDistance: this.linkDistance,
+      charge: this.charge,
+      collision: this.collision,
     });
 
     // --- DOM joins ---
-    this.linkSel = this.gEdges.selectAll("line.edge")
-      .data(this.edges, d => String(this._idOf(d.source)) + "→" + String(this._idOf(d.target)))
-      .join(enter => enter.append("line")
-        .attr("class", "edge")
-        .attr("stroke", "#444")
-        .attr("stroke-opacity", 0.6)
-        .attr("vector-effect", "non-scaling-stroke")
-        .attr("stroke-width", e => Math.max(1, Math.sqrt(e.weight || 1)))
+    this.linkSel = this.gEdges
+      .selectAll("line.edge")
+      .data(
+        this.edges,
+        (d) => String(this._idOf(d.source)) + "→" + String(this._idOf(d.target))
+      )
+      .join((enter) =>
+        enter
+          .append("line")
+          .attr("class", "edge")
+          .attr("stroke", "#444")
+          .attr("stroke-opacity", 0.6)
+          .attr("vector-effect", "non-scaling-stroke")
+          .attr("stroke-width", (e) => Math.max(1, Math.sqrt(e.weight || 1)))
       );
 
-    this.nodeSel = this.gNodes.selectAll("g.node")
-      .data(this.nodes, d => d.id)
-      .join(enter => {
+    this.nodeSel = this.gNodes
+      .selectAll("g.node")
+      .data(this.nodes, (d) => d.id)
+      .join((enter) => {
         const g = enter.append("g").attr("class", "node");
         g.append("circle")
-          .attr("r", d => (d.topic ? 6 : 4))
-          .attr("fill", d => colorForCluster(d.cluster ?? 0))
-          .attr("fill-opacity", d => (d.external ? 0.75 : 1))
-          .attr("stroke", d => (d.external ? colorForCluster(d.cluster ?? 0) : "#000"))
-          .attr("stroke-opacity", d => (d.external ? 0.7 : 0.25));
-        g.append("title").text(d => d.title || d.id);
+          .attr("r", (d) => (d.topic ? 6 : 4))
+          .attr("fill", (d) => colorForCluster(d.cluster ?? 0))
+          .attr("fill-opacity", (d) => (d.external ? 0.75 : 1))
+          .attr("stroke", (d) =>
+            d.external ? colorForCluster(d.cluster ?? 0) : "#000"
+          )
+          .attr("stroke-opacity", (d) => (d.external ? 0.7 : 0.25));
+        g.append("title").text((d) => d.title || d.id);
         return g;
       });
 
     // Dragging
-    const drag = d3.drag()
+    const drag = d3
+      .drag()
       .on("start", (ev, d) => {
         if (!ev.active) this.sim.alphaTarget(0.3).restart();
-        d.fx = d.x; d.fy = d.y;
+        d.fx = d.x;
+        d.fy = d.y;
         d3.select(ev.sourceEvent?.target?.closest("g.node")).classed("dragging", true);
       })
-      .on("drag", (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
-      .on("end",  (ev, d) => {
+      .on("drag", (ev, d) => {
+        d.fx = ev.x;
+        d.fy = ev.y;
+      })
+      .on("end", (ev, d) => {
         d3.select(ev.sourceEvent?.target?.closest("g.node")).classed("dragging", false);
         if (!ev.active) this.sim.alphaTarget(0);
-        d.fx = null; d.fy = null;
+        d.fx = null;
+        d.fy = null;
       });
     this.nodeSel.call(drag);
 
@@ -155,14 +195,16 @@ class GraphView {
     if (key === "references") return true;
     return true;
   }
-  _idOf(v) { return (v && typeof v === "object") ? (v.id ?? v) : v; }
+  _idOf(v) {
+    return v && typeof v === "object" ? (v.id ?? v) : v;
+  }
   _isExternal(idish) {
     const id = String(this._idOf(idish));
     return !!this.nodeIndex.get(id)?.external;
   }
   _edgesOf(key) {
     const es = this.graph.edgesets || {};
-    return (es[key] || []);
+    return es[key] || [];
   }
 
   /**
@@ -174,8 +216,14 @@ class GraphView {
     if (!base || !base.length) return [];
     if (!this.includeExternal) {
       // For edge sets that can include external endpoints, drop any edge touching an external node.
-      if (this.edgeKey === "doc_citations" || this.edgeKey === "citations" || this.edgeKey === "references") {
-        return base.filter(e => !this._isExternal(e.source) && !this._isExternal(e.target));
+      if (
+        this.edgeKey === "doc_citations" ||
+        this.edgeKey === "citations" ||
+        this.edgeKey === "references"
+      ) {
+        return base.filter(
+          (e) => !this._isExternal(e.source) && !this._isExternal(e.target)
+        );
       }
     }
     return base;
@@ -188,9 +236,15 @@ class GraphView {
    */
   _sanitizeEdges(rawEdges) {
     const out = [];
-    for (const e of (rawEdges || [])) {
-      const s = (e && typeof e.source === "object") ? e.source : this.nodeIndex.get(String(e.source));
-      const t = (e && typeof e.target === "object") ? e.target : this.nodeIndex.get(String(e.target));
+    for (const e of rawEdges || []) {
+      const s =
+        e && typeof e.source === "object"
+          ? e.source
+          : this.nodeIndex.get(String(e.source));
+      const t =
+        e && typeof e.target === "object"
+          ? e.target
+          : this.nodeIndex.get(String(e.target));
       if (!s || !t) continue; // drop edges pointing to missing nodes
       out.push({ source: s, target: t, weight: e.weight || 1 });
     }
@@ -201,26 +255,32 @@ class GraphView {
   _autoFallbackWhenSparse() {
     const count = this.edges.length;
     const refs = this._edgesOf("references") || [];
-    const sem  = this._edgesOf("semantic")   || [];
-    const cits = this._edgesOf("citations")  || [];
+    const sem = this._edgesOf("semantic") || [];
+    const cits = this._edgesOf("citations") || [];
     if (count === 0 && refs.length) {
-      this.edgeKey = "references"; this.includeExternal = true;
-      this.edgesRaw = this._edgesForCurrent(); this.edges = this._sanitizeEdges(this.edgesRaw);
+      this.edgeKey = "references";
+      this.includeExternal = true;
+      this.edgesRaw = this._edgesForCurrent();
+      this.edges = this._sanitizeEdges(this.edgesRaw);
     } else if (count <= 1 && cits.length) {
-      this.edgeKey = "citations"; this.includeExternal = true;
-      this.edgesRaw = this._edgesForCurrent(); this.edges = this._sanitizeEdges(this.edgesRaw);
+      this.edgeKey = "citations";
+      this.includeExternal = true;
+      this.edgesRaw = this._edgesForCurrent();
+      this.edges = this._sanitizeEdges(this.edgesRaw);
     } else if (count <= 1 && sem.length) {
-      this.edgeKey = "semantic"; this.includeExternal = true;
-      this.edgesRaw = this._edgesForCurrent(); this.edges = this._sanitizeEdges(this.edgesRaw);
+      this.edgeKey = "semantic";
+      this.includeExternal = true;
+      this.edgesRaw = this._edgesForCurrent();
+      this.edges = this._sanitizeEdges(this.edgesRaw);
     }
     if (!this.edges.length) {
-      this.visibleIds = new Set(this.nodes.map(n => String(n.id)));
+      this.visibleIds = new Set(this.nodes.map((n) => String(n.id)));
     }
   }
 
   _updateVisible() {
     if (!this.edges.length) {
-      this.visibleIds = new Set(this.nodes.map(n => String(n.id)));
+      this.visibleIds = new Set(this.nodes.map((n) => String(n.id)));
     } else {
       const S = new Set();
       for (const e of this.edges) {
@@ -229,19 +289,21 @@ class GraphView {
       }
       this.visibleIds = S;
     }
-    this.nodeSel.attr("display", d => (this.visibleIds.has(String(d.id)) ? null : "none"));
+    this.nodeSel.attr("display", (d) =>
+      this.visibleIds.has(String(d.id)) ? null : "none"
+    );
   }
 
   // ---------- render ----------
   render() {
     // Draw links using *resolved* node positions (always defined after sanitize).
     this.linkSel
-      .attr("x1", d => d.source.x)
-      .attr("y1", d => d.source.y)
-      .attr("x2", d => d.target.x)
-      .attr("y2", d => d.target.y);
+      .attr("x1", (d) => d.source.x)
+      .attr("y1", (d) => d.source.y)
+      .attr("x2", (d) => d.target.x)
+      .attr("y2", (d) => d.target.y);
 
-    this.nodeSel.attr("transform", d => `translate(${d.x},${d.y})`);
+    this.nodeSel.attr("transform", (d) => `translate(${d.x},${d.y})`);
 
     // Cluster hulls (only for visible nodes)
     if (this.showHulls) {
@@ -253,17 +315,21 @@ class GraphView {
         byCluster.get(c).push(n);
       }
       const hulls = Array.from(byCluster.entries()).map(([cluster, members]) => ({
-        cluster, path: Hull.clusterHullPath(members, 26), color: colorForCluster(cluster),
+        cluster,
+        path: Hull.clusterHullPath(members, 26),
+        color: colorForCluster(cluster),
       }));
-      const hullSel = this.gHulls.selectAll("path.hull").data(hulls, d => d.cluster);
-      hullSel.enter().append("path")
+      const hullSel = this.gHulls.selectAll("path.hull").data(hulls, (d) => d.cluster);
+      hullSel
+        .enter()
+        .append("path")
         .attr("class", "hull")
         .attr("fill-opacity", 0.08)
         .attr("stroke-opacity", 0.35)
         .merge(hullSel)
-        .attr("d", d => d.path)
-        .attr("stroke", d => d.color)
-        .attr("fill", d => d.color);
+        .attr("d", (d) => d.path)
+        .attr("stroke", (d) => d.color)
+        .attr("fill", (d) => d.color);
       hullSel.exit().remove();
       this.gHulls.attr("display", null);
     } else {
@@ -282,14 +348,20 @@ class GraphView {
     this.edges = this._sanitizeEdges(this.edgesRaw);
     this._autoFallbackWhenSparse();
 
-    this.linkSel = this.gEdges.selectAll("line.edge")
-      .data(this.edges, d => String(this._idOf(d.source)) + "→" + String(this._idOf(d.target)))
-      .join(enter => enter.append("line")
-        .attr("class", "edge")
-        .attr("stroke", "#444")
-        .attr("stroke-opacity", 0.6)
-        .attr("vector-effect", "non-scaling-stroke")
-        .attr("stroke-width", e => Math.max(1, Math.sqrt(e.weight || 1)))
+    this.linkSel = this.gEdges
+      .selectAll("line.edge")
+      .data(
+        this.edges,
+        (d) => String(this._idOf(d.source)) + "→" + String(this._idOf(d.target))
+      )
+      .join((enter) =>
+        enter
+          .append("line")
+          .attr("class", "edge")
+          .attr("stroke", "#444")
+          .attr("stroke-opacity", 0.6)
+          .attr("vector-effect", "non-scaling-stroke")
+          .attr("stroke-width", (e) => Math.max(1, Math.sqrt(e.weight || 1)))
       );
 
     // Rewire the force with the **resolved** edges
@@ -306,14 +378,20 @@ class GraphView {
     this.edgesRaw = this._edgesForCurrent();
     this.edges = this._sanitizeEdges(this.edgesRaw);
 
-    this.linkSel = this.gEdges.selectAll("line.edge")
-      .data(this.edges, d => String(this._idOf(d.source)) + "→" + String(this._idOf(d.target)))
-      .join(enter => enter.append("line")
-        .attr("class", "edge")
-        .attr("stroke", "#444")
-        .attr("stroke-opacity", 0.6)
-        .attr("vector-effect", "non-scaling-stroke")
-        .attr("stroke-width", e => Math.max(1, Math.sqrt(e.weight || 1)))
+    this.linkSel = this.gEdges
+      .selectAll("line.edge")
+      .data(
+        this.edges,
+        (d) => String(this._idOf(d.source)) + "→" + String(this._idOf(d.target))
+      )
+      .join((enter) =>
+        enter
+          .append("line")
+          .attr("class", "edge")
+          .attr("stroke", "#444")
+          .attr("stroke-opacity", 0.6)
+          .attr("vector-effect", "non-scaling-stroke")
+          .attr("stroke-width", (e) => Math.max(1, Math.sqrt(e.weight || 1)))
       );
 
     this.sim.force("link").links(this.edges).distance(this.linkDistance);
@@ -321,21 +399,50 @@ class GraphView {
     this.kick();
   }
 
-  setHulls(flag) { this.showHulls = !!flag; this.render(); }
-  setCharge(v)   { this.charge = Number(v); this.sim.force("charge").strength(this.charge); this.kick(); }
-  setLinkDistance(v){ this.linkDistance = Number(v); this.sim.force("link").distance(this.linkDistance); this.kick(); }
-  setCollision(v){ this.collision = Number(v); const f = this.sim.force("collide"); if (f && typeof f.radius === "function") f.radius(this.collision); this.kick(); }
-
-  fit()  {
-    Layout.fitToViewport(this.nodes, this.w, this.h, 24);
-    // Also reset pan & zoom so “Fit” recenters the canvas
-    try { this.svg.transition().duration(200).call(this.zoom.transform, d3.zoomIdentity); } catch (_) {}
+  setHulls(flag) {
+    this.showHulls = !!flag;
+    this.render();
+  }
+  setCharge(v) {
+    this.charge = Number(v);
+    this.sim.force("charge").strength(this.charge);
     this.kick();
   }
-  pause(flag){ const want = flag === undefined ? !this.paused : !!flag; this.paused = want; if (this.paused) this.sim.stop(); else this.sim.alpha(0.7).restart(); return this.paused; }
-  kick() { if (!this.paused) this.sim.alpha(0.7).restart(); this.render(); }
+  setLinkDistance(v) {
+    this.linkDistance = Number(v);
+    this.sim.force("link").distance(this.linkDistance);
+    this.kick();
+  }
+  setCollision(v) {
+    this.collision = Number(v);
+    const f = this.sim.force("collide");
+    if (f && typeof f.radius === "function") f.radius(this.collision);
+    this.kick();
+  }
 
-  edgesAvailable() { return availableEdgeKeys(this.graph); }
+  fit() {
+    Layout.fitToViewport(this.nodes, this.w, this.h, 24);
+    // Also reset pan & zoom so “Fit” recenters the canvas
+    try {
+      this.svg.transition().duration(200).call(this.zoom.transform, d3.zoomIdentity);
+    } catch (_) {}
+    this.kick();
+  }
+  pause(flag) {
+    const want = flag === undefined ? !this.paused : !!flag;
+    this.paused = want;
+    if (this.paused) this.sim.stop();
+    else this.sim.alpha(0.7).restart();
+    return this.paused;
+  }
+  kick() {
+    if (!this.paused) this.sim.alpha(0.7).restart();
+    this.render();
+  }
+
+  edgesAvailable() {
+    return availableEdgeKeys(this.graph);
+  }
 
   // Legend data for the controls
   clustersInfo() {
@@ -346,11 +453,16 @@ class GraphView {
       counts.set(cid, (counts.get(cid) || 0) + 1);
     }
     const labelOf = (cid) => {
-      const t = (this.graph.topics || []).find(t => Number(t.cluster ?? 0) === cid);
-      return (t && (t.label || ("Topic " + cid))) || ("Cluster " + cid);
+      const t = (this.graph.topics || []).find((t) => Number(t.cluster ?? 0) === cid);
+      return (t && (t.label || "Topic " + cid)) || "Cluster " + cid;
     };
     const out = Array.from(counts.entries())
-      .map(([cid, size]) => ({ id: cid, size, label: labelOf(cid), color: colorForCluster(cid) }))
+      .map(([cid, size]) => ({
+        id: cid,
+        size,
+        label: labelOf(cid),
+        color: colorForCluster(cid),
+      }))
       .sort((a, b) => b.size - a.size);
     return out;
   }
@@ -398,5 +510,7 @@ async function bootGraphWithData(graph) {
 
 // Public API
 const NS = (window.PCGraph = window.PCGraph || {});
-NS.renderGraph = renderGraph; NS.bootGraph = bootGraph; NS.bootGraphWithData = bootGraphWithData;
+NS.renderGraph = renderGraph;
+NS.bootGraph = bootGraph;
+NS.bootGraphWithData = bootGraphWithData;
 export { renderGraph, bootGraph, bootGraphWithData };

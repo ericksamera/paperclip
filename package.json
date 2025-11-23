@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "format": "prettier --write 'backend/paperclip/static/**/*.{js,css,html}'",
     "lint:js": "eslint services/server/paperclip/static extensions/chrome --ext .js",
     "typecheck:js": "tsc -p tsconfig.json --noEmit"
   },
@@ -11,6 +12,24 @@
     "@types/d3": "^7.4.3",
     "eslint": "^9.11.1",
     "eslint-plugin-import": "^2.30.0",
+    "prettier": "^3.6.2",
     "typescript": "^5.6.3"
-  }
+  },
+  "version": "1.0.0",
+  "description": "A tiny research workbench that: - **Captures** webpages (URL + full DOM + best-effort main content) via a Chrome MV3 extension. - **Normalizes & stores** them on a Django server (artifacts on disk + DB rows). - **Lets you browse** a Zotero-style Library with filters, collections, and references. - **Builds a simple graph** (topics + citations) you can explore in the UI.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ericksamera/paperclip.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ericksamera/paperclip/issues"
+  },
+  "homepage": "https://github.com/ericksamera/paperclip#readme"
 }

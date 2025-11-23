@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from captures.head_meta import extract_head_meta
+from captures.ingest.head_meta import extract_head_meta
 from captures.site_parsers import (
     extract_sections_meta,
 )  # site-aware meta/sections (best-effort)
 
-from .sections_fallbacks import fallbacks as _fallbacks
+from captures.ingest.fallbacks import fallbacks as _fallbacks
 
 
 def _merge_keywords(*sources: object) -> list[str]:

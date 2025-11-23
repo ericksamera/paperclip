@@ -1,80 +1,114 @@
-// services/server/paperclip/static/captures/library/selection.js
+// services/server/paperclip/static/captures/library/features/selection.js
 // Canonical, idempotent selection for the Library table.
-// – Single-click = select only that row
-// – Cmd/Ctrl-click = toggle one row
-// – Shift-click = select a contiguous range (anchor = last single/clicked)
-// – Click on whitespace in the table area = clear selection
+//
+// – Single-click    = select only that row
+// – Cmd/Ctrl-click  = toggle one row
+// – Shift-click     = select a contiguous range (anchor = last single/clicked)
+// – Click on empty body area = clear selection
 // – Delete/Backspace = trigger bulk delete button once (no double toast)
+//
+// Exports:
+//   - initSelection()   → wire up click/keyboard
+//   - getSelectedIds()  → current selection as [id, ...]
+//   - clearSelection()  → programmatically clear
 
-import { $, $$, qsa, on } from "./dom.js";
-import { EVENTS, emitSelectionChange } from "./events.js";
+import { $, qsa, on } from "../infra/dom.js";
+import { emitSelectionChange } from "../infra/events.js";
+import { state } from "../infra/state.js";
+
+// Share the same Set across modules via state.selected
+const selected = state && state.selected instanceof Set ? state.selected : new Set();
+state.selected = selected;
 
 let tbody = null;
-let anchorIndex = -1;                // for shift-range
-const selected = new Set();          // ids (string)
+let anchorIndex = -1; // for shift-range
 
 // ---------- helpers ----------
+
 function ensureTbody() {
   // Prefer explicit body; fall back to first tbody.
   tbody =
     document.getElementById("pc-body") ||
-    $("#pc-table tbody") ||
-    $("tbody");
+    document.querySelector("#pc-table tbody") ||
+    document.querySelector("tbody");
 }
+
 function rows() {
   return Array.from(tbody?.querySelectorAll("tr.pc-row[data-id]") || []);
 }
+
 function rowIndex(tr) {
   const all = rows();
   return all.indexOf(tr);
 }
+
 function setRowSelected(tr, on) {
   if (!tr || !tr.dataset.id) return;
-  const willSelect = on === undefined ? tr.getAttribute("aria-selected") !== "true" : !!on;
+
+  const willSelect =
+    on === undefined ? tr.getAttribute("aria-selected") !== "true" : !!on;
+
   tr.setAttribute("aria-selected", willSelect ? "true" : "false");
   tr.classList.toggle("pc-row--selected", willSelect);
-  if (willSelect) selected.add(tr.dataset.id);
-  else selected.delete(tr.dataset.id);
+
+  if (willSelect) {
+    selected.add(tr.dataset.id);
+  } else {
+    selected.delete(tr.dataset.id);
+  }
 }
-function clearSelection() {
-  rows().forEach(tr => {
+
+export function getSelectedIds() {
+  return Array.from(selected);
+}
+
+export function clearSelection() {
+  rows().forEach((tr) => {
     tr.setAttribute("aria-selected", "false");
     tr.classList.remove("pc-row--selected");
   });
   selected.clear();
   emitSelectionChange({ ids: [] });
 }
+
 function selectOnly(tr) {
   clearSelection();
   setRowSelected(tr, true);
   anchorIndex = rowIndex(tr);
   emitSelectionChange({ ids: getSelectedIds() });
 }
+
 function selectRange(toTr) {
   const all = rows();
   if (anchorIndex < 0) anchorIndex = rowIndex(toTr);
   const from = Math.min(anchorIndex, rowIndex(toTr));
-  const to   = Math.max(anchorIndex, rowIndex(toTr));
+  const to = Math.max(anchorIndex, rowIndex(toTr));
   clearSelection();
-  for (let i = from; i <= to; i++) setRowSelected(all[i], true);
+  for (let i = from; i <= to; i++) {
+    setRowSelected(all[i], true);
+  }
   emitSelectionChange({ ids: getSelectedIds() });
 }
-function getSelectedIds() { return Array.from(selected); }
 
 // ---------- event wiring ----------
+
 function bindDelegatedClick() {
   if (!tbody) return;
 
   // Normalize any server-rendered rows (role + aria)
-  qsa("tr[data-id]", tbody).forEach(tr => {
+  qsa("tr[data-id]", tbody).forEach((tr) => {
     tr.classList.add("pc-row");
-    if (!tr.hasAttribute("aria-selected")) tr.setAttribute("aria-selected", "false");
+    if (!tr.hasAttribute("aria-selected")) {
+      tr.setAttribute("aria-selected", "false");
+    }
   });
 
   // Click on a row
   on(tbody, "click", (e) => {
     // Ignore native interactive controls
-    if (e.target.closest("a, button, input, textarea, label, [contenteditable]")) return;
+    if (e.target.closest("a, button, input, textarea, label, [contenteditable]")) {
+      return;
+    }
 
     const tr = e.target.closest("tr.pc-row[data-id]");
     if (!tr) return;
@@ -125,10 +159,24 @@ function bindHotkeys() {
   );
 }
 
+// ---------- public init ----------
+
 export function initSelection() {
   ensureTbody();
   if (!tbody) return;
+
   bindDelegatedClick();
   bindHotkeys();
   emitSelectionChange({ ids: getSelectedIds() }); // initial state broadcast
+
+  // Let diagnostics / legacy scripts know selection is wired
+  try {
+    window.__pcESMSelectionReady = true;
+    window.pcSelection = {
+      getSelectedIds,
+      clearSelection,
+    };
+  } catch {
+    // ignore
+  }
 }

@@ -205,7 +205,7 @@ def rebuild_reduced_view(capture_id: str) -> None:
     if not bridge or "content_sections" not in bridge:
         try:
             # Defer heavy imports
-            from .ingest import _bridge_extraction
+            from captures.ingest import _bridge_extraction
             from paperclip.artifacts import read_json_artifact as _readj
 
             # emulate the tiny "extraction" dict the ingest produced

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from django.test import SimpleTestCase
 
-from captures.head_meta import extract_head_meta
+from captures.ingest.head_meta import extract_head_meta
 from captures.parsing_bridge import robust_parse
 
 DOM_WITH_META = """<!doctype html>

@@ -9,7 +9,8 @@ export function edgesOfType(graph, key) {
 export function coalesceUndirected(edges) {
   const map = new Map();
   for (const e of edges) {
-    const a = String(e.source), b = String(e.target);
+    const a = String(e.source),
+      b = String(e.target);
     const [u, v] = a < b ? [a, b] : [b, a];
     const k = u + "→" + v;
     map.set(k, (map.get(k) || 0) + (e.weight || 1));
@@ -21,15 +22,17 @@ export function coalesceUndirected(edges) {
 }
 
 export function degreeMap(nodes, edges) {
-  const m = new Map(nodes.map(n => [String(n.id), 0]));
+  const m = new Map(nodes.map((n) => [String(n.id), 0]));
   for (const e of edges) {
-    if (m.has(String(e.source))) m.set(String(e.source), (m.get(String(e.source)) || 0) + 1);
-    if (m.has(String(e.target))) m.set(String(e.target), (m.get(String(e.target)) || 0) + 1);
+    if (m.has(String(e.source)))
+      m.set(String(e.source), (m.get(String(e.source)) || 0) + 1);
+    if (m.has(String(e.target)))
+      m.set(String(e.target), (m.get(String(e.target)) || 0) + 1);
   }
   return m;
 }
 
 export function filterEdgesForNodes(edges, nodeIds) {
   const S = new Set(nodeIds.map(String));
-  return edges.filter(e => S.has(String(e.source)) && S.has(String(e.target)));
+  return edges.filter((e) => S.has(String(e.source)) && S.has(String(e.target)));
 }

@@ -6,7 +6,7 @@
 #   make ci
 
 PY ?= python3
-EXPORTS = PYTHONPATH=services/server:packages DJANGO_SETTINGS_MODULE=paperclip.settings
+EXPORTS = PYTHONPATH=backend:packages DJANGO_SETTINGS_MODULE=paperclip.settings
 
 install-dev:
 	$(PY) -m pip install -U pip
@@ -27,6 +27,6 @@ lint:
 typecheck:
 	# mypy uses mypy.ini (plugin points at paperclip.settings_typecheck)
 	# Keep scope tight while we iterate.
-	mypy --config-file mypy.ini services packages
+	$(EXPORTS) mypy --config-file mypy.ini backend packages
 
 ci: lint typecheck

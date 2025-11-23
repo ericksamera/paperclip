@@ -1,7 +1,9 @@
-// services/server/paperclip/static/captures/library/self_test.js
+// backend/paperclip/static/captures/library/self_test.js
 // Minimal diagnostics for the Library ESM bundle.
+//
 // - Shows a small badge with status (ESM booted, selection wired, rows present)
-// - Optionally runs a synthetic click test to confirm selection flips and event fires.
+// - Tracks selection events
+// - Optionally runs a synthetic click test and then clears selection
 // - Never interferes with normal UX; synthetic change is reverted immediately.
 
 import { EVENTS } from "./events.js";
@@ -16,36 +18,22 @@ import { EVENTS } from "./events.js";
     errors: [],
   };
 
-  // --- Error capture (surface parse/runtime errors from other modules)
-  window.addEventListener("error", (e) => {
-    const msg = e?.error?.stack || e?.message || (e?.filename || "") + ":" + (e?.lineno || "");
-    state.errors.push(String(msg));
-    update();
-  }, { capture: true });
+  // --- Small UI --------------------------------------------------------------
 
-  window.addEventListener("unhandledrejection", (e) => {
-    const msg = e?.reason?.stack || e?.reason || "";
-    state.errors.push(String(msg));
-    update();
-  });
-
-  document.addEventListener(EVENTS.SELECTION, () => {
-    state.selectionEventsSeen++;
-    update();
-  });
-
-  // --- Small UI
   let root, statusEl, buttonEl, detailEl;
+
   function ensureUI() {
     if (root) return;
+
     root = document.createElement("div");
     root.id = "pc-diag";
     root.style.cssText = `
       position: fixed; right: 10px; bottom: 10px; z-index: 2147483647;
-      font: 12px/1.3 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      color: var(--fg, #ddd); background: color-mix(in oklab, var(--panel, #111) 88%, black 12%);
-      border: 1px solid color-mix(in oklab, var(--fg, #fff) 10%, transparent);
-      border-radius: 8px; box-shadow: 0 3px 18px rgba(0,0,0,.45); padding: 8px 10px; width: 240px;
+      font: 12px/1.3 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      color: #e5e7eb; background: rgba(15,23,42,0.9);
+      border: 1px solid rgba(148,163,184,0.6);
+      border-radius: 8px; box-shadow: 0 3px 18px rgba(0,0,0,0.5);
+      padding: 8px 10px; width: 260px;
       backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
     `;
 
@@ -54,30 +42,24 @@ import { EVENTS } from "./events.js";
     title.style.cssText = "font-weight:600;margin-bottom:6px;";
 
     statusEl = document.createElement("div");
-    statusEl.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:6px;";
+    statusEl.style.cssText =
+      "display:flex;flex-direction:column;gap:3px;margin-bottom:6px;";
 
     buttonEl = document.createElement("button");
-    buttonEl.textContent = "Run click test";
-    buttonEl.className = "btn";
-    buttonEl.style.cssText = `
-      font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid #4a4a4a;
-      background: #232323; color: #ddd; cursor: pointer;
-    `;
-    buttonEl.addEventListener("click", async (e) => {
-      e.preventDefault();
-      await runClickTest();
-    });
+    buttonEl.type = "button";
+    buttonEl.textContent = "Run self-test";
+    buttonEl.style.cssText =
+      "border-radius:6px;border:1px solid rgba(148,163,184,0.7);" +
+      "background:#0f172a;color:#e5e7eb;padding:4px 8px;font-size:11px;cursor:pointer;";
 
     detailEl = document.createElement("div");
-    detailEl.style.cssText = "margin-top:6px;opacity:.9;";
+    detailEl.style.cssText =
+      "margin-top:4px;font-size:11px;opacity:.8;max-height:90px;overflow:auto;";
 
-    const close = document.createElement("a");
-    close.href = "#";
-    close.textContent = "hide";
-    close.style.cssText = "float:right;color:#aaa;text-decoration:none;";
-    close.addEventListener("click", (e) => { e.preventDefault(); root.remove(); });
+    buttonEl.addEventListener("click", () => {
+      runTests(true);
+    });
 
-    title.appendChild(close);
     root.appendChild(title);
     root.appendChild(statusEl);
     root.appendChild(buttonEl);
@@ -85,112 +67,154 @@ import { EVENTS } from "./events.js";
     document.body.appendChild(root);
   }
 
-  function color() {
-    if (state.errors.length) return "#d33";
-    if (!state.esmBooted) return "#d33";
-    if (!state.selectionReady || !state.rowsPresent) return "#e69500";
-    if (state.clickTest === false) return "#e69500";
-    return "#3a7";
+  function statusRow(label, ok, hint = "") {
+    const line = document.createElement("div");
+    line.innerHTML =
+      `<span style="opacity:.8">${label}</span> — ` +
+      `<b style="color:${ok ? "#7dff9e" : "#ff8c8c"}">${ok ? "OK" : "FAIL"}</b>` +
+      (hint ? `<div style="opacity:.7;margin-top:1px">${hint}</div>` : "");
+    return line;
   }
 
-  function pill(ok, label) {
-    const span = document.createElement("span");
-    span.textContent = label;
-    span.style.cssText = `
-      font-weight: 600; font-size: 11px; padding: 2px 6px; border-radius: 999px;
-      background: ${ok ? "rgba(74, 222, 128, .18)" : "rgba(255, 173, 51, .20)"};
-      border: 1px solid ${ok ? "rgba(74, 222, 128, .45)" : "rgba(255, 173, 51, .45)"};
-    `;
-    return span;
-  }
-
-  function update() {
+  function updateUI() {
     if (!root) return;
-    statusEl.innerHTML = "";
-    const dot = document.createElement("span");
-    dot.style.cssText = `
-      display:inline-block;width:10px;height:10px;border-radius:50%;
-      background:${color()}; box-shadow: 0 0 0 2px rgba(0,0,0,.25) inset;
-    `;
-    statusEl.appendChild(dot);
+    statusEl.textContent = "";
 
-    statusEl.appendChild(pill(state.esmBooted, "ESM"));
-    statusEl.appendChild(pill(state.selectionReady, "selection"));
-    statusEl.appendChild(pill(state.rowsPresent, "rows"));
-    if (state.clickTest !== null) {
-      statusEl.appendChild(pill(state.clickTest, "click"));
+    const { esmBooted, selectionReady, rowsPresent, selectionEventsSeen, clickTest } =
+      state;
+
+    statusEl.appendChild(
+      statusRow(
+        "index.js booted",
+        !!esmBooted,
+        esmBooted ? "" : "Main entry didn’t mark __pcIndexBooted."
+      )
+    );
+    statusEl.appendChild(
+      statusRow(
+        "selection wired",
+        !!selectionReady,
+        selectionReady ? "" : "No pc:selection-change events observed yet."
+      )
+    );
+    statusEl.appendChild(
+      statusRow(
+        "table/rows present",
+        !!rowsPresent,
+        rowsPresent ? "" : "Couldn’t find #pc-body rows."
+      )
+    );
+    if (clickTest !== null) {
+      statusEl.appendChild(
+        statusRow(
+          "synthetic click test",
+          !!clickTest,
+          clickTest ? "" : "Selection wiring didn’t react to synthetic click."
+        )
+      );
     }
 
-    const lines = [
-      `esmBooted: ${state.esmBooted}`,
-      `selectionReady: ${state.selectionReady}`,
-      `rowsPresent: ${state.rowsPresent}`,
-      `selectionEvents: ${state.selectionEventsSeen}`,
-      ...(state.errors.length ? [`errors: ${state.errors.length}`] : []),
-    ];
-    detailEl.textContent = lines.join("  ·  ");
-  }
-
-  function measure() {
-    // index.js sets this flag once boot() runs (we add that below)
-    state.esmBooted = !!window.__pcIndexBooted;
-    // selection.js exposes either of these (current module already sets these) 
-    // window.__pcESMSelectionReady and window.pcSelection. :contentReference[oaicite:3]{index=3}
-    state.selectionReady = !!(window.__pcESMSelectionReady || window.pcSelection);
-    state.rowsPresent = !!document.querySelector("#pc-body tr");
-    update();
-  }
-
-  async function runClickTest() {
-    try {
-      const tr = document.querySelector("#pc-body tr.pc-row, #pc-body tr[data-id]");
-      if (!tr) {
-        state.clickTest = false; update();
-        console.warn("[pc-diag] No row to test on.");
-        return;
+    // Errors / details
+    detailEl.textContent = "";
+    if (state.errors.length) {
+      const ul = document.createElement("ul");
+      ul.style.margin = "4px 0 0";
+      ul.style.paddingLeft = "16px";
+      for (const msg of state.errors.slice(-5)) {
+        const li = document.createElement("li");
+        li.textContent = String(msg);
+        ul.appendChild(li);
       }
-      const before = tr.getAttribute("aria-selected") || "false";
-
-      // Prefer a non-link cell for the test target.
-      const target = tr.querySelector("td") || tr;
-      const ev = new MouseEvent("click", { bubbles: true, cancelable: true, view: window, button: 0 });
-      target.dispatchEvent(ev);
-      await new Promise((r) => setTimeout(r, 20));
-
-      const after = tr.getAttribute("aria-selected") || "false";
-      const eventSeen = state.selectionEventsSeen > 0;
-      state.clickTest = (before !== after) || eventSeen || !!(window.PCState?.selected?.size);
-
-      // Revert visual flip so we don't interfere with the current session
-      if (before !== after) tr.setAttribute("aria-selected", before);
-      update();
-
-      console.groupCollapsed("pc-diag click test");
-      console.log("before:", before, "after:", after, "eventSeen:", eventSeen, "ids:", [...(window.PCState?.selected || [])]);
-      console.groupEnd();
-    } catch (err) {
-      state.errors.push(String(err?.stack || err));
-      state.clickTest = false;
-      update();
+      detailEl.appendChild(ul);
+    } else {
+      detailEl.textContent = "No errors captured.";
     }
   }
 
-  function boot() {
+  // --- Error capture ---------------------------------------------------------
+
+  window.addEventListener(
+    "error",
+    (e) => {
+      const msg =
+        e?.error?.stack || e?.message || (e?.filename || "") + ":" + (e?.lineno || "");
+      state.errors.push(String(msg));
+      ensureUI();
+      updateUI();
+    },
+    { capture: true }
+  );
+
+  window.addEventListener("unhandledrejection", (e) => {
+    const msg = e?.reason?.stack || e?.reason || "";
+    state.errors.push(String(msg));
     ensureUI();
-    measure();
-    // Auto-run if URL has ?pc-test=1
-    const hasParam = new URL(location.href).searchParams.has("pc-test");
-    if (hasParam) runClickTest();
-    // Observe late table swaps / infinite scroll and keep truth fresh
-    const mo = new MutationObserver(() => measure());
-    mo.observe(document.body, { childList: true, subtree: true });
-    // Expose test to the console
-    window.PC_DIAG = { state, runClickTest, measure };
+    updateUI();
+  });
+
+  // Keep track of selection events
+  document.addEventListener(EVENTS.SELECTION, () => {
+    state.selectionEventsSeen += 1;
+    state.selectionReady = true;
+    ensureUI();
+    updateUI();
+  });
+
+  // --- Core test runner ------------------------------------------------------
+
+  async function runTests(includeSyntheticClick) {
+    ensureUI();
+
+    state.esmBooted = !!(window.__pcIndexBooted || window.__pcESMLibraryReady);
+    state.selectionReady = !!(window.__pcSelectionESMReady || window.__pcSelectionESM);
+    state.rowsPresent = false;
+    state.clickTest = includeSyntheticClick ? null : state.clickTest;
+
+    // Look for a row
+    const tb =
+      document.getElementById("pc-body") ||
+      document.querySelector(".pc-table tbody") ||
+      document.querySelector("tbody");
+    const tr = tb && (tb.querySelector("tr.pc-row") || tb.querySelector("tr"));
+    state.rowsPresent = !!tr;
+
+    updateUI();
+
+    if (!includeSyntheticClick || !tr) return;
+
+    const before = tr.getAttribute("aria-selected") || "false";
+    tr.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true, view: window })
+    );
+
+    setTimeout(async () => {
+      const after = tr.getAttribute("aria-selected") || "false";
+      state.clickTest = before !== after && after === "true";
+      updateUI();
+
+      // Clean up by clearing selection if API is present
+      try {
+        // Import the canonical feature module (no dependency on legacy selection.js shim)
+        const mod = await import("./features/selection.js");
+        if (mod?.clearSelection) mod.clearSelection();
+      } catch {
+        // diagnostics should never break the UI
+      }
+    }, 60);
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", boot);
-  } else {
-    boot();
-  }
+  // --- Boot ------------------------------------------------------------------
+
+  document.addEventListener("DOMContentLoaded", () => {
+    // Only create UI if the dev explicitly opts in, or if there are errors.
+    // Toggle with: localStorage.setItem("pc-diag", "1")
+    const WANT =
+      typeof localStorage !== "undefined" && localStorage.getItem("pc-diag") === "1";
+
+    if (WANT) {
+      ensureUI();
+    }
+
+    runTests(false);
+  });
 })();

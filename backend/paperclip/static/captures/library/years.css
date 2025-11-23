@@ -50,7 +50,9 @@
    upper thumb captures interactions */
 .pc-years-slider input[type="range"] {
   position: absolute;
-  left: 0; right: 0; top: 0;
+  left: 0;
+  right: 0;
+  top: 0;
   width: 100%;
   -webkit-appearance: none;
   background: transparent;
@@ -62,7 +64,8 @@
 .pc-years-slider input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 14px; height: 14px;
+  width: 14px;
+  height: 14px;
   background: #0ea5e9;
   border-radius: 999px;
   border: 2px solid white;
@@ -71,7 +74,8 @@
   cursor: pointer;
 }
 .pc-years-slider input[type="range"]::-moz-range-thumb {
-  width: 14px; height: 14px;
+  width: 14px;
+  height: 14px;
   background: #0ea5e9;
   border: 2px solid white;
   border-radius: 999px;

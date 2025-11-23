@@ -1,10 +1,4 @@
-// captures/library/state.js
-// Minimal shared bag for cross-file UI state (kept tiny on purpose).
+// services/server/paperclip/static/captures/library/state.js
+// Shim: re-export shared state bag from infra/state.js.
 
-export const state = {
-  selected: new Set(),   // optional if a page wants it
-  pendingDelete: null,   // { ids, flushNow, sent, canceled, cancel } or null
-};
-
-// Also expose to classic scripts if needed
-if (!window.PCState) window.PCState = state;
+export * from "./infra/state.js";
