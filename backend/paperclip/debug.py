@@ -1,6 +1,7 @@
 # services/server/paperclip/debug.py
 from __future__ import annotations
 
+import os
 import shutil
 from contextlib import suppress
 from pathlib import Path
@@ -8,7 +9,7 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib import messages
 from django.db import transaction
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
 
@@ -45,3 +46,28 @@ def wipe_all(request: HttpRequest) -> HttpResponse:
         Capture.objects.all().delete()
     messages.success(request, "All ingested data and artifacts removed.")
     return redirect("library")
+
+
+@require_POST
+def set_openai_key(request: HttpRequest) -> JsonResponse:
+    """
+    DEV ONLY: set OPENAI_API_KEY / OPENAI_MODEL / OPENAI_BASE_URL on the running
+    process from the UI.
+
+    This is not persisted across restarts – it's meant for local development.
+    """
+    api_key = (request.POST.get("api_key") or "").strip()
+    model = (request.POST.get("model") or "").strip()
+    base_url = (request.POST.get("base_url") or "").strip()
+
+    if not api_key:
+        return JsonResponse({"ok": False, "error": "Missing api_key"}, status=400)
+
+    # Update process env (QAEngine reads these via os.getenv).
+    os.environ["OPENAI_API_KEY"] = api_key
+    if model:
+        os.environ["OPENAI_MODEL"] = model
+    if base_url:
+        os.environ["OPENAI_BASE_URL"] = base_url
+
+    return JsonResponse({"ok": True})

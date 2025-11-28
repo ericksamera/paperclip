@@ -33,7 +33,7 @@ def _slug_for_capture(c: Capture) -> str:
     {year}_{first-author-family-name}_{journal-short-name}
     Fallbacks: year='na', author='anon', journal='journal'.
 
-    Mirrors the slug logic in captures.views.collections so filenames stay stable. :contentReference[oaicite:0]{index=0}
+    Mirrors the slug logic in captures.views.collections so filenames stay stable.
     """
     meta: Mapping[str, Any] = c.meta or {}
     csl: CSL | Mapping[str, Any] = c.csl or {}
@@ -57,19 +57,37 @@ def export_views_zip(captures: Iterable[Capture]) -> bytes:
     """
     Build a zip of reduced views for the given captures.
 
-    Each entry is '<slug>__<id>.json' containing the reduced view JSON for that
-    capture. If reduced view is missing, that capture is skipped.
+    - Each entry is '<slug>__<id>.json' containing the reduced view JSON.
+    - Additionally, an 'all_views.json' file at the root contains a list of
+      all entries with id + slug merged into the reduced view:
+      [{id, slug, title, meta, sections, references}, ...].
     """
     buf = BytesIO()
+    all_entries: list[dict[str, Any]] = []
+
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for c in captures:
             view = read_reduced_view(str(c.id))
             if not view:
                 continue
+
             slug = _slug_for_capture(c)
             arcname = f"{slug}__{c.id}.json"
+
+            # Write per-capture JSON (original structure)
             payload = json.dumps(view, ensure_ascii=False, indent=2)
             zf.writestr(arcname, payload)
+
+            # Build combined entry with id + slug + view fields
+            combined: dict[str, Any] = {"id": str(c.id), "slug": slug}
+            combined.update(view)
+            all_entries.append(combined)
+
+        # Single combined list file at the root of the zip
+        if all_entries:
+            all_payload = json.dumps(all_entries, ensure_ascii=False, indent=2)
+            zf.writestr("all_views.json", all_payload)
+
     buf.seek(0)
     return buf.read()
 
@@ -101,14 +119,19 @@ def delete_collection(col: Collection, *, force: bool) -> tuple[bool, str | None
     return True, None
 
 
-def assign_captures(col: Collection, ids: Iterable[str], op: str = "add") -> None:
+def assign_captures(col: Collection, ids: Iterable[str], op: str) -> None:
     """
-    Add or remove captures from a collection.
+    Assign/unassign captures in a collection.
 
-    op: "add" (default) or "remove".
+    op:
+      - "add": add captures to the collection
+      - "remove": remove captures from the collection
+      - "set": replace with exactly this set
     """
-    qs = Capture.objects.filter(id__in=list(ids))
-    if op.lower() == "remove":
+    qs = Capture.objects.filter(id__in=ids).only("id")
+    if op == "set":
+        col.captures.set(qs)
+    elif op == "remove":
         col.captures.remove(*qs)
-    else:
+    else:  # default/add
         col.captures.add(*qs)

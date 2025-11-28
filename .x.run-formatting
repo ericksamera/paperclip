@@ -1,0 +1,3 @@
+#!/bin/bash
+
+npm run format; black .; ruff check --fix; ~/gather.py --json-out --quiet

@@ -39,11 +39,11 @@
         <button type="button" class="theme-btn" data-t="dark"  aria-pressed="true">🌙 Dark</button>
       </div>
 
-      <form method="post" action="{% url 'debug_clear_cache' %}" style="display:inline-block;margin-left:8px"
+      <form method="post" action="{% url 'pc_clear_cache' %}" style="display:inline-block;margin-left:8px"
             onsubmit="return confirm('Clear cached Crossref responses?');">
         {% csrf_token %}<button class="btn btn--subtle">Clear cache</button>
       </form>
-      <form method="post" action="{% url 'debug_wipe_all' %}" style="display:inline-block;margin-left:8px"
+      <form method="post" action="{% url 'pc_wipe_all' %}" style="display:inline-block;margin-left:8px"
             onsubmit="return confirm('WIPE ALL captures, references, analysis outputs and artifacts? This cannot be undone.');">
         {% csrf_token %}<button class="btn btn--danger">Wipe all</button>
       </form>

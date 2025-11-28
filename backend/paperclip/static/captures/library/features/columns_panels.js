@@ -2,7 +2,7 @@
 // Columns drawer (show/hide + reorder) and basic panel wiring.
 // Uses infra/dom + infra/events; no imports from selection.js.
 
-import { qsa, on } from "../infra/dom.js";
+import { qsa } from "../infra/dom.js";
 import { EVENTS } from "../infra/events.js";
 
 // Local storage keys
@@ -20,94 +20,150 @@ function readLS(key, fallback) {
 function writeLS(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
+  } catch {
+    // ignore quota errors
+  }
 }
 
+// Derive a stable column key from a header/cell element
+function colKeyFromEl(el) {
+  if (!el) return null;
+  return el.getAttribute("data-col-key") || el.getAttribute("data-col");
+}
+
+function tableHeadRow() {
+  return (
+    document.querySelector("#pc-table thead tr") ||
+    document.querySelector(".pc-table thead tr") ||
+    document.querySelector("thead tr")
+  );
+}
+
+function tableBody() {
+  return (
+    document.getElementById("pc-body") ||
+    document.querySelector("#pc-table tbody") ||
+    document.querySelector(".pc-table tbody") ||
+    document.querySelector("tbody")
+  );
+}
+
+// Show/hide columns based on vis map { key: true/false }
 function applyVisibility(vis) {
-  // vis is a dict { columnKey: true/false }
-  qsa("[data-col-key]").forEach((el) => {
-    const k = el.getAttribute("data-col-key");
+  const sel =
+    "#pc-table [data-col-key], #pc-table [data-col], " +
+    ".pc-table [data-col-key], .pc-table [data-col]";
+  qsa(sel).forEach((el) => {
+    const k = colKeyFromEl(el);
     if (!k) return;
     const on = vis[k] !== false; // default visible
     el.style.display = on ? "" : "none";
   });
 }
 
+// Reorder headers + cells based on ordered list of keys
 function applyOrder(order) {
   if (!Array.isArray(order) || !order.length) return;
-  const head = document.querySelector("thead tr");
-  const body = document.getElementById("pc-body");
+  const head = tableHeadRow();
+  const body = tableBody();
   if (!head || !body) return;
 
   // Reorder THs
   order.forEach((k) => {
-    const th = head.querySelector(`th[data-col-key="${CSS.escape(k)}"]`);
+    const th =
+      head.querySelector(`th[data-col-key="${CSS.escape(k)}"]`) ||
+      head.querySelector(`th[data-col="${CSS.escape(k)}"]`);
     if (th) head.appendChild(th);
   });
 
   // Reorder each row's TDs to match
   body.querySelectorAll("tr.pc-row").forEach((tr) => {
     order.forEach((k) => {
-      const td = tr.querySelector(`td[data-col-key="${CSS.escape(k)}"]`);
+      const td =
+        tr.querySelector(`td[data-col-key="${CSS.escape(k)}"]`) ||
+        tr.querySelector(`td[data-col="${CSS.escape(k)}"]`);
       if (td) tr.appendChild(td);
     });
   });
 }
 
+// Discover current column keys from the header row
 function currentColumns() {
-  const headers = Array.from(document.querySelectorAll("thead th[data-col-key]"));
-  return headers.map((th) => th.getAttribute("data-col-key")).filter(Boolean);
+  const head = tableHeadRow();
+  if (!head) return [];
+  const headers = Array.from(head.querySelectorAll("th[data-col-key], th[data-col]"));
+  return headers.map((th) => colKeyFromEl(th)).filter(Boolean);
 }
 
+// Build or hydrate the drawer element and wire close handlers
 function buildDrawer() {
   let drawer = document.getElementById("pc-cols-drawer");
-  if (drawer) return drawer;
 
-  drawer = document.createElement("div");
-  drawer.id = "pc-cols-drawer";
-  drawer.className = "pc-drawer";
-  drawer.innerHTML = `
-    <div class="backdrop" aria-hidden="true"></div>
-    <div class="panel" role="dialog" aria-modal="true" aria-label="Columns">
-      <header style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
-        <div>
-          <div style="font-weight:600">Columns</div>
-          <div style="font-size:12px;color:var(--muted-fg,#64748b)">
-            Show, hide, and reorder table columns.
+  // If no server-rendered markup, create it
+  if (!drawer) {
+    drawer = document.createElement("div");
+    drawer.id = "pc-cols-drawer";
+    drawer.className = "pc-drawer";
+    drawer.innerHTML = `
+      <div class="backdrop" aria-hidden="true"></div>
+      <div class="panel" role="dialog" aria-modal="true" aria-label="Columns">
+        <header style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+          <div>
+            <div style="font-weight:600">Columns</div>
+            <div style="font-size:12px;color:var(--muted-fg,#64748b)">
+              Show, hide, and reorder table columns.
+            </div>
           </div>
+          <button type="button" class="btn btn--icon" id="pc-cols-close" aria-label="Close columns panel">
+            ✕
+          </button>
+        </header>
+
+        <ul class="pc-cols-list" id="pc-cols-list"></ul>
+
+        <div style="margin-top:8px;font-size:12px;color:var(--muted-fg,#64748b)">
+          Tip: Press <kbd>C</kbd> while in the table to open this panel.
         </div>
-        <button type="button" class="btn btn--icon" id="pc-cols-close" aria-label="Close columns panel">
-          ✕
-        </button>
-      </header>
 
-      <ul class="pc-cols-list" id="pc-cols-list"></ul>
-
-      <div style="margin-top:8px;font-size:12px;color:var(--muted-fg,#64748b)">
-        Tip: Press <kbd>C</kbd> while in the table to open this panel.
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="btn" id="pc-cols-close-footer">Close</button>
+        </div>
       </div>
+    `;
+    document.body.appendChild(drawer);
+  }
 
-      <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
-        <button type="button" class="btn" id="pc-cols-close-footer">Close</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(drawer);
+  // Only wire close handlers once
+  if (!drawer.__pcColsWired) {
+    drawer.__pcColsWired = true;
 
-  // Basic interactions
-  const close = () => drawer.classList.remove("open");
-  drawer.querySelector(".backdrop")?.addEventListener("click", close);
-  drawer.querySelector("#pc-cols-close")?.addEventListener("click", close);
-  drawer.querySelector("#pc-cols-close-footer")?.addEventListener("click", close);
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && drawer.classList.contains("open")) close();
-  });
+    const close = () => {
+      drawer.classList.remove("open");
+      drawer.setAttribute("aria-hidden", "true");
+    };
+
+    const backdrop =
+      drawer.querySelector(".backdrop") ||
+      drawer.querySelector("#pc-cols-drawer-backdrop");
+    const closeBtn = drawer.querySelector("#pc-cols-close");
+    const closeFooter = drawer.querySelector("#pc-cols-close-footer");
+
+    backdrop?.addEventListener("click", close);
+    closeBtn?.addEventListener("click", close);
+    closeFooter?.addEventListener("click", close);
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && drawer.classList.contains("open")) close();
+    });
+  }
 
   return drawer;
 }
 
 function hydrateList(drawer, order, vis) {
   const ul = drawer.querySelector("#pc-cols-list");
+  if (!ul) return;
+
   ul.innerHTML = "";
   const cols = currentColumns();
 
@@ -168,46 +224,57 @@ function hydrateList(drawer, order, vis) {
 }
 
 export function initPanelsAndColumns() {
-  const toggleBtn = document.getElementById("pc-cols-toggle");
-  if (!toggleBtn) return;
-
   const drawer = buildDrawer();
 
   const savedOrder = readLS(COL_ORDER_KEY, null);
   const savedVis = readLS(COL_VIS_KEY, {});
+
   if (savedOrder) applyOrder(savedOrder);
   applyVisibility(savedVis);
-
   hydrateList(drawer, savedOrder, savedVis);
 
-  // Open/close from toolbar button
-  on(toggleBtn, "click", (e) => {
-    e.preventDefault();
+  // Two possible toggles:
+  //  - legacy: #pc-cols-toggle (e.g. toolbar button)
+  //  - new:    #pc-cols-toggle-table (gear in header)
+  const toolbarToggle = document.getElementById("pc-cols-toggle");
+  const tableToggle = document.getElementById("pc-cols-toggle-table");
+
+  const openDrawer = (e) => {
+    if (e) e.preventDefault();
     hydrateList(
       drawer,
       readLS(COL_ORDER_KEY, currentColumns()),
       readLS(COL_VIS_KEY, {})
     );
     drawer.classList.add("open");
-  });
+    drawer.setAttribute("aria-hidden", "false");
+  };
 
-  // Keyboard shortcut: C opens columns (kept here so selection.js stays focused)
+  toolbarToggle?.addEventListener("click", openDrawer);
+
+  if (tableToggle) {
+    tableToggle.addEventListener("click", openDrawer);
+    tableToggle.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openDrawer(e);
+      }
+    });
+  }
+
+  // Keyboard shortcut: C opens columns (even if there’s no explicit button)
   window.addEventListener("keydown", (e) => {
     const t = (e.target && (e.target.tagName || "")).toLowerCase();
     const typing = t === "input" || t === "textarea" || e.target?.isContentEditable;
     if (typing) return;
+
     if (!drawer.classList.contains("open") && e.key.toLowerCase() === "c") {
       e.preventDefault();
-      hydrateList(
-        drawer,
-        readLS(COL_ORDER_KEY, currentColumns()),
-        readLS(COL_VIS_KEY, {})
-      );
-      drawer.classList.add("open");
+      openDrawer(e);
     }
   });
 
-  // Re-hydrate the list whenever headers change (rare, but safe)
+  // Re-hydrate the list whenever rows/headers change (rare, but safe)
   document.addEventListener(
     EVENTS.ROWS_CHANGED,
     () => {

@@ -57,7 +57,7 @@ def _slug_for_capture(c: Capture) -> str:
 
 
 @require_POST
-def collection_create(request):
+def collection_create(request: HttpRequest) -> HttpResponse:
     name = (request.POST.get("name") or "").strip()
     parent_id = request.POST.get("parent") or None
     if not name:
@@ -68,7 +68,7 @@ def collection_create(request):
 
 
 @require_POST
-def collection_rename(request, pk: int):
+def collection_rename(request: HttpRequest, pk: int) -> HttpResponse:
     col = get_object_or_404(Collection, pk=pk)
     name = (request.POST.get("name") or "").strip()
     if name:
@@ -78,7 +78,7 @@ def collection_rename(request, pk: int):
 
 
 @require_POST
-def collection_delete(request, pk: int):
+def collection_delete(request: HttpRequest, pk: int) -> HttpResponse:
     col = get_object_or_404(Collection, pk=pk)
     force = (request.POST.get("force") or "").strip() == "1"
 
@@ -91,7 +91,7 @@ def collection_delete(request, pk: int):
 
 
 @require_POST
-def collection_assign(request, pk: int):
+def collection_assign(request: HttpRequest, pk: int) -> HttpResponse:
     col = get_object_or_404(Collection, pk=pk)
     op = (request.POST.get("op") or "add").lower()
     ids = request.POST.getlist("ids")
@@ -103,7 +103,7 @@ def collection_assign(request, pk: int):
 
 
 def collection_download_views(
-    request: HttpRequest, pk: str | None = None
+    request: HttpRequest, pk: int | None = None
 ) -> HttpResponse:
     """
     Download a zip of reduced views:
@@ -114,8 +114,8 @@ def collection_download_views(
     if pk is not None:
         col = get_object_or_404(Collection, pk=pk)
         caps = col.captures.all().order_by("-created_at")
-        filename = (col.slug or col.name or "collection").strip() or "collection"
-        filename = f"{filename}.zip"
+        base = _ascii_slug(col.name) or "collection"
+        filename = f"{base}.zip"
     else:
         caps = Capture.objects.all().order_by("-created_at")
         filename = "all_captures_views.zip"
