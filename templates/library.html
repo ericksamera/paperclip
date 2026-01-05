@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Library · Paperclip{% endblock %}
+
+{% block content %}
+<div class="layout">
+  <aside class="sidebar">
+    <div class="panel">
+      <div class="panel__title">Collections</div>
+      <div class="panel__body">
+        <div class="col-item">
+          <a class="{% if not selected_col %}active{% endif %}" href="{{ url_for('library', q=q) }}">All</a>
+          <span class="muted">{{ total }}</span>
+        </div>
+        {% for c in collections %}
+          <div class="col-item">
+            <a class="{% if selected_col and selected_col|int == c.id %}active{% endif %}"
+               href="{{ url_for('library', col=c.id, q=q) }}">{{ c.name }}</a>
+            <span class="muted">{{ c.count }}</span>
+          </div>
+        {% endfor %}
+        <div class="spacer"></div>
+        <a class="btn" href="{{ url_for('collections_page') }}">Manage collections</a>
+      </div>
+    </div>
+  </aside>
+
+  <section class="content">
+    <div class="panel">
+      <div class="panel__title">Library</div>
+      <div class="panel__body">
+        <form class="search" method="get" action="{{ url_for('library') }}">
+          <input type="hidden" name="col" value="{{ selected_col }}" />
+          <input class="search__input" name="q" placeholder="Search title / url / doi / text…" value="{{ q }}" />
+          <button class="btn btn--primary" type="submit">Search</button>
+          <a class="btn" href="{{ url_for('library') }}">Clear</a>
+        </form>
+
+        <div class="muted" style="margin:10px 0 6px;">
+          Showing {{ captures|length }} of {{ total }} result(s)
+          {% if selected_col %} · filtered by collection {{ selected_col }}{% endif %}
+        </div>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Year</th>
+                <th>Journal</th>
+                <th>DOI</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for cap in captures %}
+                <tr>
+                  <td class="title-cell">
+                    <a class="title-link" href="{{ url_for('capture_detail', capture_id=cap.id) }}">{{ cap.title }}</a>
+                    <div class="muted small">
+                      <a href="{{ cap.url }}" target="_blank" rel="noopener noreferrer">{{ cap.url }}</a>
+                    </div>
+                  </td>
+                  <td class="small">{{ cap.year or "" }}</td>
+                  <td class="small">{{ cap.container_title or "" }}</td>
+                  <td class="small">{{ cap.doi or "" }}</td>
+                  <td class="small">{{ cap.updated_at }}</td>
+                </tr>
+              {% endfor %}
+              {% if captures|length == 0 %}
+                <tr>
+                  <td colspan="5" class="muted">No captures yet. Use the extension to save an article.</td>
+                </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="panel-row">
+          <div class="muted small">
+            Tip: the capture detail page lets you assign collections and download artifacts.
+          </div>
+          <div class="exports">
+            {% if selected_col %}
+              <a class="btn" href="{{ url_for('export_bibtex', col=selected_col) }}">Export BibTeX (collection)</a>
+              <a class="btn" href="{{ url_for('export_ris', col=selected_col) }}">Export RIS (collection)</a>
+            {% else %}
+              <a class="btn" href="{{ url_for('export_bibtex') }}">Export BibTeX (all)</a>
+              <a class="btn" href="{{ url_for('export_ris') }}">Export RIS (all)</a>
+            {% endif %}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}

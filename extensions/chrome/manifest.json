@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Paperclip Capture",
+  "name": "Paperclip Capture (Minimal)",
   "version": "0.1.0",
-  "permissions": ["activeTab", "scripting", "storage", "notifications"],
-  "host_permissions": ["<all_urls>"],
+  "description": "Capture a webpage (URL + DOM + main content + meta) to your local Paperclip server.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["<all_urls>", "http://127.0.0.1/*", "http://localhost/*"],
   "action": { "default_title": "Save to Paperclip" },
   "background": { "service_worker": "background.js" },
   "content_scripts": [

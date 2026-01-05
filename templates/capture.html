@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ capture.title }} · Paperclip{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <div class="panel__title">Capture</div>
+  <div class="panel__body">
+    <div class="capture-head">
+      <div>
+        <h2 style="margin:0 0 6px;">{{ capture.title }}</h2>
+        <div class="muted small">
+          <a href="{{ capture.url }}" target="_blank" rel="noopener noreferrer">{{ capture.url }}</a>
+        </div>
+      </div>
+      <div class="capture-actions">
+        <a class="btn" href="{{ url_for('export_capture_bibtex', capture_id=capture.id) }}">BibTeX</a>
+        <a class="btn" href="{{ url_for('export_capture_ris', capture_id=capture.id) }}">RIS</a>
+        <a class="btn" href="{{ url_for('library') }}">Back to Library</a>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel inner">
+        <div class="panel__title">Key fields</div>
+        <div class="panel__body">
+          <div class="kv"><div class="k">ID</div><div class="v mono">{{ capture.id }}</div></div>
+          <div class="kv"><div class="k">DOI</div><div class="v">{{ capture.doi or "" }}</div></div>
+          <div class="kv"><div class="k">Year</div><div class="v">{{ capture.year or "" }}</div></div>
+          <div class="kv"><div class="k">Journal</div><div class="v">{{ capture.container_title or "" }}</div></div>
+          <div class="kv"><div class="k">Created</div><div class="v">{{ capture.created_at }}</div></div>
+          <div class="kv"><div class="k">Updated</div><div class="v">{{ capture.updated_at }}</div></div>
+        </div>
+      </div>
+
+      <div class="panel inner">
+        <div class="panel__title">Artifacts</div>
+        <div class="panel__body">
+          {% if artifact_links|length == 0 %}
+            <div class="muted">No artifacts found.</div>
+          {% else %}
+            <ul class="clean">
+              {% for a in artifact_links %}
+                <li><a href="{{ a.href }}">{{ a.name }}</a></li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+          <div class="muted small" style="margin-top:8px;">
+            Stored under <span class="mono">data/artifacts/{{ capture.id }}/</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:12px;">
+      <div class="panel inner">
+        <div class="panel__title">Collections</div>
+        <div class="panel__body">
+          <form method="post" action="{{ url_for('capture_set_collections', capture_id=capture.id) }}">
+            <div class="col-list">
+              {% for c in collections %}
+                <label class="col-check">
+                  <input type="checkbox" name="collection_ids" value="{{ c.id }}" {% if c.has_it %}checked{% endif %} />
+                  <span>{{ c.name }}</span>
+                </label>
+              {% endfor %}
+              {% if collections|length == 0 %}
+                <div class="muted">No collections yet. Create one first.</div>
+              {% endif %}
+            </div>
+            <div style="display:flex; gap:8px; margin-top:10px; align-items:center;">
+              <button class="btn btn--primary" type="submit">Save collections</button>
+              <a class="btn" href="{{ url_for('collections_page') }}">Manage collections</a>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel inner">
+        <div class="panel__title">Raw meta (stored in DB)</div>
+        <div class="panel__body">
+          <pre class="pre">{{ meta | tojson(indent=2) }}</pre>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{% block title %}Paperclip{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="{{ url_for('library') }}">Paperclip</a>
+        <nav class="nav">
+          <a href="{{ url_for('library') }}">Library</a>
+          <a href="{{ url_for('collections_page') }}">Collections</a>
+          <a href="{{ url_for('export_bibtex') }}">Export BibTeX</a>
+          <a href="{{ url_for('export_ris') }}">Export RIS</a>
+        </nav>
+      </div>
+    </header>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="flash">
+          {% for m in messages %}
+            <div class="flash__msg">{{ m }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <main class="main">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+      <div class="footer__inner">
+        <span class="muted">Local-only · SQLite + artifacts-on-disk</span>
+      </div>
+    </footer>
+  </body>
+</html>
