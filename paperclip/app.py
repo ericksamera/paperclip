@@ -139,10 +139,13 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         total = db.execute(sql_total, tuple(params)).fetchone()["n"]
 
         # rows
-        sql_rows = """
+        sql_rows = (
+            """
             SELECT cap.id, cap.title, cap.url, cap.doi, cap.year, cap.container_title, cap.updated_at
             FROM captures cap
-        """ + join
+        """
+            + join
+        )
         if where:
             sql_rows += " WHERE " + " AND ".join(where)
 
@@ -175,7 +178,10 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             params2.extend([qlike, qlike, qlike, qlike])
 
             total = db.execute(
-                "SELECT COUNT(1) AS n FROM captures cap " + join2 + " WHERE " + " AND ".join(where2),
+                "SELECT COUNT(1) AS n FROM captures cap "
+                + join2
+                + " WHERE "
+                + " AND ".join(where2),
                 tuple(params2),
             ).fetchone()["n"]
 
@@ -207,7 +213,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     @app.get("/captures/<capture_id>/")
     def capture_detail(capture_id: str):
         db = get_db()
-        cap = db.execute("SELECT * FROM captures WHERE id = ?", (capture_id,)).fetchone()
+        cap = db.execute(
+            "SELECT * FROM captures WHERE id = ?", (capture_id,)
+        ).fetchone()
         if not cap:
             abort(404)
 
@@ -240,7 +248,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
                 artifact_links.append(
                     {
                         "name": name,
-                        "href": url_for("artifact_download", capture_id=capture_id, filename=name),
+                        "href": url_for(
+                            "artifact_download", capture_id=capture_id, filename=name
+                        ),
                     }
                 )
 
@@ -256,7 +266,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     @app.post("/captures/<capture_id>/collections/")
     def capture_set_collections(capture_id: str):
         db = get_db()
-        cap = db.execute("SELECT id FROM captures WHERE id = ?", (capture_id,)).fetchone()
+        cap = db.execute(
+            "SELECT id FROM captures WHERE id = ?", (capture_id,)
+        ).fetchone()
         if not cap:
             abort(404)
 
@@ -325,7 +337,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
 
         db = get_db()
         try:
-            db.execute("UPDATE collections SET name = ? WHERE id = ?", (name, collection_id))
+            db.execute(
+                "UPDATE collections SET name = ? WHERE id = ?", (name, collection_id)
+            )
             db.commit()
             flash("Collection renamed.")
         except Exception:
@@ -406,7 +420,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         rows = _fetch_export_rows(col)
         out = captures_to_ris(rows)
         filename = "paperclip.ris" if col is None else f"paperclip-col-{col}.ris"
-        resp = Response(out, mimetype="application/x-research-info-systems; charset=utf-8")
+        resp = Response(
+            out, mimetype="application/x-research-info-systems; charset=utf-8"
+        )
         resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         return resp
 
@@ -421,7 +437,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             abort(404)
         out = captures_to_bibtex([dict(row)])
         resp = Response(out, mimetype="application/x-bibtex; charset=utf-8")
-        resp.headers["Content-Disposition"] = f'attachment; filename="paperclip-{capture_id[:8]}.bib"'
+        resp.headers["Content-Disposition"] = (
+            f'attachment; filename="paperclip-{capture_id[:8]}.bib"'
+        )
         return resp
 
     @app.get("/captures/<capture_id>/ris/")
@@ -434,8 +452,12 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         if not row:
             abort(404)
         out = captures_to_ris([dict(row)])
-        resp = Response(out, mimetype="application/x-research-info-systems; charset=utf-8")
-        resp.headers["Content-Disposition"] = f'attachment; filename="paperclip-{capture_id[:8]}.ris"'
+        resp = Response(
+            out, mimetype="application/x-research-info-systems; charset=utf-8"
+        )
+        resp.headers["Content-Disposition"] = (
+            f'attachment; filename="paperclip-{capture_id[:8]}.ris"'
+        )
         return resp
 
     # ----------------------------- API -----------------------------
@@ -481,7 +503,10 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     @app.get("/api/captures/<capture_id>/")
     def api_captures_get(capture_id: str):
         db = get_db()
-        cap = db.execute("SELECT id, title, url, doi, year, meta_json FROM captures WHERE id = ?", (capture_id,)).fetchone()
+        cap = db.execute(
+            "SELECT id, title, url, doi, year, meta_json FROM captures WHERE id = ?",
+            (capture_id,),
+        ).fetchone()
         if not cap:
             resp = jsonify({"detail": "Not found"})
             resp.status_code = 404
@@ -492,7 +517,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         p = Path(app.config["ARTIFACTS_DIR"]) / capture_id / "reduced.json"
         if p.exists():
             try:
-                reduced = json.loads(p.read_text(encoding="utf-8", errors="ignore") or "null")
+                reduced = json.loads(
+                    p.read_text(encoding="utf-8", errors="ignore") or "null"
+                )
             except Exception:
                 reduced = None
 

@@ -61,7 +61,14 @@ def captures_to_bibtex(rows: list[dict[str, Any]]) -> str:
         if url:
             fields.append(("url", _escape_bibtex(url)))
         if keywords:
-            fields.append(("keywords", _escape_bibtex(", ".join(str(x) for x in keywords if str(x).strip()))))
+            fields.append(
+                (
+                    "keywords",
+                    _escape_bibtex(
+                        ", ".join(str(x) for x in keywords if str(x).strip())
+                    ),
+                )
+            )
 
         body = ",\n".join([f"  {k} = {{{v}}}" for k, v in fields])
         entries.append(f"@{entry_type}{{{key},\n{body}\n}}")

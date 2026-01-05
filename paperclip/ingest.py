@@ -34,14 +34,20 @@ def _write_text(p: Path, text: str) -> None:
 
 
 def _write_json(p: Path, obj: Any) -> None:
-    p.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", errors="ignore")
+    p.write_text(
+        json.dumps(obj, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        errors="ignore",
+    )
 
 
 def _as_dict(v: Any) -> dict[str, Any]:
     return v if isinstance(v, dict) else {}
 
 
-def _merge_meta(client_meta: dict[str, Any], head_meta: dict[str, Any]) -> dict[str, Any]:
+def _merge_meta(
+    client_meta: dict[str, Any], head_meta: dict[str, Any]
+) -> dict[str, Any]:
     """
     Merge meta with head_meta winning on key collisions.
     Keys are normalized to lowercase strings.
@@ -108,7 +114,9 @@ def ingest_capture(
     content_text = html_to_text(content_html)
 
     # Dedupe: canonical URL hash
-    row = db.execute("SELECT id, created_at FROM captures WHERE url_hash = ?", (h,)).fetchone()
+    row = db.execute(
+        "SELECT id, created_at FROM captures WHERE url_hash = ?", (h,)
+    ).fetchone()
     if row:
         capture_id = row["id"]
         created = False
@@ -148,7 +156,9 @@ def ingest_capture(
             "content_html_chars": len(content_html or ""),
             "content_text_chars": len(content_text or ""),
         },
-        "client": payload.get("client") if isinstance(payload.get("client"), dict) else {},
+        "client": (
+            payload.get("client") if isinstance(payload.get("client"), dict) else {}
+        ),
     }
     _write_json(cap_dir / "reduced.json", reduced)
 

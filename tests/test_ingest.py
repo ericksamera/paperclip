@@ -26,9 +26,7 @@ def test_post_capture_writes_artifacts_and_extracts_fields(client, app):
         "source_url": "https://example.org/post?utm_source=x#frag",
         "dom_html": DOM_FOR_POST,
         "extraction": {
-            "meta": {
-                "title": "Client Title"
-            },
+            "meta": {"title": "Client Title"},
             "content_html": CONTENT_FOR_POST,
             "references": [],
         },
@@ -36,7 +34,9 @@ def test_post_capture_writes_artifacts_and_extracts_fields(client, app):
         "client": {"ext": "chrome", "v": "0.1.0"},
     }
 
-    resp = client.post("/api/captures/", data=json.dumps(payload), content_type="application/json")
+    resp = client.post(
+        "/api/captures/", data=json.dumps(payload), content_type="application/json"
+    )
     assert resp.status_code in (200, 201)
     data = resp.get_json()
     assert data and data.get("capture_id")
@@ -66,8 +66,12 @@ def test_dedupe_by_canonical_url_hash_returns_same_capture_id(client):
         "client": {"ext": "chrome", "v": "0.1.0"},
     }
 
-    r1 = client.post("/api/captures/", data=json.dumps(payload), content_type="application/json")
-    r2 = client.post("/api/captures/", data=json.dumps(payload), content_type="application/json")
+    r1 = client.post(
+        "/api/captures/", data=json.dumps(payload), content_type="application/json"
+    )
+    r2 = client.post(
+        "/api/captures/", data=json.dumps(payload), content_type="application/json"
+    )
     assert r1.status_code in (200, 201)
     assert r2.status_code in (200, 201)
 
