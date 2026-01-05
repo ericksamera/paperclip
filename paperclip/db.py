@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS collection_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_captures_updated_at ON captures(updated_at);
+CREATE INDEX IF NOT EXISTS idx_captures_doi ON captures(doi);
 CREATE INDEX IF NOT EXISTS idx_collection_items_capture ON collection_items(capture_id);
 """
 
@@ -71,6 +72,16 @@ def init_db(db_path: Path) -> bool:
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.executescript(SCHEMA_SQL)
+
+        # Prefer DOI-based de-dupe when DOI exists, but keep startup resilient if
+        # an existing DB already contains duplicate DOIs.
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_captures_doi ON captures(doi) WHERE doi <> ''"
+            )
+        except sqlite3.IntegrityError:
+            # Existing duplicates; keep running (app-level de-dupe will still help).
+            pass
 
         fts_enabled = True
         try:

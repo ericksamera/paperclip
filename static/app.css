@@ -19,15 +19,34 @@
 * {
   box-sizing: border-box;
 }
+
 html,
 body {
   height: 100%;
 }
+
 body {
   margin: 0;
   font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.45;
   background: var(--bg);
   color: var(--fg);
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+}
+h1 {
+  font-size: 18px;
+}
+h2 {
+  font-size: 16px;
+}
+h3 {
+  font-size: 14px;
 }
 
 a {
@@ -59,6 +78,7 @@ a:hover {
   font-weight: 800;
   letter-spacing: 0.4px;
   color: var(--fg);
+  font-size: 15px;
 }
 .nav {
   display: flex;
@@ -66,6 +86,7 @@ a:hover {
 }
 .nav a {
   color: var(--muted);
+  font-size: 13px;
 }
 .nav a:hover {
   color: var(--fg);
@@ -98,6 +119,7 @@ a:hover {
   padding: 8px 10px;
   border-radius: 10px;
   margin-bottom: 8px;
+  font-size: 13px;
 }
 
 .panel {
@@ -113,6 +135,7 @@ a:hover {
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
   font-weight: 700;
+  font-size: 13px;
 }
 .panel__body {
   padding: 10px;
@@ -122,7 +145,7 @@ a:hover {
   color: var(--muted);
 }
 .small {
-  font-size: 12px;
+  font-size: 11px;
 }
 .mono {
   font-family: var(--mono);
@@ -141,6 +164,7 @@ a:hover {
   cursor: pointer;
   user-select: none;
   text-decoration: none;
+  font-size: 13px;
 }
 .btn:hover {
   border-color: color-mix(in oklab, var(--line) 50%, var(--fg) 50%);
@@ -186,6 +210,7 @@ a:hover {
   color: var(--fg);
   padding: 0 10px;
   outline: none;
+  font-size: 13px;
 }
 .search__input:focus {
   border-color: var(--accent);
@@ -206,10 +231,11 @@ a:hover {
   padding: 8px 8px;
   border-bottom: 1px solid var(--line);
   vertical-align: top;
+  font-size: 13px;
 }
 .table th {
   text-align: left;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -234,6 +260,7 @@ a:hover {
 .title-link {
   font-weight: 700;
   color: var(--fg);
+  font-size: 13px;
 }
 .title-link:hover {
   color: var(--accent);
@@ -248,6 +275,7 @@ a:hover {
 }
 .col-item a {
   color: var(--muted);
+  font-size: 13px;
 }
 .col-item a.active {
   color: var(--fg);
@@ -306,13 +334,14 @@ a:hover {
 }
 .k {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 .v {
   min-width: 0;
   overflow-wrap: anywhere;
+  font-size: 13px;
 }
 
 .clean {
@@ -327,6 +356,7 @@ a:hover {
   display: flex;
   gap: 10px;
   align-items: center;
+  font-size: 13px;
 }
 
 .pre {
@@ -338,7 +368,7 @@ a:hover {
   overflow: auto;
   max-height: 320px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
 }
 

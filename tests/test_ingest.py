@@ -18,6 +18,21 @@ DOM_FOR_POST = """<!doctype html>
 </html>
 """
 
+
+DOM_FOR_POST_NO_DOI = """<!doctype html>
+<html>
+  <head>
+    <title>Title Tag</title>
+    <meta name="citation_title" content="Server-Side Title">
+    <meta name="prism.publicationdate" content="2020-11-02">
+    <meta name="citation_journal_title" content="Journal of Testing">
+    <meta name="citation_keywords" content="alpha, beta; gamma">
+  </head>
+  <body><article><p>Hello A.</p><p>Hello B.</p></article></body>
+</html>
+"""
+
+
 CONTENT_FOR_POST = "<div><p>Hello A.</p><p>Hello B.</p></div>"
 
 
@@ -57,10 +72,10 @@ def test_post_capture_writes_artifacts_and_extracts_fields(client, app):
     assert reduced["keywords"] == ["alpha", "beta", "gamma"]
 
 
-def test_dedupe_by_canonical_url_hash_returns_same_capture_id(client):
+def test_dedupe_by_canonical_url_hash_returns_same_capture_id_when_no_doi(client):
     payload = {
         "source_url": "https://example.org/post?utm_source=x#frag",
-        "dom_html": DOM_FOR_POST,
+        "dom_html": DOM_FOR_POST_NO_DOI,
         "extraction": {"meta": {}, "content_html": CONTENT_FOR_POST, "references": []},
         "rendered": {},
         "client": {"ext": "chrome", "v": "0.1.0"},
@@ -71,6 +86,36 @@ def test_dedupe_by_canonical_url_hash_returns_same_capture_id(client):
     )
     r2 = client.post(
         "/api/captures/", data=json.dumps(payload), content_type="application/json"
+    )
+    assert r1.status_code in (200, 201)
+    assert r2.status_code in (200, 201)
+
+    id1 = r1.get_json()["capture_id"]
+    id2 = r2.get_json()["capture_id"]
+    assert id1 == id2
+
+
+def test_dedupe_by_doi_returns_same_capture_id_for_different_urls(client):
+    payload1 = {
+        "source_url": "https://example.org/post?utm_source=x#frag",
+        "dom_html": DOM_FOR_POST,
+        "extraction": {"meta": {}, "content_html": CONTENT_FOR_POST, "references": []},
+        "rendered": {},
+        "client": {"ext": "chrome", "v": "0.1.0"},
+    }
+    payload2 = {
+        "source_url": "https://publisher.example.com/articles/abc123?ref=whatever",
+        "dom_html": DOM_FOR_POST,
+        "extraction": {"meta": {}, "content_html": CONTENT_FOR_POST, "references": []},
+        "rendered": {},
+        "client": {"ext": "chrome", "v": "0.1.0"},
+    }
+
+    r1 = client.post(
+        "/api/captures/", data=json.dumps(payload1), content_type="application/json"
+    )
+    r2 = client.post(
+        "/api/captures/", data=json.dumps(payload2), content_type="application/json"
     )
     assert r1.status_code in (200, 201)
     assert r2.status_code in (200, 201)
