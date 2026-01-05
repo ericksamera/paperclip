@@ -71,6 +71,18 @@ def _is_safe_capture_id(s: str) -> bool:
     return re.fullmatch(r"[A-Za-z0-9-]{1,64}", s) is not None
 
 
+def _normalize_capture_ids(capture_ids: list[str]) -> list[str]:
+    ids = [c.strip() for c in (capture_ids or []) if _is_safe_capture_id(c.strip())]
+    seen: set[str] = set()
+    out: list[str] = []
+    for cid in ids:
+        if cid in seen:
+            continue
+        seen.add(cid)
+        out.append(cid)
+    return out
+
+
 def _safe_next_url(next_url: str | None) -> str | None:
     if not next_url:
         return None
@@ -130,21 +142,52 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         except Exception:
             return False
 
+    def _filter_existing_capture_ids(db, capture_ids: list[str]) -> list[str]:
+        ids = _normalize_capture_ids(capture_ids)
+        if not ids:
+            return []
+
+        existing: set[str] = set()
+        for chunk in _chunks(ids, 900):
+            ph = ",".join(["?"] * len(chunk))
+            rows = db.execute(
+                f"SELECT id FROM captures WHERE id IN ({ph})", chunk
+            ).fetchall()
+            for r in rows:
+                existing.add(r["id"])
+        return [cid for cid in ids if cid in existing]
+
+    def _fetch_export_rows_by_ids(db, capture_ids: list[str]) -> list[dict[str, Any]]:
+        ids = _filter_existing_capture_ids(db, capture_ids)
+        if not ids:
+            return []
+
+        out: list[dict[str, Any]] = []
+        for chunk in _chunks(ids, 900):
+            ph = ",".join(["?"] * len(chunk))
+            rows = rows_to_dicts(
+                db.execute(
+                    f"""
+                    SELECT id, title, url, doi, year, container_title, meta_json
+                    FROM captures
+                    WHERE id IN ({ph})
+                    """,
+                    tuple(chunk),
+                ).fetchall()
+            )
+            by_id = {r.get("id"): r for r in rows}
+            for cid in chunk:
+                r = by_id.get(cid)
+                if r:
+                    out.append(r)
+        return out
+
     def _delete_captures_by_id(capture_ids: list[str]) -> tuple[int, list[str]]:
         """
         Deletes capture rows from DB and removes their artifacts dirs.
         Returns: (deleted_row_count, artifact_delete_errors)
         """
-        ids = [c.strip() for c in (capture_ids or []) if _is_safe_capture_id(c.strip())]
-        # Deduplicate (keep stable order)
-        seen: set[str] = set()
-        ids_u: list[str] = []
-        for cid in ids:
-            if cid in seen:
-                continue
-            seen.add(cid)
-            ids_u.append(cid)
-
+        ids_u = _normalize_capture_ids(capture_ids)
         if not ids_u:
             return 0, []
 
@@ -421,68 +464,87 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             flash(f"Deleted {deleted} capture(s).")
         return redirect(back)
 
-    @app.get("/collections/")
-    def collections_page():
-        db = get_db()
-        collections = rows_to_dicts(
-            db.execute(
-                """
-                SELECT c.id, c.name, COUNT(ci.capture_id) AS count
-                FROM collections c
-                LEFT JOIN collection_items ci ON ci.collection_id = c.id
-                GROUP BY c.id
-                ORDER BY c.name COLLATE NOCASE ASC
-                """
-            ).fetchall()
-        )
-        return render_template("collections.html", collections=collections)
-
-    @app.post("/collections/create/")
-    def collections_create():
-        name = (request.form.get("name") or "").strip()
-        if not name:
-            flash("Collection name is required.")
-            return redirect(url_for("collections_page"))
+    @app.post("/captures/collections/add/")
+    def captures_add_to_collection():
+        capture_ids = request.form.getlist("capture_ids")
+        collection_id = _parse_int(request.form.get("collection_id"), -1)
+        next_url = _safe_next_url(request.form.get("next"))
+        back = next_url or url_for("library")
 
         db = get_db()
+
+        ids = _filter_existing_capture_ids(db, capture_ids)
+        if not ids:
+            flash("No captures selected.")
+            return redirect(back)
+
+        if collection_id <= 0:
+            flash("Select a collection first.")
+            return redirect(back)
+
+        col = db.execute(
+            "SELECT id, name FROM collections WHERE id = ?",
+            (collection_id,),
+        ).fetchone()
+        if not col:
+            flash("Collection not found.")
+            return redirect(back)
+
         try:
-            db.execute(
-                "INSERT INTO collections (name, created_at) VALUES (?, datetime('now'))",
-                (name,),
-            )
+            for cid in ids:
+                db.execute(
+                    "INSERT OR IGNORE INTO collection_items (collection_id, capture_id, added_at) VALUES (?, ?, datetime('now'))",
+                    (collection_id, cid),
+                )
             db.commit()
-            flash("Collection created.")
         except Exception:
             db.rollback()
-            flash("Collection name already exists.")
-        return redirect(url_for("collections_page"))
+            raise
 
-    @app.post("/collections/<int:collection_id>/rename/")
-    def collections_rename(collection_id: int):
-        name = (request.form.get("name") or "").strip()
-        if not name:
-            flash("New name is required.")
-            return redirect(url_for("collections_page"))
+        flash(f"Added {len(ids)} capture(s) to “{col['name']}”.")
+        return redirect(back)
+
+    @app.post("/captures/collections/remove/")
+    def captures_remove_from_collection():
+        capture_ids = request.form.getlist("capture_ids")
+        collection_id = _parse_int(request.form.get("collection_id"), -1)
+        next_url = _safe_next_url(request.form.get("next"))
+        back = next_url or url_for("library")
 
         db = get_db()
+
+        ids = _normalize_capture_ids(capture_ids)
+        if not ids:
+            flash("No captures selected.")
+            return redirect(back)
+
+        if collection_id <= 0:
+            flash("Select a collection first.")
+            return redirect(back)
+
+        col = db.execute(
+            "SELECT id, name FROM collections WHERE id = ?",
+            (collection_id,),
+        ).fetchone()
+        if not col:
+            flash("Collection not found.")
+            return redirect(back)
+
         try:
-            db.execute(
-                "UPDATE collections SET name = ? WHERE id = ?", (name, collection_id)
-            )
+            for chunk in _chunks(ids, 900):
+                ph = ",".join(["?"] * len(chunk))
+                params = tuple([collection_id] + chunk)
+                db.execute(
+                    f"DELETE FROM collection_items WHERE collection_id = ? AND capture_id IN ({ph})",
+                    params,
+                )
             db.commit()
-            flash("Collection renamed.")
         except Exception:
             db.rollback()
-            flash("Rename failed (name might already exist).")
-        return redirect(url_for("collections_page"))
+            raise
 
-    @app.post("/collections/<int:collection_id>/delete/")
-    def collections_delete(collection_id: int):
-        db = get_db()
-        db.execute("DELETE FROM collections WHERE id = ?", (collection_id,))
-        db.commit()
-        flash("Collection deleted.")
-        return redirect(url_for("collections_page"))
+        flash(f"Removed {len(ids)} capture(s) from “{col['name']}”.")
+        return redirect(back)
 
     # ----------------------------- Artifact files -----------------------------
     @app.get("/captures/<capture_id>/artifacts/<path:filename>")
@@ -555,6 +617,44 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
         return resp
 
+    @app.post("/exports/bibtex/selected/")
+    def export_bibtex_selected():
+        capture_ids = request.form.getlist("capture_ids")
+        db = get_db()
+        rows = _fetch_export_rows_by_ids(db, capture_ids)
+        if not rows:
+            return Response(
+                "No captures selected.",
+                status=400,
+                mimetype="text/plain; charset=utf-8",
+            )
+        out = captures_to_bibtex(rows)
+        resp = Response(out, mimetype="application/x-bibtex; charset=utf-8")
+        resp.headers["Content-Disposition"] = (
+            'attachment; filename="paperclip-selected.bib"'
+        )
+        return resp
+
+    @app.post("/exports/ris/selected/")
+    def export_ris_selected():
+        capture_ids = request.form.getlist("capture_ids")
+        db = get_db()
+        rows = _fetch_export_rows_by_ids(db, capture_ids)
+        if not rows:
+            return Response(
+                "No captures selected.",
+                status=400,
+                mimetype="text/plain; charset=utf-8",
+            )
+        out = captures_to_ris(rows)
+        resp = Response(
+            out, mimetype="application/x-research-info-systems; charset=utf-8"
+        )
+        resp.headers["Content-Disposition"] = (
+            'attachment; filename="paperclip-selected.ris"'
+        )
+        return resp
+
     @app.get("/captures/<capture_id>/bibtex/")
     def export_capture_bibtex(capture_id: str):
         db = get_db()
@@ -588,6 +688,70 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             f'attachment; filename="paperclip-{capture_id[:8]}.ris"'
         )
         return resp
+
+    # ----------------------------- Collections page -----------------------------
+    @app.get("/collections/")
+    def collections_page():
+        db = get_db()
+        collections = rows_to_dicts(
+            db.execute(
+                """
+                SELECT c.id, c.name, COUNT(ci.capture_id) AS count
+                FROM collections c
+                LEFT JOIN collection_items ci ON ci.collection_id = c.id
+                GROUP BY c.id
+                ORDER BY c.name COLLATE NOCASE ASC
+                """
+            ).fetchall()
+        )
+        return render_template("collections.html", collections=collections)
+
+    @app.post("/collections/create/")
+    def collections_create():
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            flash("Collection name is required.")
+            return redirect(url_for("collections_page"))
+
+        db = get_db()
+        try:
+            db.execute(
+                "INSERT INTO collections (name, created_at) VALUES (?, datetime('now'))",
+                (name,),
+            )
+            db.commit()
+            flash("Collection created.")
+        except Exception:
+            db.rollback()
+            flash("Collection name already exists.")
+        return redirect(url_for("collections_page"))
+
+    @app.post("/collections/<int:collection_id>/rename/")
+    def collections_rename(collection_id: int):
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            flash("New name is required.")
+            return redirect(url_for("collections_page"))
+
+        db = get_db()
+        try:
+            db.execute(
+                "UPDATE collections SET name = ? WHERE id = ?", (name, collection_id)
+            )
+            db.commit()
+            flash("Collection renamed.")
+        except Exception:
+            db.rollback()
+            flash("Rename failed (name might already exist).")
+        return redirect(url_for("collections_page"))
+
+    @app.post("/collections/<int:collection_id>/delete/")
+    def collections_delete(collection_id: int):
+        db = get_db()
+        db.execute("DELETE FROM collections WHERE id = ?", (collection_id,))
+        db.commit()
+        flash("Collection deleted.")
+        return redirect(url_for("collections_page"))
 
     # ----------------------------- API -----------------------------
     @app.get("/api/healthz/")

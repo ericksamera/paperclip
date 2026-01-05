@@ -1,184 +1,307 @@
-{% extends "base.html" %} {% block title %}Library · Paperclip{% endblock %} {%
-block content %}
-<div class="layout">
-  <aside class="sidebar">
-    <div class="panel">
-      <div class="panel__title">Collections</div>
-      <div class="panel__body">
-        <div class="col-item">
-          <a
-            class="{% if not selected_col %}active{% endif %}"
-            href="{{ url_for('library', q=q) }}"
-            >All</a
-          >
-          <span class="muted">{{ total }}</span>
-        </div>
-        {% for c in collections %}
-        <div class="col-item">
-          <a
-            class="{% if selected_col and selected_col|int == c.id %}active{% endif %}"
-            href="{{ url_for('library', col=c.id, q=q) }}"
-            >{{ c.name }}</a
-          >
-          <span class="muted">{{ c.count }}</span>
-        </div>
-        {% endfor %}
-        <div class="spacer"></div>
-        <a class="btn" href="{{ url_for('collections_page') }}"
-          >Manage collections</a
-        >
-      </div>
-    </div>
-  </aside>
-
-  <section class="content">
-    <div class="panel">
-      <div class="panel__title">Library</div>
-      <div class="panel__body">
-        <form class="search" method="get" action="{{ url_for('library') }}">
-          <input type="hidden" name="col" value="{{ selected_col }}" />
-          <input
-            class="search__input"
-            name="q"
-            placeholder="Search title / url / doi / text…"
-            value="{{ q }}"
-          />
-          <button class="btn btn--primary" type="submit">Search</button>
-          <a class="btn" href="{{ url_for('library') }}">Clear</a>
-        </form>
-
-        <div class="muted" style="margin: 10px 0 6px">
-          Showing {{ captures|length }} of {{ total }} result(s) {% if
-          selected_col %} · filtered by collection {{ selected_col }}{% endif %}
-        </div>
-
-        <form
-          method="post"
-          action="{{ url_for('captures_delete_selected') }}"
-          onsubmit="
-            return confirm(
-              'Delete selected capture(s)? This cannot be undone.',
-            );
-          "
-        >
-          <input type="hidden" name="next" value="{{ request.full_path }}" />
-
-          <div class="panel-row" style="margin: 10px 0 10px">
-            <label class="row muted small" style="gap: 8px">
-              <input id="pc-select-all" type="checkbox" />
-              <span>Select all on page</span>
-            </label>
-            <button class="btn btn--danger" type="submit">
-              Delete selected
-            </button>
-          </div>
-
-          <div class="table-wrap">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th class="sel"></th>
-                  <th>Title</th>
-                  <th>Year</th>
-                  <th>Journal</th>
-                  <th>DOI</th>
-                  <th>Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for cap in captures %}
-                <tr>
-                  <td class="sel">
-                    <input
-                      class="cap-check"
-                      type="checkbox"
-                      name="capture_ids"
-                      value="{{ cap.id }}"
-                    />
-                  </td>
-                  <td class="title-cell">
-                    <a
-                      class="title-link"
-                      href="{{ url_for('capture_detail', capture_id=cap.id) }}"
-                      >{{ cap.title }}</a
-                    >
-                    <div class="muted small">
-                      <a
-                        href="{{ cap.url }}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        >{{ cap.url }}</a
-                      >
-                    </div>
-                  </td>
-                  <td class="small">{{ cap.year or "" }}</td>
-                  <td class="small">{{ cap.container_title or "" }}</td>
-                  <td class="small">{{ cap.doi or "" }}</td>
-                  <td class="small">{{ cap.updated_at }}</td>
-                </tr>
-                {% endfor %} {% if captures|length == 0 %}
-                <tr>
-                  <td colspan="6" class="muted">
-                    No captures yet. Use the extension to save an article.
-                  </td>
-                </tr>
-                {% endif %}
-              </tbody>
-            </table>
-          </div>
-        </form>
-
-        <div class="panel-row">
-          <div class="muted small">
-            Tip: the capture detail page lets you assign collections and
-            download artifacts.
-          </div>
-          <div class="exports">
-            {% if selected_col %}
+{% extends "base.html" %} {% block title %}Library · Paperclip{% endblock %}
+{% block content %}
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="panel">
+        <div class="panel__title">Collections</div>
+        <div class="panel__body">
+          <div class="col-item">
             <a
-              class="btn"
-              href="{{ url_for('export_bibtex', col=selected_col) }}"
-              >Export BibTeX (collection)</a
+              class="{% if not selected_col %}active{% endif %}"
+              href="{{ url_for('library', q=q) }}"
+              >All</a
             >
-            <a class="btn" href="{{ url_for('export_ris', col=selected_col) }}"
-              >Export RIS (collection)</a
-            >
-            {% else %}
-            <a class="btn" href="{{ url_for('export_bibtex') }}"
-              >Export BibTeX (all)</a
-            >
-            <a class="btn" href="{{ url_for('export_ris') }}"
-              >Export RIS (all)</a
-            >
+            <span class="muted">{{ total }}</span>
+          </div>
+          {% for c in collections %}
+            <div class="col-item">
+              <a
+                class="{% if selected_col and selected_col|int == c.id %}active{% endif %}"
+                href="{{ url_for('library', col=c.id, q=q) }}"
+                >{{ c.name }}</a
+              >
+              <span class="muted">{{ c.count }}</span>
+            </div>
+          {% endfor %}
+          <div class="spacer"></div>
+          <a class="btn" href="{{ url_for('collections_page') }}"
+            >Manage collections</a
+          >
+        </div>
+      </div>
+    </aside>
+
+    <section class="content">
+      <div class="panel">
+        <div class="panel__title">Library</div>
+        <div class="panel__body">
+          <form class="search" method="get" action="{{ url_for('library') }}">
+            <input type="hidden" name="col" value="{{ selected_col }}" />
+            <input
+              class="search__input"
+              name="q"
+              placeholder="Search title / url / doi / text…"
+              value="{{ q }}"
+            />
+            <button class="btn btn--primary" type="submit">Search</button>
+            <a class="btn" href="{{ url_for('library') }}">Clear</a>
+          </form>
+
+          <div class="muted" style="margin: 10px 0 6px">
+            Showing {{ captures|length }} of {{ total }} result(s)
+            {%
+              if
+              selected_col
+            %}
+              · filtered by collection {{ selected_col }}
             {% endif %}
           </div>
+
+          <form
+            method="post"
+            action="{{ url_for('captures_delete_selected') }}"
+          >
+            <input type="hidden" name="next" value="{{ request.full_path }}" />
+
+            <div class="bulkbar">
+              <label class="row muted small" style="gap: 8px">
+                <input id="pc-select-all" type="checkbox" />
+                <span>Select all on page</span>
+                <span class="muted" style="margin-left: 6px">·</span>
+                <span class="muted"
+                  ><span id="pc-selected-count">0</span> selected</span
+                >
+              </label>
+
+              <div class="bulk-actions">
+                <select
+                  id="pc-collection"
+                  class="select"
+                  name="collection_id"
+                  {%
+                    if
+                    not
+                    collections
+                  %}
+                    disabled
+                  {% endif %}
+                >
+                  <option value="">Collection…</option>
+
+                  {% for c in collections %}
+                    <option
+                      value="{{ c.id }}"
+                      {% if selected_col is not none and (selected_col|int(-1) == c.id|int) %}selected{% endif %}
+                    >
+                      {{ c.name }}
+                    </option>
+                  {% endfor %}
+                </select>
+
+                <button
+                  id="pc-add-btn"
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('captures_add_to_collection') }}"
+                >
+                  Add
+                </button>
+
+                <button
+                  id="pc-remove-btn"
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('captures_remove_from_collection') }}"
+                >
+                  Remove
+                </button>
+
+                <button
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('export_bibtex_selected') }}"
+                  formtarget="_blank"
+                  data-requires="selection"
+                >
+                  BibTeX
+                </button>
+
+                <button
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('export_ris_selected') }}"
+                  formtarget="_blank"
+                  data-requires="selection"
+                >
+                  RIS
+                </button>
+
+                <button
+                  class="btn btn--danger"
+                  type="submit"
+                  formaction="{{ url_for('captures_delete_selected') }}"
+                  data-requires="selection"
+                  onclick="
+                  return confirm(
+                    'Delete selected capture(s)? This cannot be undone.',
+                  );
+                "
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th class="sel"></th>
+                    <th>Title</th>
+                    <th>Year</th>
+                    <th>Journal</th>
+                    <th>DOI</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for cap in captures %}
+                    <tr>
+                      <td class="sel">
+                        <input
+                          class="cap-check"
+                          type="checkbox"
+                          name="capture_ids"
+                          value="{{ cap.id }}"
+                        />
+                      </td>
+                      <td class="title-cell">
+                        <a
+                          class="title-link"
+                          href="{{ url_for('capture_detail', capture_id=cap.id) }}"
+                          >{{ cap.title }}</a
+                        >
+                        <div class="muted small">
+                          <a
+                            href="{{ cap.url }}"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            >{{ cap.url }}</a
+                          >
+                        </div>
+                      </td>
+                      <td class="small">{{ cap.year or "" }}</td>
+                      <td class="small">{{ cap.container_title or "" }}</td>
+                      <td class="small">{{ cap.doi or "" }}</td>
+                      <td class="small">{{ cap.updated_at }}</td>
+                    </tr>
+                  {% endfor %}
+                  {% if captures|length == 0 %}
+                    <tr>
+                      <td colspan="6" class="muted">
+                        No captures yet. Use the extension to save an article.
+                      </td>
+                    </tr>
+                  {% endif %}
+                </tbody>
+              </table>
+            </div>
+          </form>
+
+          <div class="panel-row">
+            <div class="muted small">
+              Tip: use the checkboxes + bulk actions to organize and export.
+            </div>
+            <div class="exports">
+              {% if selected_col %}
+                <a
+                  class="btn"
+                  href="{{ url_for('export_bibtex', col=selected_col) }}"
+                  >Export BibTeX (collection)</a
+                >
+                <a
+                  class="btn"
+                  href="{{ url_for('export_ris', col=selected_col) }}"
+                  >Export RIS (collection)</a
+                >
+              {% else %}
+                <a class="btn" href="{{ url_for('export_bibtex') }}"
+                  >Export BibTeX (all)</a
+                >
+                <a class="btn" href="{{ url_for('export_ris') }}"
+                  >Export RIS (all)</a
+                >
+              {% endif %}
+            </div>
+          </div>
+
+          <script>
+            (function () {
+              const toggle = document.getElementById("pc-select-all");
+              const checks = Array.from(
+                document.querySelectorAll("input.cap-check"),
+              );
+              const selectedCount =
+                document.getElementById("pc-selected-count");
+              const collectionSel = document.getElementById("pc-collection");
+              const addBtn = document.getElementById("pc-add-btn");
+              const removeBtn = document.getElementById("pc-remove-btn");
+              const needsSelection = Array.from(
+                document.querySelectorAll("[data-requires='selection']"),
+              );
+
+              function getSelectedCount() {
+                return checks.filter((c) => c.checked).length;
+              }
+
+              function syncSelectAll() {
+                if (!toggle) return;
+                const n = checks.length;
+                const k = getSelectedCount();
+                toggle.checked = n > 0 && k === n;
+                toggle.indeterminate = k > 0 && k < n;
+              }
+
+              function syncButtons() {
+                const k = getSelectedCount();
+                if (selectedCount) selectedCount.textContent = String(k);
+
+                const hasSelection = k > 0;
+                needsSelection.forEach((b) => (b.disabled = !hasSelection));
+
+                const hasCollection = !!(collectionSel && collectionSel.value);
+                if (addBtn) addBtn.disabled = !(hasSelection && hasCollection);
+                if (removeBtn)
+                  removeBtn.disabled = !(hasSelection && hasCollection);
+              }
+
+              if (toggle) {
+                toggle.addEventListener("change", () => {
+                  checks.forEach((c) => (c.checked = toggle.checked));
+                  syncSelectAll();
+                  syncButtons();
+                });
+              }
+
+              checks.forEach((c) =>
+                c.addEventListener("change", () => {
+                  syncSelectAll();
+                  syncButtons();
+                }),
+              );
+
+              if (collectionSel) {
+                collectionSel.addEventListener("change", () => {
+                  syncButtons();
+                });
+              }
+
+              syncSelectAll();
+              syncButtons();
+            })();
+          </script>
         </div>
-
-        <script>
-          (function () {
-            const toggle = document.getElementById("pc-select-all");
-            if (!toggle) return;
-
-            const checks = Array.from(
-              document.querySelectorAll("input.cap-check"),
-            );
-            function sync() {
-              const n = checks.length;
-              const k = checks.filter((c) => c.checked).length;
-              toggle.checked = n > 0 && k === n;
-              toggle.indeterminate = k > 0 && k < n;
-            }
-
-            toggle.addEventListener("change", () => {
-              checks.forEach((c) => (c.checked = toggle.checked));
-              sync();
-            });
-            checks.forEach((c) => c.addEventListener("change", sync));
-            sync();
-          })();
-        </script>
       </div>
-    </div>
-  </section>
-</div>
+    </section>
+  </div>
 {% endblock %}

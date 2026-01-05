@@ -169,6 +169,10 @@ a:hover {
 .btn:hover {
   border-color: color-mix(in oklab, var(--line) 50%, var(--fg) 50%);
 }
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .btn--primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -214,6 +218,40 @@ a:hover {
 }
 .search__input:focus {
   border-color: var(--accent);
+}
+
+.select {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0e1116;
+  color: var(--fg);
+  padding: 0 10px;
+  outline: none;
+  font-size: 13px;
+}
+.select:focus {
+  border-color: var(--accent);
+}
+.select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.bulkbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 10px 0 10px;
+}
+.bulk-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .table-wrap {

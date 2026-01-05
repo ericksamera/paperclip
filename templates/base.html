@@ -19,13 +19,13 @@
       </div>
     </header>
 
-    {% with messages = get_flashed_messages() %} {% if messages %}
-    <div class="flash">
-      {% for m in messages %}
-      <div class="flash__msg">{{ m }}</div>
-      {% endfor %}
-    </div>
-    {% endif %} {% endwith %}
+    {% with messages = get_flashed_messages() %}{% if messages %}
+      <div class="flash">
+        {% for m in messages %}
+          <div class="flash__msg">{{ m }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}{% endwith %}
 
     <main class="main">{% block content %}{% endblock %}</main>
 
