@@ -1,25 +1,32 @@
-{% extends "base.html" %}
-{% block title %}Library · Paperclip{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}Library · Paperclip{% endblock %} {%
+block content %}
 <div class="layout">
   <aside class="sidebar">
     <div class="panel">
       <div class="panel__title">Collections</div>
       <div class="panel__body">
         <div class="col-item">
-          <a class="{% if not selected_col %}active{% endif %}" href="{{ url_for('library', q=q) }}">All</a>
+          <a
+            class="{% if not selected_col %}active{% endif %}"
+            href="{{ url_for('library', q=q) }}"
+            >All</a
+          >
           <span class="muted">{{ total }}</span>
         </div>
         {% for c in collections %}
-          <div class="col-item">
-            <a class="{% if selected_col and selected_col|int == c.id %}active{% endif %}"
-               href="{{ url_for('library', col=c.id, q=q) }}">{{ c.name }}</a>
-            <span class="muted">{{ c.count }}</span>
-          </div>
+        <div class="col-item">
+          <a
+            class="{% if selected_col and selected_col|int == c.id %}active{% endif %}"
+            href="{{ url_for('library', col=c.id, q=q) }}"
+            >{{ c.name }}</a
+          >
+          <span class="muted">{{ c.count }}</span>
+        </div>
         {% endfor %}
         <div class="spacer"></div>
-        <a class="btn" href="{{ url_for('collections_page') }}">Manage collections</a>
+        <a class="btn" href="{{ url_for('collections_page') }}"
+          >Manage collections</a
+        >
       </div>
     </div>
   </aside>
@@ -30,34 +37,78 @@
       <div class="panel__body">
         <form class="search" method="get" action="{{ url_for('library') }}">
           <input type="hidden" name="col" value="{{ selected_col }}" />
-          <input class="search__input" name="q" placeholder="Search title / url / doi / text…" value="{{ q }}" />
+          <input
+            class="search__input"
+            name="q"
+            placeholder="Search title / url / doi / text…"
+            value="{{ q }}"
+          />
           <button class="btn btn--primary" type="submit">Search</button>
           <a class="btn" href="{{ url_for('library') }}">Clear</a>
         </form>
 
-        <div class="muted" style="margin:10px 0 6px;">
-          Showing {{ captures|length }} of {{ total }} result(s)
-          {% if selected_col %} · filtered by collection {{ selected_col }}{% endif %}
+        <div class="muted" style="margin: 10px 0 6px">
+          Showing {{ captures|length }} of {{ total }} result(s) {% if
+          selected_col %} · filtered by collection {{ selected_col }}{% endif %}
         </div>
 
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Year</th>
-                <th>Journal</th>
-                <th>DOI</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for cap in captures %}
+        <form
+          method="post"
+          action="{{ url_for('captures_delete_selected') }}"
+          onsubmit="
+            return confirm(
+              'Delete selected capture(s)? This cannot be undone.',
+            );
+          "
+        >
+          <input type="hidden" name="next" value="{{ request.full_path }}" />
+
+          <div class="panel-row" style="margin: 10px 0 10px">
+            <label class="row muted small" style="gap: 8px">
+              <input id="pc-select-all" type="checkbox" />
+              <span>Select all on page</span>
+            </label>
+            <button class="btn btn--danger" type="submit">
+              Delete selected
+            </button>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
                 <tr>
+                  <th class="sel"></th>
+                  <th>Title</th>
+                  <th>Year</th>
+                  <th>Journal</th>
+                  <th>DOI</th>
+                  <th>Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for cap in captures %}
+                <tr>
+                  <td class="sel">
+                    <input
+                      class="cap-check"
+                      type="checkbox"
+                      name="capture_ids"
+                      value="{{ cap.id }}"
+                    />
+                  </td>
                   <td class="title-cell">
-                    <a class="title-link" href="{{ url_for('capture_detail', capture_id=cap.id) }}">{{ cap.title }}</a>
+                    <a
+                      class="title-link"
+                      href="{{ url_for('capture_detail', capture_id=cap.id) }}"
+                      >{{ cap.title }}</a
+                    >
                     <div class="muted small">
-                      <a href="{{ cap.url }}" target="_blank" rel="noopener noreferrer">{{ cap.url }}</a>
+                      <a
+                        href="{{ cap.url }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >{{ cap.url }}</a
+                      >
                     </div>
                   </td>
                   <td class="small">{{ cap.year or "" }}</td>
@@ -65,31 +116,67 @@
                   <td class="small">{{ cap.doi or "" }}</td>
                   <td class="small">{{ cap.updated_at }}</td>
                 </tr>
-              {% endfor %}
-              {% if captures|length == 0 %}
+                {% endfor %} {% if captures|length == 0 %}
                 <tr>
-                  <td colspan="5" class="muted">No captures yet. Use the extension to save an article.</td>
+                  <td colspan="6" class="muted">
+                    No captures yet. Use the extension to save an article.
+                  </td>
                 </tr>
-              {% endif %}
-            </tbody>
-          </table>
-        </div>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </form>
 
         <div class="panel-row">
           <div class="muted small">
-            Tip: the capture detail page lets you assign collections and download artifacts.
+            Tip: the capture detail page lets you assign collections and
+            download artifacts.
           </div>
           <div class="exports">
             {% if selected_col %}
-              <a class="btn" href="{{ url_for('export_bibtex', col=selected_col) }}">Export BibTeX (collection)</a>
-              <a class="btn" href="{{ url_for('export_ris', col=selected_col) }}">Export RIS (collection)</a>
+            <a
+              class="btn"
+              href="{{ url_for('export_bibtex', col=selected_col) }}"
+              >Export BibTeX (collection)</a
+            >
+            <a class="btn" href="{{ url_for('export_ris', col=selected_col) }}"
+              >Export RIS (collection)</a
+            >
             {% else %}
-              <a class="btn" href="{{ url_for('export_bibtex') }}">Export BibTeX (all)</a>
-              <a class="btn" href="{{ url_for('export_ris') }}">Export RIS (all)</a>
+            <a class="btn" href="{{ url_for('export_bibtex') }}"
+              >Export BibTeX (all)</a
+            >
+            <a class="btn" href="{{ url_for('export_ris') }}"
+              >Export RIS (all)</a
+            >
             {% endif %}
           </div>
         </div>
 
+        <script>
+          (function () {
+            const toggle = document.getElementById("pc-select-all");
+            if (!toggle) return;
+
+            const checks = Array.from(
+              document.querySelectorAll("input.cap-check"),
+            );
+            function sync() {
+              const n = checks.length;
+              const k = checks.filter((c) => c.checked).length;
+              toggle.checked = n > 0 && k === n;
+              toggle.indeterminate = k > 0 && k < n;
+            }
+
+            toggle.addEventListener("change", () => {
+              checks.forEach((c) => (c.checked = toggle.checked));
+              sync();
+            });
+            checks.forEach((c) => c.addEventListener("change", sync));
+            sync();
+          })();
+        </script>
       </div>
     </div>
   </section>

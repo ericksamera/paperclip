@@ -32,12 +32,16 @@
       "prism.publicationname",
       "prism.publicationdate",
       "citation_date",
-      "keywords"
+      "keywords",
     ];
 
     const found = {};
     document.querySelectorAll("meta[name],meta[property]").forEach((m) => {
-      const name = (m.getAttribute("name") || m.getAttribute("property") || "").toLowerCase();
+      const name = (
+        m.getAttribute("name") ||
+        m.getAttribute("property") ||
+        ""
+      ).toLowerCase();
       if (!wanted.includes(name)) return;
       const v = m.getAttribute("content");
       if (!v) return;
@@ -67,11 +71,14 @@
       ".main-content",
       "#main-content",
       ".post",
-      ".entry-content"
+      ".entry-content",
     ]);
 
     // Fall back to entire body if tiny pages
-    const el = main && main.innerHTML && main.innerText.trim().length > 60 ? main : document.body;
+    const el =
+      main && main.innerHTML && main.innerText.trim().length > 60
+        ? main
+        : document.body;
     return el ? el.innerHTML : "";
   }
 
@@ -83,7 +90,7 @@
           url: location.href,
           dom_html: document.documentElement.outerHTML,
           content_html: gatherContentHTML(),
-          meta: gatherMeta()
+          meta: gatherMeta(),
         });
       } catch (e) {
         reply({ ok: false, error: String(e) });

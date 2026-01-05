@@ -4,7 +4,11 @@
   "version": "0.1.0",
   "description": "Capture a webpage (URL + DOM + main content + meta) to your local Paperclip server.",
   "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["<all_urls>", "http://127.0.0.1/*", "http://localhost/*"],
+  "host_permissions": [
+    "<all_urls>",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
   "action": { "default_title": "Save to Paperclip" },
   "background": { "service_worker": "background.js" },
   "content_scripts": [

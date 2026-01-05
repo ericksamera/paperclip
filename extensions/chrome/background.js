@@ -26,11 +26,21 @@ async function showLoading(tabId) {
 }
 async function showSuccess(tabId) {
   await setBadge(tabId, { text: "✓", color: COLORS.success, title: "Saved" });
-  setTimeout(() => setBadge(tabId, { text: "", title: "Save to Paperclip" }), SUCCESS_SHOW_MS);
+  setTimeout(
+    () => setBadge(tabId, { text: "", title: "Save to Paperclip" }),
+    SUCCESS_SHOW_MS,
+  );
 }
 async function showError(tabId) {
-  await setBadge(tabId, { text: "!", color: COLORS.error, title: "Save failed" });
-  setTimeout(() => setBadge(tabId, { text: "", title: "Save to Paperclip" }), ERROR_SHOW_MS);
+  await setBadge(tabId, {
+    text: "!",
+    color: COLORS.error,
+    title: "Save failed",
+  });
+  setTimeout(
+    () => setBadge(tabId, { text: "", title: "Save to Paperclip" }),
+    ERROR_SHOW_MS,
+  );
 }
 
 chrome.action.onClicked.addListener(async (tab) => {
@@ -56,8 +66,8 @@ chrome.action.onClicked.addListener(async (tab) => {
           url: location.href,
           dom_html: document.documentElement.outerHTML,
           content_html: document.body ? document.body.innerHTML : "",
-          meta: {}
-        })
+          meta: {},
+        }),
       });
       data = { ok: true, ...res.result };
     } catch (e) {
@@ -76,17 +86,17 @@ chrome.action.onClicked.addListener(async (tab) => {
     extraction: {
       meta: data.meta || {},
       content_html: data.content_html || "",
-      references: []
+      references: [],
     },
     rendered: {},
-    client: { ext: "chrome", v: chrome.runtime.getManifest().version }
+    client: { ext: "chrome", v: chrome.runtime.getManifest().version },
   };
 
   try {
     const resp = await fetch(API_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
     let captureId = null;
@@ -96,7 +106,9 @@ chrome.action.onClicked.addListener(async (tab) => {
     } catch (_) {}
 
     if (!resp.ok || !captureId) {
-      throw new Error(`HTTP ${resp.status}${captureId ? "" : " (no capture_id)"}`);
+      throw new Error(
+        `HTTP ${resp.status}${captureId ? "" : " (no capture_id)"}`,
+      );
     }
 
     await showSuccess(tabId);

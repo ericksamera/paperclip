@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,35 @@ def _tokenize_for_fts(q: str) -> str:
     return " ".join([t + "*" for t in toks])
 
 
+def _is_safe_capture_id(s: str) -> bool:
+    # Prevent path traversal and keep IDs tame.
+    # Current IDs are UUIDs, but keep this generic-ish.
+    if not s:
+        return False
+    if "/" in s or "\\" in s:
+        return False
+    return re.fullmatch(r"[A-Za-z0-9-]{1,64}", s) is not None
+
+
+def _safe_next_url(next_url: str | None) -> str | None:
+    if not next_url:
+        return None
+    u = str(next_url).strip()
+    if not u.startswith("/"):
+        return None
+    # Disallow schemeless absolute URLs like //evil.com/
+    if u.startswith("//"):
+        return None
+    # Paranoia: don't allow embedded scheme
+    if "://" in u:
+        return None
+    return u
+
+
+def _chunks(items: list[str], n: int) -> list[list[str]]:
+    return [items[i : i + n] for i in range(0, len(items), n)]
+
+
 def create_app(config: dict[str, Any] | None = None) -> Flask:
     cfg = config or {}
 
@@ -87,6 +117,72 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     )
 
     app.teardown_appcontext(close_db)
+
+    # ----------------------------- Internal helpers -----------------------------
+    def _fts_table_exists(db) -> bool:
+        if not bool(app.config["FTS_ENABLED"]):
+            return False
+        try:
+            row = db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='capture_fts'"
+            ).fetchone()
+            return bool(row)
+        except Exception:
+            return False
+
+    def _delete_captures_by_id(capture_ids: list[str]) -> tuple[int, list[str]]:
+        """
+        Deletes capture rows from DB and removes their artifacts dirs.
+        Returns: (deleted_row_count, artifact_delete_errors)
+        """
+        ids = [c.strip() for c in (capture_ids or []) if _is_safe_capture_id(c.strip())]
+        # Deduplicate (keep stable order)
+        seen: set[str] = set()
+        ids_u: list[str] = []
+        for cid in ids:
+            if cid in seen:
+                continue
+            seen.add(cid)
+            ids_u.append(cid)
+
+        if not ids_u:
+            return 0, []
+
+        db = get_db()
+        artifact_errors: list[str] = []
+        deleted_rows = 0
+
+        # SQLite param limit is commonly 999; keep headroom.
+        batches = _chunks(ids_u, 900)
+
+        try:
+            fts_ok = _fts_table_exists(db)
+            for chunk in batches:
+                ph = ",".join(["?"] * len(chunk))
+                if fts_ok:
+                    db.execute(
+                        f"DELETE FROM capture_fts WHERE capture_id IN ({ph})", chunk
+                    )
+                cur = db.execute(f"DELETE FROM captures WHERE id IN ({ph})", chunk)
+                if cur.rowcount and cur.rowcount > 0:
+                    deleted_rows += int(cur.rowcount)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
+        # Best-effort artifact cleanup (not transactional with DB)
+        root_dir = Path(app.config["ARTIFACTS_DIR"])
+        for cid in ids_u:
+            p = root_dir / cid
+            if not p.exists():
+                continue
+            try:
+                shutil.rmtree(p)
+            except Exception as e:
+                artifact_errors.append(f"{cid}: {e}")
+
+        return deleted_rows, artifact_errors
 
     # ----------------------------- Basic pages -----------------------------
     @app.get("/")
@@ -291,6 +387,39 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
 
         flash("Collections updated.")
         return redirect(url_for("capture_detail", capture_id=capture_id))
+
+    @app.post("/captures/<capture_id>/delete/")
+    def capture_delete(capture_id: str):
+        if not _is_safe_capture_id(capture_id):
+            abort(400)
+
+        deleted, art_errors = _delete_captures_by_id([capture_id])
+        if deleted <= 0:
+            flash("Capture not found.")
+            return redirect(url_for("library"))
+
+        if art_errors:
+            flash("Capture deleted, but some artifacts could not be removed.")
+        else:
+            flash("Capture deleted.")
+        return redirect(url_for("library"))
+
+    @app.post("/captures/delete/")
+    def captures_delete_selected():
+        capture_ids = request.form.getlist("capture_ids")
+        next_url = _safe_next_url(request.form.get("next"))
+        back = next_url or url_for("library")
+
+        deleted, art_errors = _delete_captures_by_id(capture_ids)
+        if deleted <= 0:
+            flash("No captures deleted.")
+            return redirect(back)
+
+        if art_errors:
+            flash(f"Deleted {deleted} capture(s). Some artifacts could not be removed.")
+        else:
+            flash(f"Deleted {deleted} capture(s).")
+        return redirect(back)
 
     @app.get("/collections/")
     def collections_page():

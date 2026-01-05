@@ -1,6 +1,7 @@
 # Paperclip
 
 A tiny local reference manager that:
+
 - Captures webpages via a Chrome MV3 extension (URL + full DOM HTML + best-effort main content HTML + head meta)
 - Ingests via `POST /api/captures/`
 - Stores artifacts on disk + normalized/reduced JSON + key fields in SQLite
@@ -13,17 +14,17 @@ python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python run.py
-````
+```
 
 Open:
 
-* Library: [http://127.0.0.1:8000/library/](http://127.0.0.1:8000/library/)
-* Collections: [http://127.0.0.1:8000/collections/](http://127.0.0.1:8000/collections/)
+- Library: [http://127.0.0.1:8000/library/](http://127.0.0.1:8000/library/)
+- Collections: [http://127.0.0.1:8000/collections/](http://127.0.0.1:8000/collections/)
 
 Data files are created locally:
 
-* SQLite DB: `data/db.sqlite3`
-* Artifacts: `data/artifacts/<capture_id>/`
+- SQLite DB: `data/db.sqlite3`
+- Artifacts: `data/artifacts/<capture_id>/`
 
 ## Load the Chrome extension
 
@@ -34,17 +35,17 @@ Data files are created locally:
 
 By default the extension posts to:
 
-* `http://127.0.0.1:8000/api/captures/`
+- `http://127.0.0.1:8000/api/captures/`
 
 If you run the server elsewhere, edit:
 
-* `extensions/chrome/background.js` (`API_ENDPOINT`)
+- `extensions/chrome/background.js` (`API_ENDPOINT`)
 
 ## Export
 
-* Export all as BibTeX: `http://127.0.0.1:8000/exports/bibtex/`
-* Export all as RIS:    `http://127.0.0.1:8000/exports/ris/`
-* Export a collection:  add `?col=<collection_id>`
+- Export all as BibTeX: `http://127.0.0.1:8000/exports/bibtex/`
+- Export all as RIS: `http://127.0.0.1:8000/exports/ris/`
+- Export a collection: add `?col=<collection_id>`
 
 ## Dev / tests (optional)
 
