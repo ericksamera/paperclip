@@ -47,6 +47,15 @@ def _parse_int(v: str | None, default: int) -> int:
         return default
 
 
+_PAGE_SIZE_CHOICES = (25, 50, 100)
+
+
+def _parse_page_size(v: str | None, default: int = 50) -> int:
+    """Clamp page size to {25, 50, 100}."""
+    n = _parse_int(v, default)
+    return n if n in _PAGE_SIZE_CHOICES else default
+
+
 def _safe_next(next_url: str | None) -> str:
     if not next_url:
         return url_for("library")
@@ -102,12 +111,55 @@ def _snip_text(s: str, max_len: int = 240) -> str:
     return cut + "…"
 
 
+_SUFFIXES = {"jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "v"}
+
+
+def _author_last_name(author: str) -> str:
+    s = (author or "").strip()
+    if not s:
+        return ""
+
+    # "Last, First ..."
+    if "," in s:
+        last = s.split(",", 1)[0].strip()
+        return last or s
+
+    # "First Last" (try to avoid suffixes like "Jr.")
+    parts = re.split(r"\s+", s)
+    if not parts:
+        return s
+
+    last = parts[-1].strip()
+    last_clean = re.sub(r"[^\w.]+$", "", last).casefold()
+
+    if last_clean in _SUFFIXES and len(parts) >= 2:
+        last = parts[-2].strip()
+
+    # strip trailing punctuation
+    last = re.sub(r"[^\w'-]+$", "", last)
+    return last or s
+
+
+def _format_authors_apa_short(authors: list[str]) -> str:
+    lasts = [ln for ln in (_author_last_name(a) for a in authors) if ln]
+    if not lasts:
+        return ""
+    if len(lasts) == 1:
+        inner = lasts[0]
+    elif len(lasts) == 2:
+        inner = f"{lasts[0]} & {lasts[1]}"
+    else:
+        inner = f"{lasts[0]} et al."
+    return f"{inner}"
+
+
 def _citation_fields_from_meta(meta: dict[str, Any]) -> dict[str, Any]:
     authors = _normalize_authors(meta.get("authors"))
     abstract = _normalize_abstract(meta.get("abstract"))
     return {
         "authors": authors,
         "authors_str": ", ".join(authors),
+        "authors_short": _format_authors_apa_short(authors),
         "abstract": abstract,
         "abstract_snip": _snip_text(abstract, 240) if abstract else "",
     }
@@ -141,7 +193,7 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         template_folder=str(root / "templates"),
     )
 
-    # Critical: db.py expects these keys
+    # db.py expects these keys
     app.config.update(
         DATA_DIR=data_dir,
         DB_PATH=db_path,
@@ -164,8 +216,8 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         db = get_db()
         q = (request.args.get("q") or "").strip()
         col = (request.args.get("col") or "").strip()
-        page = _parse_int(request.args.get("page"), 1)
-        page_size = 50
+        page = max(1, _parse_int(request.args.get("page"), 1))
+        page_size = _parse_page_size(request.args.get("page_size"), 50)
         offset = max(0, (page - 1) * page_size)
 
         collections = rows_to_dicts(
@@ -223,8 +275,11 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         for cap in captures:
             citation = _citation_fields_from_meta_json(cap.get("meta_json"))
             cap["authors_str"] = citation.get("authors_str") or ""
+            cap["authors_short"] = citation.get("authors_short") or ""
             cap["abstract_snip"] = citation.get("abstract_snip") or ""
             cap.pop("meta_json", None)
+
+        has_more = offset + len(captures) < total
 
         return render_template(
             "library.html",
@@ -234,8 +289,84 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             captures=captures,
             page=page,
             page_size=page_size,
+            has_more=has_more,
             total=total,
             total_all=total_all,
+        )
+
+    @app.get("/api/library/")
+    def api_library():
+        db = get_db()
+        q = (request.args.get("q") or "").strip()
+        col = (request.args.get("col") or "").strip()
+        page = max(1, _parse_int(request.args.get("page"), 1))
+        page_size = _parse_page_size(request.args.get("page_size"), 50)
+        offset = max(0, (page - 1) * page_size)
+
+        join = ""
+        where: list[str] = []
+        params: list[Any] = []
+
+        if col:
+            join += " JOIN collection_items ci ON ci.capture_id = cap.id "
+            where.append("ci.collection_id = ?")
+            params.append(_parse_int(col, -1))
+
+        if q:
+            qlike = f"%{q}%"
+            where.append(
+                "(cap.title LIKE ? OR cap.url LIKE ? OR cap.doi LIKE ? "
+                "OR cap.id IN (SELECT capture_id FROM capture_text WHERE content_text LIKE ?))"
+            )
+            params.extend([qlike, qlike, qlike, qlike])
+
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        total = db.execute(
+            "SELECT COUNT(1) AS n FROM captures cap " + join + where_sql,
+            tuple(params),
+        ).fetchone()["n"]
+
+        captures = rows_to_dicts(
+            db.execute(
+                """
+                SELECT cap.id, cap.title, cap.url, cap.doi, cap.year, cap.container_title,
+                       cap.updated_at, cap.meta_json
+                FROM captures cap
+                """
+                + join
+                + where_sql
+                + " ORDER BY cap.updated_at DESC LIMIT ? OFFSET ?",
+                tuple(params + [page_size, offset]),
+            ).fetchall()
+        )
+
+        out_caps: list[dict[str, Any]] = []
+        for cap in captures:
+            citation = _citation_fields_from_meta_json(cap.get("meta_json"))
+            out_caps.append(
+                {
+                    "id": cap.get("id"),
+                    "title": cap.get("title"),
+                    "url": cap.get("url"),
+                    "doi": cap.get("doi"),
+                    "year": cap.get("year"),
+                    "container_title": cap.get("container_title"),
+                    "authors_short": citation.get("authors_short") or "",
+                    "abstract_snip": citation.get("abstract_snip") or "",
+                }
+            )
+
+        has_more = offset + len(out_caps) < total
+
+        return jsonify(
+            {
+                "captures": out_caps,
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "has_more": has_more,
+            }
         )
 
     @app.get("/captures/<capture_id>/")
@@ -333,7 +464,7 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             abort(404)
         return send_file(p)
 
-    # --- Bulk actions used by UI + tests ---
+    # --- Bulk actions ---
 
     @app.post("/captures/delete/")
     def captures_delete():
@@ -474,7 +605,8 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     # --- Exports ---
 
     def _captures_for_export(
-        capture_ids: list[str] | None = None, collection_id: int | None = None
+        capture_ids: list[str] | None = None,
+        collection_id: int | None = None,
     ) -> list[dict[str, Any]]:
         db = get_db()
         params: list[Any] = []
@@ -549,30 +681,6 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             mimetype="application/x-research-info-systems; charset=utf-8",
             headers={
                 "Content-Disposition": 'attachment; filename="paperclip-selected.ris"'
-            },
-        )
-
-    @app.get("/captures/<capture_id>/exports/bibtex/")
-    def export_capture_bibtex(capture_id: str):
-        rows = _captures_for_export(capture_ids=[capture_id])
-        bib = captures_to_bibtex(rows)
-        return Response(
-            bib,
-            mimetype="application/x-bibtex; charset=utf-8",
-            headers={
-                "Content-Disposition": f'attachment; filename="paperclip-{capture_id}.bib"'
-            },
-        )
-
-    @app.get("/captures/<capture_id>/exports/ris/")
-    def export_capture_ris(capture_id: str):
-        rows = _captures_for_export(capture_ids=[capture_id])
-        ris = captures_to_ris(rows)
-        return Response(
-            ris,
-            mimetype="application/x-research-info-systems; charset=utf-8",
-            headers={
-                "Content-Disposition": f'attachment; filename="paperclip-{capture_id}.ris"'
             },
         )
 
