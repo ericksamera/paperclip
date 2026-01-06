@@ -107,6 +107,77 @@ def split_keywords(raw: Any) -> list[str]:
     return out
 
 
+def _dedupe_strs(items: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for it in items:
+        s = str(it or "").strip()
+        if not s:
+            continue
+        k = s.casefold()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(s)
+    return out
+
+
+def split_authors(raw: Any) -> list[str]:
+    """
+    Normalize author metadata into a list of author strings.
+
+    Supports:
+      - repeated <meta name="citation_author" ...> => list[str]
+      - dc.creator strings, sometimes separated by ';' or newlines
+      - minimal support for "A and B" forms
+
+    We intentionally avoid splitting on commas, since many sources use "Last, First".
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple)):
+        parts: list[str] = []
+        for v in raw:
+            parts.extend(split_authors(v))
+        return _dedupe_strs(parts)
+
+    s = _as_str(raw).strip()
+    if not s:
+        return []
+
+    # Prefer clear separators
+    if ";" in s or "\n" in s:
+        toks = re.split(r"[;\n]+", s)
+    else:
+        # Some sources use "A and B"
+        if re.search(r"\s+and\s+", s, flags=re.I):
+            toks = re.split(r"\s+and\s+", s, flags=re.I)
+        else:
+            toks = [s]
+
+    return _dedupe_strs([t.strip() for t in toks])
+
+
+def best_authors(meta: dict[str, Any]) -> list[str]:
+    for k in ("citation_author", "dc.creator", "dcterms.creator"):
+        authors = split_authors(meta.get(k))
+        if authors:
+            return authors
+    return []
+
+
+def best_abstract(meta: dict[str, Any], *, max_chars: int = 20000) -> str:
+    for k in ("citation_abstract", "dcterms.abstract", "dc.description"):
+        s = _as_str(meta.get(k)).strip()
+        if not s:
+            continue
+        s = re.sub(r"\s+", " ", s).strip()
+        if len(s) > max_chars:
+            s = s[:max_chars]
+        return s
+    return ""
+
+
 def html_to_text(html: str, *, max_chars: int = 400_000) -> str:
     if not html:
         return ""

@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from .extract import (
+    best_abstract,
+    best_authors,
     best_container_title,
     best_date,
     best_doi,
@@ -151,6 +153,8 @@ def ingest_capture(
     year = extract_year(date_str)
     container_title = best_container_title(meta)
     keywords = best_keywords(meta)
+    authors = best_authors(meta)
+    abstract = best_abstract(meta)
     content_text = html_to_text(content_html)
 
     capture_id: str
@@ -176,7 +180,6 @@ def ingest_capture(
                 "SELECT id FROM captures WHERE url_hash = ?", (h,)
             ).fetchone()
             if row_by_url and row_by_url["id"] != capture_id:
-                # Merge URL-record into DOI-record (preserve collections)
                 to_delete_dir = _merge_duplicates(
                     db=db,
                     keep_id=capture_id,
@@ -188,7 +191,6 @@ def ingest_capture(
                 to_delete_dir = None
         else:
             to_delete_dir = None
-
     else:
         to_delete_dir = None
 
@@ -227,6 +229,8 @@ def ingest_capture(
         "doi": doi,
         "year": year,
         "container_title": container_title,
+        "authors": authors,
+        "abstract": abstract,
         "published_date_raw": date_str,
         "keywords": keywords,
         "captured_at": now,
@@ -245,6 +249,8 @@ def ingest_capture(
     meta_json = {
         "meta": meta,
         "keywords": keywords,
+        "authors": authors,
+        "abstract": abstract,
         "published_date_raw": date_str,
         "client": reduced.get("client", {}),
     }
@@ -285,9 +291,6 @@ def ingest_capture(
             ),
         )
     except sqlite3.IntegrityError:
-        # Extremely unlikely in local single-user usage, but can happen if there is a
-        # race or if the DB already has conflicting uniqueness. Try to resolve by
-        # re-selecting and then updating the existing record.
         row2 = None
         if doi:
             row2 = db.execute(
@@ -323,7 +326,6 @@ def ingest_capture(
             created_at = row2["created_at"]
             cap_dir = existing_dir
 
-        # Retry update
         db.execute(
             """
             UPDATE captures SET
@@ -363,7 +365,6 @@ def ingest_capture(
     )
 
     if fts_enabled:
-        # Keep it simple: delete + insert
         db.execute("DELETE FROM capture_fts WHERE capture_id = ?", (capture_id,))
         db.execute(
             "INSERT INTO capture_fts (capture_id, title, content_text) VALUES (?, ?, ?)",
