@@ -11,7 +11,8 @@ from flask import (
 )
 
 from ..db import get_db
-from ..httputil import parse_int, parse_page_size
+from ..httputil import parse_page_size
+from ..parseutil import safe_int
 from ..present import present_capture_for_api, present_capture_for_library
 from ..repo import collections_repo, library_repo
 
@@ -24,9 +25,12 @@ def register(app: Flask) -> None:
     @app.get("/library/")
     def library():
         db = get_db()
+
         q = (request.args.get("q") or "").strip()
-        selected_col = (request.args.get("col") or "").strip()
-        page = max(1, parse_int(request.args.get("page"), 1))
+        selected_col = (request.args.get("collection") or "").strip()
+
+        page = safe_int(request.args.get("page")) or 1
+        page = max(1, page)
         page_size = parse_page_size(request.args.get("page_size"), 50)
 
         collections = collections_repo.list_collections_with_counts(db)
@@ -41,28 +45,31 @@ def register(app: Flask) -> None:
             fts_enabled=bool(current_app.config.get("FTS_ENABLED")),
         )
 
-        for i in range(len(captures)):
-            captures[i] = present_capture_for_library(captures[i])
+        out_caps = [present_capture_for_library(c) for c in captures]
 
         return render_template(
             "library.html",
             q=q,
             selected_col=selected_col,
+            collections=collections,
+            total_all=total_all,
+            captures=out_caps,
             page=page,
             page_size=page_size,
             total=total,
-            total_all=total_all,
             has_more=has_more,
-            captures=captures,
-            collections=collections,
+            fts_enabled=bool(current_app.config.get("FTS_ENABLED")),
         )
 
     @app.get("/api/library/")
     def api_library():
         db = get_db()
+
         q = (request.args.get("q") or "").strip()
-        selected_col = (request.args.get("col") or "").strip()
-        page = max(1, parse_int(request.args.get("page"), 1))
+        selected_col = (request.args.get("collection") or "").strip()
+
+        page = safe_int(request.args.get("page")) or 1
+        page = max(1, page)
         page_size = parse_page_size(request.args.get("page_size"), 50)
 
         captures, total, has_more = library_repo.search_captures(
