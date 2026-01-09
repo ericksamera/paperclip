@@ -45,6 +45,12 @@ def register(app: Flask) -> None:
         resp.headers["Cache-Control"] = "no-store"
         return resp
 
+    def _get_collection_arg() -> str | None:
+        # Preferred: ?collection=<id>
+        # Back-compat: ?col=<id>
+        v = (request.args.get("collection") or request.args.get("col") or "").strip()
+        return v or None
+
     @app.get("/exports/bibtex/")
     def export_bibtex():
         db = get_db()
@@ -52,7 +58,7 @@ def register(app: Flask) -> None:
             exports_repo.select_captures_for_export(
                 db,
                 capture_id=(request.args.get("capture_id") or "").strip() or None,
-                col=(request.args.get("col") or "").strip() or None,
+                col=_get_collection_arg(),
             )
         )
         bib = captures_to_bibtex(captures)
@@ -72,7 +78,7 @@ def register(app: Flask) -> None:
             exports_repo.select_captures_for_export(
                 db,
                 capture_id=(request.args.get("capture_id") or "").strip() or None,
-                col=(request.args.get("col") or "").strip() or None,
+                col=_get_collection_arg(),
             )
         )
         ris = captures_to_ris(captures)

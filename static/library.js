@@ -26,7 +26,6 @@
   }
 
   // --- Shift-click range selection (Gmail-style) ---
-  // anchorRowIndex tracks the last row index that was clicked/toggled.
   let anchorRowIndex = null;
 
   function allRows() {
@@ -38,26 +37,6 @@
     const rows = allRows();
     const i = rows.indexOf(row);
     return i >= 0 ? i : null;
-  }
-
-  function setRowChecked(row, checked) {
-    const cb = row
-      ? row.querySelector('input[type="checkbox"][name="capture_ids"]')
-      : null;
-    if (!cb) return;
-    cb.checked = checked;
-  }
-
-  function setRangeChecked(fromIdx, toIdx, checked) {
-    const rows = allRows();
-    if (rows.length === 0) return;
-
-    const start = Math.max(0, Math.min(fromIdx, toIdx));
-    const end = Math.min(rows.length - 1, Math.max(fromIdx, toIdx));
-
-    for (let i = start; i <= end; i += 1) {
-      setRowChecked(rows[i], checked);
-    }
   }
 
   function allBoxes() {
@@ -87,8 +66,33 @@
     });
   }
 
+  // --- Persist selection across infinite-scroll appends ---
+  // Map capture_id -> checked
+  const selectedIds = new Set();
+
+  function rememberSelectionFromDom() {
+    allBoxes().forEach((b) => {
+      const id = (b.value || "").trim();
+      if (!id) return;
+      if (b.checked) selectedIds.add(id);
+      else selectedIds.delete(id);
+    });
+  }
+
+  function applySelectionToDom() {
+    allBoxes().forEach((b) => {
+      const id = (b.value || "").trim();
+      if (!id) return;
+      b.checked = selectedIds.has(id);
+    });
+    syncAllRowSelectedClasses();
+  }
+
   function updateSelectedUI() {
-    const n = selectedCount();
+    // Recompute set from DOM to stay consistent (user may click, shift-click, etc.)
+    rememberSelectionFromDom();
+
+    const n = selectedIds.size;
 
     if (selectedCountEl) {
       selectedCountEl.textContent = String(n);
@@ -126,10 +130,41 @@
     syncAllRowSelectedClasses();
   }
 
+  function setRowChecked(row, checked) {
+    const cb = row
+      ? row.querySelector('input[type="checkbox"][name="capture_ids"]')
+      : null;
+    if (!cb) return;
+    cb.checked = checked;
+
+    const id = (cb.value || "").trim();
+    if (!id) return;
+    if (checked) selectedIds.add(id);
+    else selectedIds.delete(id);
+  }
+
+  function setRangeChecked(fromIdx, toIdx, checked) {
+    const rows = allRows();
+    if (rows.length === 0) return;
+
+    const start = Math.max(0, Math.min(fromIdx, toIdx));
+    const end = Math.min(rows.length - 1, Math.max(fromIdx, toIdx));
+
+    for (let i = start; i <= end; i += 1) {
+      setRowChecked(rows[i], checked);
+    }
+  }
+
   if (selectAll) {
     selectAll.addEventListener("change", () => {
       const on = !!selectAll.checked;
-      allBoxes().forEach((b) => (b.checked = on));
+      allBoxes().forEach((b) => {
+        b.checked = on;
+        const id = (b.value || "").trim();
+        if (!id) return;
+        if (on) selectedIds.add(id);
+        else selectedIds.delete(id);
+      });
       selectAll.indeterminate = false;
       updateSelectedUI();
     });
@@ -137,6 +172,7 @@
 
   if (clearBtn) {
     clearBtn.addEventListener("click", () => {
+      selectedIds.clear();
       allBoxes().forEach((b) => (b.checked = false));
       if (selectAll) {
         selectAll.checked = false;
@@ -153,6 +189,11 @@
       t.matches &&
       t.matches('input[type="checkbox"][name="capture_ids"]')
     ) {
+      const id = (t.value || "").trim();
+      if (id) {
+        if (t.checked) selectedIds.add(id);
+        else selectedIds.delete(id);
+      }
       updateSelectedUI();
     }
   });
@@ -162,6 +203,13 @@
     const cb = row.querySelector('input[type="checkbox"][name="capture_ids"]');
     if (!cb) return;
     cb.checked = !cb.checked;
+
+    const id = (cb.value || "").trim();
+    if (id) {
+      if (cb.checked) selectedIds.add(id);
+      else selectedIds.delete(id);
+    }
+
     updateSelectedUI();
   }
 
@@ -172,7 +220,6 @@
   }
 
   // --- Prevent annoying "text highlight" while clicking rows ---
-  // UX: normal click/shift-click selects rows without selecting text.
   // To select/copy text on purpose: hold Alt and drag (or Alt+click).
   document.addEventListener("mousedown", (ev) => {
     const t = ev.target;
@@ -181,11 +228,9 @@
     const row = t.closest ? t.closest("tr.cap-row") : null;
     if (!row) return;
 
-    // Allow intentional text selection (Alt-drag), and allow interactive elements.
     if (ev.altKey) return;
     if (t.closest && t.closest("a,button,select,textarea,label,input")) return;
 
-    // Stop the browser from starting a text selection region.
     ev.preventDefault();
   });
 
@@ -211,7 +256,7 @@
       if (idx === null) return;
 
       if (ev.shiftKey && anchorRowIndex !== null) {
-        ev.preventDefault(); // prevent default toggle
+        ev.preventDefault();
         const desired = !t.checked;
         setRangeChecked(anchorRowIndex, idx, desired);
         anchorRowIndex = idx;
@@ -219,7 +264,6 @@
         return;
       }
 
-      // Normal checkbox click: let the browser toggle it, then set anchor.
       window.setTimeout(() => {
         anchorRowIndex = idx;
       }, 0);
@@ -265,7 +309,6 @@
     const t = ev.target;
     if (!t) return;
 
-    // If they double-click a link, let browser do link behavior.
     if (t.closest && t.closest("a")) return;
 
     const row = t.closest ? t.closest("tr.cap-row") : null;
@@ -299,7 +342,6 @@
     return;
   }
 
-  // Support both: JSON-in-textContent (old) and data-* attrs (current template).
   function readCfg() {
     const base = {};
     const txt = (cfgEl.textContent || "").trim();
@@ -359,16 +401,19 @@
   function currentFilters() {
     const sp = new URLSearchParams(window.location.search);
     const q = (sp.get("q") || "").trim();
-    const col = (sp.get("col") || "").trim();
+
+    // Prefer collection=, but accept legacy col=
+    const collection = (sp.get("collection") || sp.get("col") || "").trim();
+
     const ps = (sp.get("page_size") || String(pageSize)).trim();
-    return { q, col, page_size: ps };
+    return { q, collection, page_size: ps };
   }
 
   function buildApiUrl(page) {
     const f = currentFilters();
     const sp = new URLSearchParams();
     if (f.q) sp.set("q", f.q);
-    if (f.col) sp.set("col", f.col);
+    if (f.collection) sp.set("collection", f.collection);
     sp.set("page", String(page));
     sp.set("page_size", f.page_size || String(pageSize));
     return API_BASE + "?" + sp.toString();
@@ -376,9 +421,18 @@
 
   function appendRows(html) {
     if (!html) return;
+
+    // Remove the "No captures found" row if it exists
+    const empty = tbody.querySelector('tr[data-empty="1"]');
+    if (empty) empty.remove();
+
     const tmp = document.createElement("tbody");
     tmp.innerHTML = html;
+
+    // Append + restore selection states for newly added checkboxes
     Array.from(tmp.children).forEach((tr) => tbody.appendChild(tr));
+    applySelectionToDom();
+    updateSelectedUI();
   }
 
   async function loadNext() {
@@ -393,13 +447,8 @@
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
 
-      // Your API currently returns { captures, page, page_size, total, has_more }.
-      // If you ever add server-rendered row html, we support that too.
       if (data && data.rows_html) {
         appendRows(data.rows_html);
-      } else if (data && Array.isArray(data.captures)) {
-        // No-op: current implementation relies on server-rendered HTML rows.
-        // Keeping this block for future expansion.
       }
 
       hasMore = !!(data && data.has_more);
@@ -407,12 +456,20 @@
 
       setLoading(false);
       if (!hasMore) setEnd();
-
-      updateSelectedUI();
     } catch (e) {
       console.error(e);
       setError("Error loading more results.");
+      loading = false;
     }
+  }
+
+  // Add a simple click-to-retry on the error line
+  if (errorEl) {
+    errorEl.style.cursor = "pointer";
+    errorEl.title = "Click to retry";
+    errorEl.addEventListener("click", () => {
+      if (!loading && hasMore) loadNext();
+    });
   }
 
   const io = new IntersectionObserver(
@@ -425,5 +482,6 @@
   );
   io.observe(sentinel);
 
+  // Initial sync (in case server renders checked boxes later)
   updateSelectedUI();
 })();

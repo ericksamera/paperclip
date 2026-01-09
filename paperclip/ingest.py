@@ -4,26 +4,15 @@ import json
 import os
 import shutil
 import sqlite3
-import traceback  # NEW
+import traceback
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .extract import (
-    best_abstract,
-    best_authors,
-    best_container_title,
-    best_date,
-    best_doi,
-    best_keywords,
-    best_title,
-    extract_year,
-    html_to_text,
-    parse_head_meta,
-)
-from .metaschema import build_meta_record
+from .capture_dto import build_capture_dto_from_payload
 from .parsers import parse_article
+from .parsers.base import ParseResult
 from .timeutil import utc_now_iso
 from .urlnorm import canonicalize_url, url_hash
 
@@ -57,21 +46,6 @@ def _write_json(p: Path, obj: Any) -> None:
 
 def _as_dict(v: Any) -> dict[str, Any]:
     return v if isinstance(v, dict) else {}
-
-
-def _merge_meta(
-    client_meta: dict[str, Any], head_meta: dict[str, Any]
-) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for src in (client_meta, head_meta):
-        if not isinstance(src, dict):
-            continue
-        for k, v in src.items():
-            kk = str(k).strip().lower()
-            if not kk:
-                continue
-            out[kk] = v
-    return out
 
 
 def _merge_duplicates(
@@ -124,76 +98,59 @@ def ingest_capture(
     now = utc_now_iso()
 
     source_url = str(payload.get("source_url") or "").strip()
-    dom_html = str(payload.get("dom_html") or "")
-    extraction = _as_dict(payload.get("extraction"))
-    content_html = str(extraction.get("content_html") or "")
-    client_meta = _as_dict(extraction.get("meta"))
-
     if not source_url:
         raise ValueError("Missing required field: source_url")
-    if not dom_html:
-        dom_html = ""
 
     canon = canonicalize_url(source_url)
     h = url_hash(canon)
 
-    head_meta, title_tag_text = parse_head_meta(dom_html)
-    meta = _merge_meta(client_meta, head_meta)
+    # --- Parser (best-effort; ingestion must survive failures) ---
+    dom_html = str(payload.get("dom_html") or "")
+    extraction = _as_dict(payload.get("extraction"))
+    client_meta = _as_dict(extraction.get("meta"))
 
-    title = best_title(meta, title_tag_text, source_url)
-    doi = best_doi(meta)
-    date_str = best_date(meta)
-    year = extract_year(date_str)
-    container_title = best_container_title(meta)
-    keywords = best_keywords(meta)
-    authors = best_authors(meta)
-    abstract = best_abstract(meta)
-
-    # NEW: parser is best-effort; ingestion must survive failures.
     parse_exc: dict[str, Any] | None = None
     try:
-        parse_result = parse_article(url=canon, dom_html=dom_html, head_meta=meta)
+        # parse_article expects head_meta; we only have client_meta here, but the DTO builder
+        # will also parse head meta from dom_html. This is fine for stage 1.
+        parse_result = parse_article(
+            url=canon, dom_html=dom_html, head_meta=client_meta
+        )
     except Exception as e:
         parse_exc = {
             "type": type(e).__name__,
             "message": str(e),
             "traceback": traceback.format_exc(),
         }
-        parse_result = {
-            "ok": False,
-            "parser": "crashed",
-            "capture_quality": "suspicious",
-            "blocked_reason": "",
-            "confidence_fulltext": 0.0,
-            "article_html": "",
-            "article_text": "",
-            "selected_hint": "",
-            "score_breakdown": {},
-            "notes": ["parser_exception"],
-            "meta": {},
-        }
-
-    base_text = html_to_text(content_html)
-    parsed_text = (
-        (parse_result.article_text if hasattr(parse_result, "article_text") else "")
-        or ""
-    ).strip()
-    content_text = base_text
-
-    use_parsed_for_index = False
-    if hasattr(parse_result, "capture_quality") and hasattr(
-        parse_result, "confidence_fulltext"
-    ):
-        use_parsed_for_index = (
-            bool(parsed_text)
-            and parse_result.capture_quality != "blocked"
-            and float(parse_result.confidence_fulltext) >= 0.45
+        parse_result = ParseResult(
+            ok=False,
+            parser="crashed",
+            capture_quality="suspicious",
+            notes=["parser_exception"],
         )
-    if use_parsed_for_index:
-        content_text = parsed_text
 
-    # ... rest of file unchanged until artifact writing ...
+    # --- DTO (single canonical shaping point) ---
+    dto = build_capture_dto_from_payload(
+        payload=payload,
+        canon_url=canon,
+        captured_at=now,
+        parse_result=parse_result,
+        parse_exc=parse_exc,
+    )
 
+    title = str(dto["title"] or "")
+    doi = str(dto["doi"] or "")
+    year = dto["year"]
+    container_title = str(dto["container_title"] or "")
+    authors = dto["authors"] if isinstance(dto.get("authors"), list) else []
+    abstract = str(dto["abstract"] or "")
+    keywords = dto["keywords"] if isinstance(dto.get("keywords"), list) else []
+    date_str = str(dto.get("published_date_raw") or "")
+    meta_record = dto["meta_record"]
+    content_text = str(dto.get("content_text") or "")
+    parse_summary = dto["parse_summary"]
+
+    # --- Dedupe / identity (existing behavior preserved) ---
     capture_id: str
     created: bool
     created_at: str
@@ -240,43 +197,29 @@ def ingest_capture(
             created = True
             created_at = now
 
+    # --- Artifact writing (unchanged outputs) ---
     cap_dir = artifacts_root / capture_id
     _ensure_dir(cap_dir)
 
-    _write_text(cap_dir / "page.html", dom_html)
-    _write_text(cap_dir / "content.html", content_html)
+    _write_text(cap_dir / "page.html", dto.get("dom_html") or "")
+    _write_text(cap_dir / "content.html", dto.get("content_html") or "")
 
-    # Parsed artifacts: always write article.json even if parser crashed.
-    article_html = (
-        parse_result.article_html if hasattr(parse_result, "article_html") else ""
-    ) or ""
-    article_text = (
-        parse_result.article_text if hasattr(parse_result, "article_text") else ""
-    ) or ""
+    article_html = parse_result.article_html or ""
+    article_text = parse_result.article_text or ""
 
     if article_html:
         _write_text(cap_dir / "article.html", article_html)
     if article_text:
         _write_text(cap_dir / "article.txt", article_text)
 
-    if hasattr(parse_result, "to_json"):
-        article_json = parse_result.to_json()
-    else:
-        article_json = dict(parse_result)
-
+    article_json = parse_result.to_json()
     if parse_exc:
         article_json["error"] = parse_exc
-
     _write_json(cap_dir / "article.json", article_json)
 
     raw = {"received_at": now, "payload": payload}
     _write_json(cap_dir / "raw.json", raw)
 
-    reduced_parse = (
-        parse_result.to_json()
-        if hasattr(parse_result, "to_json")
-        else dict(parse_result)
-    )
     reduced = {
         "id": capture_id,
         "source_url": source_url,
@@ -290,40 +233,20 @@ def ingest_capture(
         "published_date_raw": date_str,
         "keywords": keywords,
         "captured_at": now,
-        "meta": meta,
-        "parse": {
-            "parser": reduced_parse.get("parser", ""),
-            "ok": bool(reduced_parse.get("ok", False)),
-            "capture_quality": reduced_parse.get("capture_quality", "suspicious"),
-            "blocked_reason": reduced_parse.get("blocked_reason", ""),
-            "confidence_fulltext": float(reduced_parse.get("confidence_fulltext", 0.0)),
-            "selected_hint": reduced_parse.get("selected_hint", ""),
-            "used_for_index": use_parsed_for_index,
-            "notes": reduced_parse.get("notes", []),
-            "error": parse_exc,
-        },
+        "meta": dto.get("merged_head_meta") or {},
+        "parse": parse_summary,
         "stats": {
-            "dom_chars": len(dom_html or ""),
-            "content_html_chars": len(content_html or ""),
+            "dom_chars": len(dto.get("dom_html") or ""),
+            "content_html_chars": len(dto.get("content_html") or ""),
             "content_text_chars": len(content_text or ""),
             "article_html_chars": len(article_html or ""),
             "article_text_chars": len(article_text or ""),
         },
-        "client": (
-            payload.get("client") if isinstance(payload.get("client"), dict) else {}
-        ),
+        "client": dto.get("client") if isinstance(dto.get("client"), dict) else {},
     }
     _write_json(cap_dir / "reduced.json", reduced)
 
-    meta_record = build_meta_record(
-        head_meta=meta,
-        keywords=keywords,
-        authors=authors,
-        abstract=abstract,
-        published_date_raw=date_str,
-        client=reduced.get("client", {}),
-    )
-
+    # --- DB upsert (unchanged schema) ---
     try:
         db.execute(
             """
@@ -358,16 +281,15 @@ def ingest_capture(
             ),
         )
 
-        if fts_enabled:
-            db.execute(
-                """
-                INSERT INTO capture_text (capture_id, content_text)
-                VALUES (?, ?)
-                ON CONFLICT(capture_id) DO UPDATE SET
-                  content_text=excluded.content_text
-                """,
-                (capture_id, content_text),
-            )
+        db.execute(
+            """
+            INSERT INTO capture_text (capture_id, content_text)
+            VALUES (?, ?)
+            ON CONFLICT(capture_id) DO UPDATE SET
+              content_text=excluded.content_text
+            """,
+            (capture_id, content_text),
+        )
 
     except sqlite3.IntegrityError:
         row2 = None

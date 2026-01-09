@@ -13,12 +13,12 @@ from flask import (
     url_for,
 )
 
+from ..capture_dto import build_capture_dto_from_row
 from ..citation import citation_fields_from_meta
 from ..constants import ALLOWED_ARTIFACTS
 from ..db import get_db
 from ..fsutil import rmtree_best_effort
 from ..httputil import redirect_next
-from ..metaschema import normalize_meta_record, parse_meta_json
 from ..parseutil import safe_int
 from ..repo import captures_repo
 from ..timeutil import utc_now_iso
@@ -36,7 +36,8 @@ def register(app: Flask) -> None:
         if not capture:
             abort(404)
 
-        meta = normalize_meta_record(parse_meta_json(capture.get("meta_json")))
+        dto = build_capture_dto_from_row(capture)
+        meta = dto["meta_record"]
         citation = citation_fields_from_meta(meta)
 
         # Collections list with has_it flags for this capture

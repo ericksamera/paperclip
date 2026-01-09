@@ -20,7 +20,7 @@
             <div class="col-item">
               <a
                 class="{% if selected_col == (c.id|string) %}active{% endif %}"
-                href="{{ url_for('library', col=c.id, q=q, page_size=page_size) }}"
+                href="{{ url_for('library', collection=c.id, q=q, page_size=page_size) }}"
               >
                 {{ c.name }}
               </a>
@@ -41,7 +41,7 @@
             method="get"
             action="{{ url_for('library') }}"
           >
-            <input type="hidden" name="col" value="{{ selected_col }}" />
+            <input type="hidden" name="collection" value="{{ selected_col }}" />
             <input
               class="search__input"
               type="text"
@@ -69,7 +69,7 @@
             {% if q %}
               <a
                 class="btn"
-                href="{{ url_for('library', col=selected_col, page_size=page_size) }}"
+                href="{{ url_for('library', collection=selected_col, page_size=page_size) }}"
                 >Clear</a
               >
             {% endif %}
@@ -82,12 +82,12 @@
             <div class="exports">
               <a
                 class="btn"
-                href="{{ url_for('export_bibtex', col=selected_col) }}"
+                href="{{ url_for('export_bibtex', collection=selected_col) }}"
                 >Export BibTeX</a
               >
               <a
                 class="btn"
-                href="{{ url_for('export_ris', col=selected_col) }}"
+                href="{{ url_for('export_ris', collection=selected_col) }}"
                 >Export RIS</a
               >
             </div>
@@ -172,50 +172,9 @@
                   </tr>
                 </thead>
                 <tbody id="library-tbody">
-                  {% for cap in captures %}
-                    <tr
-                      class="cap-row"
-                      tabindex="0"
-                      data-href="{{ url_for('capture_detail', capture_id=cap.id) }}"
-                      title="Double-click to open"
-                    >
-                      <td class="sel">
-                        <input
-                          class="cap-check"
-                          type="checkbox"
-                          name="capture_ids"
-                          value="{{ cap.id }}"
-                        />
-                      </td>
-
-                      <td class="title-cell">
-                        <div class="title-line">
-                          <span class="title-text">{{ cap.title }}</span>
-                        </div>
-
-                        {% if cap.abstract_snip %}
-                          <div class="muted small">{{ cap.abstract_snip }}</div>
-                        {% endif %}
-                        <div class="muted small">
-                          <a
-                            href="{{ cap.url }}"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            >{{ cap.url }}</a
-                          >
-                        </div>
-                      </td>
-
-                      <td class="small">
-                        {{ cap.authors_short or cap.authors_str or "" }}
-                      </td>
-                      <td class="small">{{ cap.year or "" }}</td>
-                      <td class="small">{{ cap.container_title or "" }}</td>
-                      <td class="small">{{ cap.doi or "" }}</td>
-                    </tr>
-                  {% endfor %}
-
-                  {% if captures|length == 0 %}
+                  {% if captures|length > 0 %}
+                    {% include "_library_rows.html" %}
+                  {% else %}
                     <tr data-empty="1">
                       <td colspan="6" class="muted">No captures found.</td>
                     </tr>

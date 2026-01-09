@@ -45,7 +45,8 @@ If you run the server elsewhere, edit:
 
 - Export all as BibTeX: `http://127.0.0.1:8000/exports/bibtex/`
 - Export all as RIS: `http://127.0.0.1:8000/exports/ris/`
-- Export a collection: add `?col=<collection_id>`
+- Export a collection (preferred): add `?collection=<collection_id>`
+- Back-compat: `?col=<collection_id>` also works
 
 ## Dev / tests (optional)
 
