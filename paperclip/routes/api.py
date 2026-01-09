@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from flask import Flask, request
 
 from ..apiutil import api_error, api_ok
+from ..fsutil import rmtree_best_effort
 from ..ingest import ingest_capture
 from ..tx import db_tx
 
@@ -42,7 +42,6 @@ def register(app: Flask) -> None:
         except ValueError as e:
             return api_error(status=400, code="bad_request", message=str(e))
         except Exception:
-            # Don’t leak internals; keep error shape stable for the extension.
             return api_error(
                 status=500,
                 code="internal_error",
@@ -50,11 +49,7 @@ def register(app: Flask) -> None:
             )
 
         # cleanup dirs only after successful commit
-        for p in result.cleanup_dirs:
-            try:
-                shutil.rmtree(p)
-            except Exception:
-                pass
+        rmtree_best_effort(result.cleanup_dirs)
 
         status = 201 if result.created else 200
         return api_ok(
@@ -68,7 +63,6 @@ def register(app: Flask) -> None:
 
     @app.get("/api/captures/<capture_id>/")
     def api_capture_get(capture_id: str):
-        # read-only path can stay simple; no tx wrapper needed
         from ..db import get_db
 
         db = get_db()
@@ -76,9 +70,5 @@ def register(app: Flask) -> None:
             "SELECT * FROM captures WHERE id = ?", (capture_id,)
         ).fetchone()
         if not cap:
-            return api_error(
-                status=404,
-                code="not_found",
-                message="Capture not found",
-            )
+            return api_error(status=404, code="not_found", message="Capture not found")
         return api_ok(dict(cap), status=200)

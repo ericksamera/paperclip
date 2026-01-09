@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from typing import Any
 
-from flask import Flask
+from flask import Flask, g, request
 
 from .db import close_db, init_db
 
@@ -47,6 +48,22 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
 
     app.secret_key = cfg.get("SECRET_KEY") or "paperclip-dev"
     app.teardown_appcontext(close_db)
+
+    @app.before_request
+    def _assign_request_id() -> None:
+        # Prefer an incoming request id if present (useful behind proxies),
+        # otherwise generate a short one for debugging.
+        rid = request.headers.get("X-Request-ID")
+        if not rid:
+            rid = uuid.uuid4().hex[:12]
+        g.request_id = rid
+
+    @app.after_request
+    def _add_request_id_header(resp):
+        rid = getattr(g, "request_id", None)
+        if rid and "X-Request-ID" not in resp.headers:
+            resp.headers["X-Request-ID"] = rid
+        return resp
 
     from .routes.api import register as register_api_routes
     from .routes.captures import register as register_captures_routes

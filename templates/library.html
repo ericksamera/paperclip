@@ -96,10 +96,26 @@
           <form method="post" action="{{ url_for('captures_delete') }}">
             <input type="hidden" name="next" value="{{ request.full_path }}" />
 
-            <div class="bulkbar">
-              <label class="small"
-                ><input type="checkbox" id="select-all" /> Select all</label
-              >
+            <div class="bulkbar" id="bulkbar">
+              <div class="bulk-left">
+                <label class="small">
+                  <input type="checkbox" id="select-all" />
+                  Select all
+                </label>
+                <span
+                  class="muted small"
+                  id="selected-count"
+                  style="margin-left: 10px; display:none;"
+                ></span>
+                <button
+                  class="btn btn--ghost"
+                  type="button"
+                  id="clear-selection"
+                  style="display:none;"
+                >
+                  Clear
+                </button>
+              </div>
 
               <div class="bulk-actions">
                 <select class="select" name="collection_id">
@@ -144,7 +160,7 @@
             </div>
 
             <div class="table-wrap">
-              <table class="table">
+              <table class="table" id="library-table">
                 <thead>
                   <tr>
                     <th class="sel"></th>
@@ -157,7 +173,10 @@
                 </thead>
                 <tbody id="library-tbody">
                   {% for cap in captures %}
-                    <tr>
+                    <tr
+                      class="cap-row"
+                      data-href="{{ url_for('capture_detail', capture_id=cap.id) }}"
+                    >
                       <td class="sel">
                         <input
                           class="cap-check"
@@ -224,6 +243,7 @@
               class="muted small"
               style="margin-top: 8px; display: none"
             ></div>
+
             <div id="infinite-sentinel" style="height: 1px"></div>
 
             <div
@@ -244,6 +264,9 @@
   <script>
     (function () {
       const selectAll = document.getElementById("select-all");
+      const clearBtn = document.getElementById("clear-selection");
+      const selectedCountEl = document.getElementById("selected-count");
+
       const tbody = document.getElementById("library-tbody");
       const sentinel = document.getElementById("infinite-sentinel");
       const loadingEl = document.getElementById("infinite-loading");
@@ -251,13 +274,10 @@
       const errorEl = document.getElementById("infinite-error");
       const cfgEl = document.getElementById("library-config");
 
-      // Page size dropdown: reload via regular navigation (GET).
       const pageSizeSelect = document.getElementById("page-size");
       const searchForm = document.getElementById("search-form");
       if (pageSizeSelect && searchForm) {
-        pageSizeSelect.addEventListener("change", () => {
-          searchForm.submit();
-        });
+        pageSizeSelect.addEventListener("change", () => searchForm.submit());
       }
 
       function allBoxes() {
@@ -266,7 +286,31 @@
         );
       }
 
-      function syncSelectAllState() {
+      function selectedCount() {
+        let n = 0;
+        allBoxes().forEach((b) => {
+          if (b.checked) n += 1;
+        });
+        return n;
+      }
+
+      function updateSelectedUI() {
+        const n = selectedCount();
+
+        if (selectedCountEl) {
+          if (n > 0) {
+            selectedCountEl.style.display = "inline";
+            selectedCountEl.textContent = `${n} selected`;
+          } else {
+            selectedCountEl.style.display = "none";
+            selectedCountEl.textContent = "";
+          }
+        }
+
+        if (clearBtn) {
+          clearBtn.style.display = n > 0 ? "inline-flex" : "none";
+        }
+
         if (!selectAll) return;
         const boxes = allBoxes();
         if (boxes.length === 0) {
@@ -275,15 +319,10 @@
           return;
         }
 
-        let checked = 0;
-        boxes.forEach((b) => {
-          if (b.checked) checked += 1;
-        });
-
-        if (checked === 0) {
+        if (n === 0) {
           selectAll.checked = false;
           selectAll.indeterminate = false;
-        } else if (checked === boxes.length) {
+        } else if (n === boxes.length) {
           selectAll.checked = true;
           selectAll.indeterminate = false;
         } else {
@@ -297,6 +336,18 @@
           const boxes = allBoxes();
           boxes.forEach((b) => (b.checked = selectAll.checked));
           selectAll.indeterminate = false;
+          updateSelectedUI();
+        });
+      }
+
+      if (clearBtn) {
+        clearBtn.addEventListener("click", () => {
+          allBoxes().forEach((b) => (b.checked = false));
+          if (selectAll) {
+            selectAll.checked = false;
+            selectAll.indeterminate = false;
+          }
+          updateSelectedUI();
         });
       }
 
@@ -307,13 +358,28 @@
           t.matches &&
           t.matches('input[type="checkbox"][name="capture_ids"]')
         ) {
-          syncSelectAllState();
+          updateSelectedUI();
         }
+      });
+
+      // Row click target (ignore interactive elements)
+      document.addEventListener("click", (ev) => {
+        const t = ev.target;
+        if (!t) return;
+
+        if (t.closest && t.closest("a,button,input,select,textarea,label"))
+          return;
+
+        const row = t.closest ? t.closest("tr.cap-row") : null;
+        if (!row) return;
+
+        const href = row.getAttribute("data-href");
+        if (href) window.location.href = href;
       });
 
       // --- Infinite scroll ---
       if (!tbody || !sentinel || !cfgEl) {
-        syncSelectAllState();
+        updateSelectedUI();
         return;
       }
 
@@ -338,15 +404,27 @@
         endShown = true;
       }
 
-      function showError(msg) {
+      function showError(msg, onRetry) {
         if (!errorEl) return;
-        errorEl.textContent = msg;
+        errorEl.innerHTML = "";
+        const span = document.createElement("span");
+        span.textContent = msg + " ";
+        errorEl.appendChild(span);
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn btn--ghost btn--sm";
+        btn.textContent = "Retry";
+        btn.addEventListener("click", () => onRetry && onRetry());
+        errorEl.appendChild(btn);
+
         errorEl.style.display = "block";
       }
 
       function hideError() {
         if (!errorEl) return;
         errorEl.style.display = "none";
+        errorEl.textContent = "";
       }
 
       function currentFilters() {
@@ -382,6 +460,8 @@
         removeEmptyRowIfPresent();
 
         const tr = document.createElement("tr");
+        tr.className = "cap-row";
+        tr.setAttribute("data-href", captureDetailUrl(cap.id));
 
         const tdSel = document.createElement("td");
         tdSel.className = "sel";
@@ -475,10 +555,10 @@
             showEnd();
           }
 
-          syncSelectAllState();
+          updateSelectedUI();
         } catch (e) {
           console.warn("Infinite scroll fetch failed:", e);
-          showError("Couldn’t load more results. Scroll to retry.");
+          showError("Couldn’t load more results.", () => loadNext());
         } finally {
           loading = false;
           setLoading(false);
@@ -494,13 +574,10 @@
         { root: null, rootMargin: "300px 0px", threshold: 0 },
       );
 
-      if (hasMore) {
-        observer.observe(sentinel);
-      } else {
-        showEnd();
-      }
+      if (hasMore) observer.observe(sentinel);
+      else showEnd();
 
-      syncSelectAllState();
+      updateSelectedUI();
     })();
   </script>
 {% endblock %}

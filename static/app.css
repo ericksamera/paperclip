@@ -185,6 +185,15 @@ a:hover {
   color: #fff;
   font-weight: 700;
 }
+.btn--ghost {
+  background: transparent;
+}
+.btn--sm {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
 
 .layout {
   display: grid;
@@ -238,13 +247,28 @@ a:hover {
   cursor: not-allowed;
 }
 
+/* Sticky bulk action bar */
 .bulkbar {
+  position: sticky;
+  top: 52px;
+  z-index: 5;
   display: flex;
   justify-content: space-between;
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
   margin: 10px 0 10px;
+  padding: 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(18, 21, 26, 0.92);
+  backdrop-filter: blur(6px);
+}
+.bulk-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 .bulk-actions {
   display: flex;
@@ -428,5 +452,8 @@ a:hover {
   }
   .table {
     min-width: 640px;
+  }
+  .bulkbar {
+    top: 0;
   }
 }

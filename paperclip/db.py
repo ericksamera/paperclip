@@ -14,15 +14,12 @@ CREATE TABLE IF NOT EXISTS captures (
   id             TEXT PRIMARY KEY,
   url            TEXT NOT NULL,
   url_canon      TEXT NOT NULL,
-  url_hash       TEXT NOT NULL UNIQUE,
-
-  title          TEXT NOT NULL,
+  url_hash       TEXT NOT NULL,
+  title          TEXT NOT NULL DEFAULT '',
   doi            TEXT NOT NULL DEFAULT '',
   year           INTEGER,
   container_title TEXT NOT NULL DEFAULT '',
-
   meta_json      TEXT NOT NULL DEFAULT '{}',
-
   created_at     TEXT NOT NULL,
   updated_at     TEXT NOT NULL
 );
@@ -61,28 +58,45 @@ CREATE VIRTUAL TABLE IF NOT EXISTS capture_fts USING fts5(
 
 
 def init_db(db_path: Path) -> bool:
-    """
-    Initialize the SQLite DB if needed.
-    Returns True if FTS was created/enabled, False otherwise.
-    """
-    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     try:
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute("PRAGMA journal_mode = WAL;")
         conn.executescript(SCHEMA_SQL)
 
-        # Prefer DOI-based de-dupe when DOI exists, but keep startup resilient if
-        # an existing DB already contains duplicate DOIs.
-        try:
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ux_captures_doi ON captures(doi) WHERE doi <> ''"
-            )
-        except sqlite3.IntegrityError:
-            # Existing duplicates; keep running (app-level de-dupe will still help).
-            pass
+        # Lightweight migration runner (idempotent and safe to extend).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+              id         TEXT PRIMARY KEY,
+              applied_at TEXT NOT NULL
+            );
+            """
+        )
 
+        def _applied(mid: str) -> bool:
+            row = conn.execute(
+                "SELECT 1 FROM schema_migrations WHERE id = ? LIMIT 1", (mid,)
+            ).fetchone()
+            return row is not None
+
+        def _mark(mid: str) -> None:
+            conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, datetime('now'))",
+                (mid,),
+            )
+
+        # Migration: prefer DOI-based de-dupe when DOI exists.
+        mid = "2026-01-09_ux_captures_doi"
+        if not _applied(mid):
+            try:
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_captures_doi ON captures(doi) WHERE doi <> ''"
+                )
+            except sqlite3.IntegrityError:
+                # Existing duplicates; keep running (app-level de-dupe will still help).
+                pass
+            _mark(mid)
+
+        # Try to enable FTS; app still works without it.
         fts_enabled = True
         try:
             conn.executescript(FTS_SQL)

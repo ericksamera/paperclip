@@ -9,9 +9,9 @@
         <div>
           <h2 style="margin: 0 0 6px">{{ capture.title }}</h2>
 
-          {% if authors_str %}
+          {% if citation.authors_str %}
             <div class="muted small" style="margin: 0 0 6px">
-              {{ authors_str }}
+              {{ citation.authors_str }}
             </div>
           {% endif %}
 
@@ -72,7 +72,7 @@
                       <input
                         class="cap-check"
                         type="checkbox"
-                        name="collections"
+                        name="collection_ids"
                         value="{{ c.id }}"
                         {% if c.has_it %}checked{% endif %}
                       />
@@ -113,7 +113,7 @@
               {% if meta.keywords %}
                 <div class="kv">
                   <div class="k">Keywords</div>
-                  <div class="v">{{ meta.keywords | join(', ') }}</div>
+                  <div class="v">{{ meta.keywords | join(", ") }}</div>
                 </div>
               {% endif %}
             </div>
@@ -124,15 +124,15 @@
           <div class="panel inner">
             <div class="panel__title">Artifacts</div>
             <div class="panel__body">
-              {% if artifact_links %}
+              {% if artifacts and artifacts|length > 0 %}
                 <ul class="clean">
-                  {% for name, link in artifact_links.items() %}
+                  {% for a in artifacts %}
                     <li>
                       <a
-                        href="{{ link }}"
+                        href="{{ a.url }}"
                         target="_blank"
                         rel="noopener noreferrer"
-                        >{{ name }}</a
+                        >{{ a.name }}</a
                       >
                     </li>
                   {% endfor %}

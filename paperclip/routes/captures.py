@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from flask import (
@@ -17,8 +16,10 @@ from flask import (
 from ..citation import citation_fields_from_meta
 from ..constants import ALLOWED_ARTIFACTS
 from ..db import get_db
-from ..httputil import parse_int, redirect_next
+from ..fsutil import rmtree_best_effort
+from ..httputil import redirect_next
 from ..metaschema import normalize_meta_record, parse_meta_json
+from ..parseutil import safe_int
 from ..repo import captures_repo
 from ..timeutil import utc_now_iso
 from ..tx import db_tx
@@ -37,35 +38,51 @@ def register(app: Flask) -> None:
 
         meta = normalize_meta_record(parse_meta_json(capture.get("meta_json")))
         citation = citation_fields_from_meta(meta)
-        authors_str = citation.get("authors_str") or ""
 
+        # Collections list with has_it flags for this capture
         collections = captures_repo.list_collections_for_capture(db, capture_id)
 
-        arts_root = Path(app.config["ARTIFACTS_DIR"])
-        cap_dir = arts_root / capture_id
-        artifact_links: dict[str, str] = {}
-        for name in allowed_artifacts_list:
-            if (cap_dir / name).exists():
-                artifact_links[name] = url_for(
-                    "artifact_download", capture_id=capture_id, name=name
-                )
+        artifacts_dir = Path(app.config["ARTIFACTS_DIR"]) / capture_id
+        artifacts: list[dict] = []
+        if artifacts_dir.exists():
+            for p in artifacts_dir.iterdir():
+                if p.is_file() and p.name in allowed_artifacts_set:
+                    artifacts.append(
+                        {
+                            "name": p.name,
+                            "url": url_for(
+                                "capture_artifact", capture_id=capture_id, name=p.name
+                            ),
+                        }
+                    )
 
         return render_template(
             "capture.html",
             capture=capture,
-            authors_str=authors_str,
             meta=meta,
+            citation=citation,
             collections=collections,
-            artifact_links=artifact_links,
+            artifacts=artifacts,
+            allowed_artifacts=allowed_artifacts_list,
         )
 
-    @app.post("/captures/<capture_id>/collections/")
+    @app.get("/captures/<capture_id>/artifact/<name>")
+    def capture_artifact(capture_id: str, name: str):
+        if name not in allowed_artifacts_set:
+            abort(404)
+        p = Path(app.config["ARTIFACTS_DIR"]) / capture_id / name
+        if not p.exists():
+            abort(404)
+        return send_file(p)
+
+    @app.post("/captures/<capture_id>/collections/set/")
     def capture_set_collections(capture_id: str):
-        selected_raw = request.form.getlist("collections") or []
+        # NOTE: template uses name="collection_ids"
+        selected_raw = request.form.getlist("collection_ids")
         selected_ids: set[int] = set()
         for x in selected_raw:
-            v = parse_int(x, -1)
-            if v > 0:
+            v = safe_int(x)
+            if v and v > 0:
                 selected_ids.add(v)
 
         now = utc_now_iso()
@@ -86,21 +103,9 @@ def register(app: Flask) -> None:
         flash("Collections updated.", "success")
         return redirect(url_for("capture_detail", capture_id=capture_id))
 
-    @app.get("/artifacts/<capture_id>/<name>/")
-    def artifact_download(capture_id: str, name: str):
-        if name not in allowed_artifacts_set:
-            abort(404)
-
-        arts_dir = Path(app.config["ARTIFACTS_DIR"])
-        p = (arts_dir / capture_id / name).resolve()
-        if not p.exists():
-            abort(404)
-
-        return send_file(p, as_attachment=True, download_name=name)
-
     @app.post("/captures/delete/")
     def captures_delete():
-        capture_ids = request.form.getlist("capture_ids") or []
+        capture_ids = request.form.getlist("capture_ids")
         capture_ids = [c.strip() for c in capture_ids if c.strip()]
         if not capture_ids:
             flash("No captures selected.", "warning")
@@ -114,24 +119,22 @@ def register(app: Flask) -> None:
                 db, capture_ids=capture_ids, fts_enabled=fts_enabled
             )
 
-        for cid in capture_ids:
-            try:
-                shutil.rmtree(arts_dir / cid)
-            except FileNotFoundError:
-                pass
+        # delete artifacts after commit
+        rmtree_best_effort([arts_dir / cid for cid in capture_ids])
 
         flash(f"Deleted {len(capture_ids)} capture(s).", "success")
         return redirect_next("library")
 
     @app.post("/captures/collections/add/")
     def captures_collections_add():
-        capture_ids = request.form.getlist("capture_ids") or []
+        capture_ids = request.form.getlist("capture_ids")
         capture_ids = [c.strip() for c in capture_ids if c.strip()]
-        collection_id = parse_int(request.form.get("collection_id"), -1)
+        collection_id = safe_int(request.form.get("collection_id")) or -1
 
         if not capture_ids:
             flash("No captures selected.", "warning")
             return redirect_next("library")
+
         if collection_id <= 0:
             flash("Pick a collection.", "warning")
             return redirect_next("library")
@@ -150,13 +153,14 @@ def register(app: Flask) -> None:
 
     @app.post("/captures/collections/remove/")
     def captures_collections_remove():
-        capture_ids = request.form.getlist("capture_ids") or []
+        capture_ids = request.form.getlist("capture_ids")
         capture_ids = [c.strip() for c in capture_ids if c.strip()]
-        collection_id = parse_int(request.form.get("collection_id"), -1)
+        collection_id = safe_int(request.form.get("collection_id")) or -1
 
         if not capture_ids:
             flash("No captures selected.", "warning")
             return redirect_next("library")
+
         if collection_id <= 0:
             flash("Pick a collection.", "warning")
             return redirect_next("library")
