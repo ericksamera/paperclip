@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from flask import Response, jsonify
@@ -16,7 +17,11 @@ def api_error(
     message: str,
     details: dict[str, Any] | None = None,
 ) -> tuple[Response, int]:
-    err: dict[str, Any] = {"code": code, "message": message}
+    request_id = uuid.uuid4().hex[:12]
+    err: dict[str, Any] = {"code": code, "message": message, "request_id": request_id}
     if details:
         err["details"] = details
-    return jsonify({"error": err}), status
+
+    resp = jsonify({"error": err})
+    resp.headers["X-Request-ID"] = request_id
+    return resp, status

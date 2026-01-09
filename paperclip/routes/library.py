@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from flask import (
     Flask,
     current_app,
@@ -12,10 +10,10 @@ from flask import (
     url_for,
 )
 
-from ..citation import citation_fields_from_meta_json
 from ..db import get_db
 from ..httputil import parse_int, parse_page_size
-from ..repo import library_repo
+from ..present import present_capture_for_api, present_capture_for_library
+from ..repo import collections_repo, library_repo
 
 
 def register(app: Flask) -> None:
@@ -31,7 +29,7 @@ def register(app: Flask) -> None:
         page = max(1, parse_int(request.args.get("page"), 1))
         page_size = parse_page_size(request.args.get("page_size"), 50)
 
-        collections = library_repo.list_collections_with_counts(db)
+        collections = collections_repo.list_collections_with_counts(db)
         total_all = library_repo.count_all_captures(db)
 
         captures, total, has_more = library_repo.search_captures(
@@ -43,12 +41,8 @@ def register(app: Flask) -> None:
             fts_enabled=bool(current_app.config.get("FTS_ENABLED")),
         )
 
-        for cap in captures:
-            citation = citation_fields_from_meta_json(cap.get("meta_json"))
-            cap["authors_str"] = citation.get("authors_str") or ""
-            cap["authors_short"] = citation.get("authors_short") or ""
-            cap["abstract_snip"] = citation.get("abstract_snip") or ""
-            cap.pop("meta_json", None)
+        for i in range(len(captures)):
+            captures[i] = present_capture_for_library(captures[i])
 
         return render_template(
             "library.html",
@@ -80,21 +74,7 @@ def register(app: Flask) -> None:
             fts_enabled=bool(current_app.config.get("FTS_ENABLED")),
         )
 
-        out_caps: list[dict[str, Any]] = []
-        for cap in captures:
-            citation = citation_fields_from_meta_json(cap.get("meta_json"))
-            out_caps.append(
-                {
-                    "id": cap.get("id"),
-                    "title": cap.get("title"),
-                    "url": cap.get("url"),
-                    "doi": cap.get("doi"),
-                    "year": cap.get("year"),
-                    "container_title": cap.get("container_title"),
-                    "authors_short": citation.get("authors_short") or "",
-                    "abstract_snip": citation.get("abstract_snip") or "",
-                }
-            )
+        out_caps = [present_capture_for_api(c) for c in captures]
 
         return jsonify(
             {

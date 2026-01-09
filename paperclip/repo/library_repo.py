@@ -4,19 +4,7 @@ import re
 from typing import Any
 
 from ..db import rows_to_dicts
-
-
-def list_collections_with_counts(db) -> list[dict[str, Any]]:
-    rows = db.execute(
-        """
-        SELECT c.id, c.name, COUNT(ci.capture_id) AS count
-        FROM collections c
-        LEFT JOIN collection_items ci ON ci.collection_id = c.id
-        GROUP BY c.id
-        ORDER BY c.name COLLATE NOCASE ASC
-        """
-    ).fetchall()
-    return rows_to_dicts(rows)
+from ..parseutil import safe_int
 
 
 def count_all_captures(db) -> int:
@@ -58,13 +46,10 @@ def search_captures(
     where: list[str] = []
     params: list[Any] = []
 
-    if selected_col:
+    col_id = safe_int(selected_col)
+    if col_id and col_id > 0:
         join_parts.append("JOIN collection_items ci ON ci.capture_id = cap.id")
         where.append("ci.collection_id = ?")
-        try:
-            col_id = int(selected_col)
-        except Exception:
-            col_id = -1
         params.append(col_id)
 
     if q:
@@ -72,15 +57,24 @@ def search_captures(
         fts_q = _fts_query(q) if fts_enabled else ""
 
         if fts_enabled and fts_q:
-            join_parts.append("LEFT JOIN capture_fts fts ON fts.capture_id = cap.id")
+            # Avoid JOIN+alias MATCH quirks: use correlated subquery against the FTS table.
             where.append(
-                "(cap.title LIKE ? OR cap.url LIKE ? OR cap.doi LIKE ? OR fts MATCH ?)"
+                "("
+                "cap.title LIKE ? OR cap.url LIKE ? OR cap.doi LIKE ? "
+                "OR cap.id IN ("
+                "  SELECT capture_id FROM capture_fts WHERE capture_fts MATCH ?"
+                ")"
+                ")"
             )
             params.extend([qlike, qlike, qlike, fts_q])
         else:
             where.append(
-                "(cap.title LIKE ? OR cap.url LIKE ? OR cap.doi LIKE ? "
-                "OR cap.id IN (SELECT capture_id FROM capture_text WHERE content_text LIKE ?))"
+                "("
+                "cap.title LIKE ? OR cap.url LIKE ? OR cap.doi LIKE ? "
+                "OR cap.id IN ("
+                "  SELECT capture_id FROM capture_text WHERE content_text LIKE ?"
+                ")"
+                ")"
             )
             params.extend([qlike, qlike, qlike, qlike])
 

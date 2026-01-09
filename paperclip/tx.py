@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from contextlib import contextmanager
 from typing import Iterator
 
@@ -7,17 +8,22 @@ from .db import get_db
 
 
 @contextmanager
-def db_tx() -> Iterator[object]:
+def db_tx(*, commit: bool = True) -> Iterator[sqlite3.Connection]:
     """
     Context manager for a single request-scoped transaction.
-    - commits if the block exits cleanly
-    - rollbacks if an exception occurs
+
+    - If `commit=True` (default): commits if the block exits cleanly.
+    - Always rollbacks on exception.
+    - If `commit=False`: does not commit on success (useful for read-only blocks).
     """
-    db = get_db()
+    db: sqlite3.Connection = get_db()
     try:
         yield db
     except Exception:
-        db.rollback()
-        raise
+        try:
+            db.rollback()
+        finally:
+            raise
     else:
-        db.commit()
+        if commit:
+            db.commit()

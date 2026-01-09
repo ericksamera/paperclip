@@ -30,16 +30,30 @@ def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
 
+def _atomic_write_bytes(p: Path, b: bytes) -> None:
+    """
+    Best-effort atomic write: write to temp file then os.replace onto final path.
+    """
+    tmp = p.with_name(p.name + ".tmp")
+    with open(tmp, "wb") as f:
+        f.write(b)
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except Exception:
+            # Some FS / platforms may not support fsync; keep best-effort.
+            pass
+    os.replace(tmp, p)
+
+
 def _write_text(p: Path, text: str) -> None:
-    p.write_text(text or "", encoding="utf-8", errors="ignore")
+    data = (text or "").encode("utf-8", errors="ignore")
+    _atomic_write_bytes(p, data)
 
 
 def _write_json(p: Path, obj: Any) -> None:
-    p.write_text(
-        json.dumps(obj, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-        errors="ignore",
-    )
+    s = json.dumps(obj, ensure_ascii=False, indent=2) + "\n"
+    _atomic_write_bytes(p, s.encode("utf-8", errors="ignore"))
 
 
 def _as_dict(v: Any) -> dict[str, Any]:
@@ -106,6 +120,8 @@ class IngestResult:
     capture_id: str
     created: bool
     summary: dict[str, Any]
+    # artifact dirs safe to delete AFTER the caller commits the transaction
+    cleanup_dirs: list[str]
 
 
 def ingest_capture(
@@ -121,6 +137,8 @@ def ingest_capture(
       - otherwise de-dupe by canonical URL hash
       - write artifacts to disk
       - upsert DB row + search text
+
+    IMPORTANT: This function does NOT commit. Caller must manage the transaction.
     """
     now = utc_now_iso()
 
@@ -155,6 +173,8 @@ def ingest_capture(
     created: bool
     created_at: str
 
+    cleanup_dirs: list[str] = []
+
     row = None
     if doi:
         row = db.execute(
@@ -178,12 +198,9 @@ def ingest_capture(
                     artifacts_root=artifacts_root,
                     fts_enabled=fts_enabled,
                 )
-            else:
-                to_delete_dir = None
-        else:
-            to_delete_dir = None
-    else:
-        to_delete_dir = None
+                if to_delete_dir is not None:
+                    cleanup_dirs.append(os.fspath(to_delete_dir))
+        # else: handled below
 
     if not row:
         row = db.execute(
@@ -301,10 +318,8 @@ def ingest_capture(
                 if src.exists():
                     shutil.copyfile(src, existing_dir / name)
 
-            try:
-                shutil.rmtree(cap_dir)
-            except Exception:
-                pass
+            # delete the "losing" dir after commit (safer if caller rolls back)
+            cleanup_dirs.append(os.fspath(cap_dir))
 
             capture_id = existing_id
             created = False
@@ -356,14 +371,6 @@ def ingest_capture(
             (capture_id, title, content_text),
         )
 
-    db.commit()
-
-    if to_delete_dir is not None:
-        try:
-            shutil.rmtree(to_delete_dir)
-        except Exception:
-            pass
-
     summary = {
         "id": capture_id,
         "created": created,
@@ -373,4 +380,9 @@ def ingest_capture(
         "container_title": container_title,
         "artifact_dir": os.fspath(artifacts_root / capture_id),
     }
-    return IngestResult(capture_id=capture_id, created=created, summary=summary)
+    return IngestResult(
+        capture_id=capture_id,
+        created=created,
+        summary=summary,
+        cleanup_dirs=cleanup_dirs,
+    )

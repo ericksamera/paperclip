@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from flask import Flask, request
 
 from ..apiutil import api_error, api_ok
-from ..db import get_db
 from ..ingest import ingest_capture
+from ..tx import db_tx
 
 
 def register(app: Flask) -> None:
@@ -27,14 +28,17 @@ def register(app: Flask) -> None:
                 message="Request body must be a JSON object",
             )
 
-        db = get_db()
+        arts_root = Path(app.config["ARTIFACTS_DIR"])
+        fts_enabled = bool(app.config.get("FTS_ENABLED"))
+
         try:
-            result = ingest_capture(
-                payload=payload,
-                db=db,
-                artifacts_root=Path(app.config["ARTIFACTS_DIR"]),
-                fts_enabled=bool(app.config.get("FTS_ENABLED")),
-            )
+            with db_tx() as db:
+                result = ingest_capture(
+                    payload=payload,
+                    db=db,
+                    artifacts_root=arts_root,
+                    fts_enabled=fts_enabled,
+                )
         except ValueError as e:
             return api_error(status=400, code="bad_request", message=str(e))
         except Exception:
@@ -44,6 +48,13 @@ def register(app: Flask) -> None:
                 code="internal_error",
                 message="Internal server error",
             )
+
+        # cleanup dirs only after successful commit
+        for p in result.cleanup_dirs:
+            try:
+                shutil.rmtree(p)
+            except Exception:
+                pass
 
         status = 201 if result.created else 200
         return api_ok(
@@ -57,6 +68,9 @@ def register(app: Flask) -> None:
 
     @app.get("/api/captures/<capture_id>/")
     def api_capture_get(capture_id: str):
+        # read-only path can stay simple; no tx wrapper needed
+        from ..db import get_db
+
         db = get_db()
         cap = db.execute(
             "SELECT * FROM captures WHERE id = ?", (capture_id,)

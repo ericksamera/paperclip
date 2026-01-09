@@ -3,15 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..db import rows_to_dicts
-
-
-def _safe_int(s: str | None) -> int | None:
-    if not s:
-        return None
-    try:
-        return int(s)
-    except Exception:
-        return None
+from ..parseutil import safe_int
 
 
 def get_collection_name(db, *, collection_id: int) -> str | None:
@@ -42,7 +34,7 @@ def select_captures_for_export(
         ).fetchall()
         return rows_to_dicts(rows), capture_id, None, None
 
-    col_id = _safe_int(col)
+    col_id = safe_int(col)
     if col_id and col_id > 0:
         rows = db.execute(
             """
