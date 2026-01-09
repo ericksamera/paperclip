@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import traceback
 from pathlib import Path
 
-from flask import Flask, request
+from flask import Flask, current_app, request
 
 from ..apiutil import api_error, api_ok
 from ..fsutil import rmtree_best_effort
@@ -41,7 +42,16 @@ def register(app: Flask) -> None:
                 )
         except ValueError as e:
             return api_error(status=400, code="bad_request", message=str(e))
-        except Exception:
+        except Exception as e:
+            # In dev/tests, surface details so we can fix the real root cause.
+            current_app.logger.exception("POST /api/captures/ failed")
+            if current_app.testing or bool(current_app.config.get("DEBUG")):
+                return api_error(
+                    status=500,
+                    code="internal_error",
+                    message=str(e) or "Internal server error",
+                    details={"traceback": traceback.format_exc()},
+                )
             return api_error(
                 status=500,
                 code="internal_error",
@@ -67,7 +77,8 @@ def register(app: Flask) -> None:
 
         db = get_db()
         cap = db.execute(
-            "SELECT * FROM captures WHERE id = ?", (capture_id,)
+            "SELECT * FROM captures WHERE id = ?",
+            (capture_id,),
         ).fetchone()
         if not cap:
             return api_error(status=404, code="not_found", message="Capture not found")

@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import sqlite3
+import traceback  # NEW
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,7 @@ from .extract import (
     parse_head_meta,
 )
 from .metaschema import build_meta_record
+from .parsers import parse_article
 from .timeutil import utc_now_iso
 from .urlnorm import canonicalize_url, url_hash
 
@@ -31,9 +33,7 @@ def _ensure_dir(p: Path) -> None:
 
 
 def _atomic_write_bytes(p: Path, b: bytes) -> None:
-    """
-    Best-effort atomic write: write to temp file then os.replace onto final path.
-    """
+    _ensure_dir(p.parent)
     tmp = p.with_name(p.name + ".tmp")
     with open(tmp, "wb") as f:
         f.write(b)
@@ -41,7 +41,6 @@ def _atomic_write_bytes(p: Path, b: bytes) -> None:
         try:
             os.fsync(f.fileno())
         except Exception:
-            # Some FS / platforms may not support fsync; keep best-effort.
             pass
     os.replace(tmp, p)
 
@@ -52,7 +51,7 @@ def _write_text(p: Path, text: str) -> None:
 
 
 def _write_json(p: Path, obj: Any) -> None:
-    s = json.dumps(obj, ensure_ascii=False, indent=2) + "\n"
+    s = json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     _atomic_write_bytes(p, s.encode("utf-8", errors="ignore"))
 
 
@@ -63,10 +62,6 @@ def _as_dict(v: Any) -> dict[str, Any]:
 def _merge_meta(
     client_meta: dict[str, Any], head_meta: dict[str, Any]
 ) -> dict[str, Any]:
-    """
-    Merge meta with head_meta winning on key collisions.
-    Keys are normalized to lowercase strings.
-    """
     out: dict[str, Any] = {}
     for src in (client_meta, head_meta):
         if not isinstance(src, dict):
@@ -87,12 +82,6 @@ def _merge_duplicates(
     artifacts_root: Path,
     fts_enabled: bool,
 ) -> Path | None:
-    """
-    Merge drop_id into keep_id (best effort):
-      - move collection membership
-      - delete the dropped capture row (cascades capture_text + collection_items)
-      - return the artifacts dir to delete after commit
-    """
     if not keep_id or not drop_id or keep_id == drop_id:
         return None
 
@@ -107,10 +96,12 @@ def _merge_duplicates(
         )
 
     if fts_enabled:
-        db.execute("DELETE FROM capture_fts WHERE capture_id = ?", (drop_id,))
+        try:
+            db.execute("DELETE FROM capture_fts WHERE capture_id = ?", (drop_id,))
+        except Exception:
+            pass
 
     db.execute("DELETE FROM captures WHERE id = ?", (drop_id,))
-
     drop_dir = artifacts_root / drop_id
     return drop_dir if drop_dir.exists() else None
 
@@ -120,7 +111,6 @@ class IngestResult:
     capture_id: str
     created: bool
     summary: dict[str, Any]
-    # artifact dirs safe to delete AFTER the caller commits the transaction
     cleanup_dirs: list[str]
 
 
@@ -131,15 +121,6 @@ def ingest_capture(
     artifacts_root: Path,
     fts_enabled: bool,
 ) -> IngestResult:
-    """
-    Ingest a capture payload:
-      - de-dupe by DOI when available (normalized)
-      - otherwise de-dupe by canonical URL hash
-      - write artifacts to disk
-      - upsert DB row + search text
-
-    IMPORTANT: This function does NOT commit. Caller must manage the transaction.
-    """
     now = utc_now_iso()
 
     source_url = str(payload.get("source_url") or "").strip()
@@ -167,12 +148,55 @@ def ingest_capture(
     keywords = best_keywords(meta)
     authors = best_authors(meta)
     abstract = best_abstract(meta)
-    content_text = html_to_text(content_html)
+
+    # NEW: parser is best-effort; ingestion must survive failures.
+    parse_exc: dict[str, Any] | None = None
+    try:
+        parse_result = parse_article(url=canon, dom_html=dom_html, head_meta=meta)
+    except Exception as e:
+        parse_exc = {
+            "type": type(e).__name__,
+            "message": str(e),
+            "traceback": traceback.format_exc(),
+        }
+        parse_result = {
+            "ok": False,
+            "parser": "crashed",
+            "capture_quality": "suspicious",
+            "blocked_reason": "",
+            "confidence_fulltext": 0.0,
+            "article_html": "",
+            "article_text": "",
+            "selected_hint": "",
+            "score_breakdown": {},
+            "notes": ["parser_exception"],
+            "meta": {},
+        }
+
+    base_text = html_to_text(content_html)
+    parsed_text = (
+        (parse_result.article_text if hasattr(parse_result, "article_text") else "")
+        or ""
+    ).strip()
+    content_text = base_text
+
+    use_parsed_for_index = False
+    if hasattr(parse_result, "capture_quality") and hasattr(
+        parse_result, "confidence_fulltext"
+    ):
+        use_parsed_for_index = (
+            bool(parsed_text)
+            and parse_result.capture_quality != "blocked"
+            and float(parse_result.confidence_fulltext) >= 0.45
+        )
+    if use_parsed_for_index:
+        content_text = parsed_text
+
+    # ... rest of file unchanged until artifact writing ...
 
     capture_id: str
     created: bool
     created_at: str
-
     cleanup_dirs: list[str] = []
 
     row = None
@@ -188,7 +212,8 @@ def ingest_capture(
             created_at = row["created_at"]
 
             row_by_url = db.execute(
-                "SELECT id FROM captures WHERE url_hash = ?", (h,)
+                "SELECT id FROM captures WHERE url_hash = ?",
+                (h,),
             ).fetchone()
             if row_by_url and row_by_url["id"] != capture_id:
                 to_delete_dir = _merge_duplicates(
@@ -200,7 +225,6 @@ def ingest_capture(
                 )
                 if to_delete_dir is not None:
                     cleanup_dirs.append(os.fspath(to_delete_dir))
-        # else: handled below
 
     if not row:
         row = db.execute(
@@ -222,9 +246,37 @@ def ingest_capture(
     _write_text(cap_dir / "page.html", dom_html)
     _write_text(cap_dir / "content.html", content_html)
 
+    # Parsed artifacts: always write article.json even if parser crashed.
+    article_html = (
+        parse_result.article_html if hasattr(parse_result, "article_html") else ""
+    ) or ""
+    article_text = (
+        parse_result.article_text if hasattr(parse_result, "article_text") else ""
+    ) or ""
+
+    if article_html:
+        _write_text(cap_dir / "article.html", article_html)
+    if article_text:
+        _write_text(cap_dir / "article.txt", article_text)
+
+    if hasattr(parse_result, "to_json"):
+        article_json = parse_result.to_json()
+    else:
+        article_json = dict(parse_result)
+
+    if parse_exc:
+        article_json["error"] = parse_exc
+
+    _write_json(cap_dir / "article.json", article_json)
+
     raw = {"received_at": now, "payload": payload}
     _write_json(cap_dir / "raw.json", raw)
 
+    reduced_parse = (
+        parse_result.to_json()
+        if hasattr(parse_result, "to_json")
+        else dict(parse_result)
+    )
     reduced = {
         "id": capture_id,
         "source_url": source_url,
@@ -239,10 +291,23 @@ def ingest_capture(
         "keywords": keywords,
         "captured_at": now,
         "meta": meta,
+        "parse": {
+            "parser": reduced_parse.get("parser", ""),
+            "ok": bool(reduced_parse.get("ok", False)),
+            "capture_quality": reduced_parse.get("capture_quality", "suspicious"),
+            "blocked_reason": reduced_parse.get("blocked_reason", ""),
+            "confidence_fulltext": float(reduced_parse.get("confidence_fulltext", 0.0)),
+            "selected_hint": reduced_parse.get("selected_hint", ""),
+            "used_for_index": use_parsed_for_index,
+            "notes": reduced_parse.get("notes", []),
+            "error": parse_exc,
+        },
         "stats": {
             "dom_chars": len(dom_html or ""),
             "content_html_chars": len(content_html or ""),
             "content_text_chars": len(content_text or ""),
+            "article_html_chars": len(article_html or ""),
+            "article_text_chars": len(article_text or ""),
         },
         "client": (
             payload.get("client") if isinstance(payload.get("client"), dict) else {}
@@ -250,7 +315,6 @@ def ingest_capture(
     }
     _write_json(cap_dir / "reduced.json", reduced)
 
-    # Canonical meta_json for DB (single source of truth)
     meta_record = build_meta_record(
         head_meta=meta,
         keywords=keywords,
@@ -293,6 +357,18 @@ def ingest_capture(
                 now,
             ),
         )
+
+        if fts_enabled:
+            db.execute(
+                """
+                INSERT INTO capture_text (capture_id, content_text)
+                VALUES (?, ?)
+                ON CONFLICT(capture_id) DO UPDATE SET
+                  content_text=excluded.content_text
+                """,
+                (capture_id, content_text),
+            )
+
     except sqlite3.IntegrityError:
         row2 = None
         if doi:
@@ -313,63 +389,31 @@ def ingest_capture(
             existing_dir = artifacts_root / existing_id
             _ensure_dir(existing_dir)
 
-            for name in ("page.html", "content.html", "raw.json", "reduced.json"):
+            for name in (
+                "page.html",
+                "content.html",
+                "article.html",
+                "article.txt",
+                "article.json",
+                "raw.json",
+                "reduced.json",
+            ):
                 src = cap_dir / name
-                if src.exists():
-                    shutil.copyfile(src, existing_dir / name)
+                dst = existing_dir / name
+                if src.exists() and not dst.exists():
+                    shutil.copyfile(src, dst)
 
-            # delete the "losing" dir after commit (safer if caller rolls back)
             cleanup_dirs.append(os.fspath(cap_dir))
 
-            capture_id = existing_id
-            created = False
-            created_at = row2["created_at"]
-            cap_dir = existing_dir
+        capture_id = existing_id
+        created = False
 
-        db.execute(
-            """
-            UPDATE captures SET
-              url=?,
-              url_canon=?,
-              url_hash=?,
-              title=?,
-              doi=?,
-              year=?,
-              container_title=?,
-              meta_json=?,
-              updated_at=?
-            WHERE id=?
-            """,
-            (
-                source_url,
-                canon,
-                h,
-                title,
-                doi,
-                year,
-                container_title,
-                json.dumps(meta_record, ensure_ascii=False),
-                now,
-                capture_id,
-            ),
-        )
-
-    db.execute(
-        """
-        INSERT INTO capture_text (capture_id, content_text)
-        VALUES (?, ?)
-        ON CONFLICT(capture_id) DO UPDATE SET
-          content_text=excluded.content_text
-        """,
-        (capture_id, content_text),
-    )
-
-    if fts_enabled:
-        db.execute("DELETE FROM capture_fts WHERE capture_id = ?", (capture_id,))
-        db.execute(
-            "INSERT INTO capture_fts (capture_id, title, content_text) VALUES (?, ?, ?)",
-            (capture_id, title, content_text),
-        )
+    except Exception:
+        try:
+            shutil.rmtree(cap_dir)
+        except Exception:
+            pass
+        raise
 
     summary = {
         "id": capture_id,
