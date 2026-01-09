@@ -6,7 +6,6 @@ import shutil
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,11 +21,8 @@ from .extract import (
     html_to_text,
     parse_head_meta,
 )
+from .timeutil import utc_now_iso
 from .urlnorm import canonicalize_url, url_hash
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def _ensure_dir(p: Path) -> None:
@@ -85,7 +81,6 @@ def _merge_duplicates(
     if not keep_id or not drop_id or keep_id == drop_id:
         return None
 
-    # Preserve collection membership
     rows = db.execute(
         "SELECT collection_id, added_at FROM collection_items WHERE capture_id = ?",
         (drop_id,),
@@ -126,7 +121,7 @@ def ingest_capture(
       - write artifacts to disk
       - upsert DB row + search text
     """
-    now = _utc_now_iso()
+    now = utc_now_iso()
 
     source_url = str(payload.get("source_url") or "").strip()
     dom_html = str(payload.get("dom_html") or "")
@@ -137,8 +132,6 @@ def ingest_capture(
     if not source_url:
         raise ValueError("Missing required field: source_url")
     if not dom_html:
-        # Allow empty DOM in theory, but it's usually a caller bug.
-        # Keep behavior permissive (some pages block scripts).
         dom_html = ""
 
     canon = canonicalize_url(source_url)
@@ -161,7 +154,6 @@ def ingest_capture(
     created: bool
     created_at: str
 
-    # Prefer DOI de-dupe when DOI is present.
     row = None
     if doi:
         row = db.execute(
@@ -174,8 +166,6 @@ def ingest_capture(
             created = False
             created_at = row["created_at"]
 
-            # If the incoming URL hash currently belongs to a different capture,
-            # merge that capture into the DOI canonical record.
             row_by_url = db.execute(
                 "SELECT id FROM captures WHERE url_hash = ?", (h,)
             ).fetchone()
@@ -195,9 +185,9 @@ def ingest_capture(
         to_delete_dir = None
 
     if not row:
-        # Fallback: canonical URL hash
         row = db.execute(
-            "SELECT id, created_at FROM captures WHERE url_hash = ?", (h,)
+            "SELECT id, created_at FROM captures WHERE url_hash = ?",
+            (h,),
         ).fetchone()
         if row:
             capture_id = row["id"]
@@ -208,17 +198,13 @@ def ingest_capture(
             created = True
             created_at = now
 
-    # Artifacts on disk
     cap_dir = artifacts_root / capture_id
     _ensure_dir(cap_dir)
 
     _write_text(cap_dir / "page.html", dom_html)
     _write_text(cap_dir / "content.html", content_html)
 
-    raw = {
-        "received_at": now,
-        "payload": payload,
-    }
+    raw = {"received_at": now, "payload": payload}
     _write_json(cap_dir / "raw.json", raw)
 
     reduced = {
@@ -255,8 +241,6 @@ def ingest_capture(
         "client": reduced.get("client", {}),
     }
 
-    # DB upsert (by id)
-    # Note: url_hash remains UNIQUE to keep URL de-dupe effective for captures without DOI.
     try:
         db.execute(
             """
@@ -307,7 +291,6 @@ def ingest_capture(
 
         existing_id = row2["id"]
         if existing_id != capture_id:
-            # Move artifacts we just wrote onto the existing capture id.
             existing_dir = artifacts_root / existing_id
             _ensure_dir(existing_dir)
 
@@ -373,7 +356,6 @@ def ingest_capture(
 
     db.commit()
 
-    # Post-commit cleanup (best effort)
     if to_delete_dir is not None:
         try:
             shutil.rmtree(to_delete_dir)
