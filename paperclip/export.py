@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
+
+from .metaschema import (
+    get_abstract,
+    get_authors,
+    get_keywords,
+    normalize_meta_record,
+    parse_meta_json,
+)
 
 
 def _escape_bibtex(s: str) -> str:
@@ -20,40 +27,11 @@ def _bibtex_key(capture_id: str, year: int | None) -> str:
 
 
 def _meta_from_row(row: dict[str, Any]) -> dict[str, Any]:
-    try:
-        v = json.loads(row.get("meta_json") or "{}")
-        return v if isinstance(v, dict) else {}
-    except Exception:
-        return {}
+    return normalize_meta_record(parse_meta_json(row.get("meta_json")))
 
 
-def _norm_authors(val: Any) -> list[str]:
-    if val is None:
-        return []
-    if isinstance(val, str):
-        val = [val]
-    if not isinstance(val, list):
-        return []
-    out: list[str] = []
-    seen: set[str] = set()
-    for a in val:
-        s = str(a).strip()
-        if not s:
-            continue
-        k = s.casefold()
-        if k in seen:
-            continue
-        seen.add(k)
-        out.append(s)
-    return out
-
-
-def _norm_abstract(val: Any) -> str:
-    if val is None:
-        return ""
-    if not isinstance(val, str):
-        val = str(val)
-    return re.sub(r"\s+", " ", val).strip()
+def _norm_abstract(val: str) -> str:
+    return re.sub(r"\s+", " ", (val or "")).strip()
 
 
 def captures_to_bibtex(rows: list[dict[str, Any]]) -> str:
@@ -72,14 +50,9 @@ def captures_to_bibtex(rows: list[dict[str, Any]]) -> str:
 
         meta = _meta_from_row(r)
 
-        keywords = meta.get("keywords") or []
-        if isinstance(keywords, str):
-            keywords = [keywords]
-        if not isinstance(keywords, list):
-            keywords = []
-
-        authors = _norm_authors(meta.get("authors"))
-        abstract = _norm_abstract(meta.get("abstract"))
+        keywords = get_keywords(meta)
+        authors = get_authors(meta)  # already normalized + deduped
+        abstract = _norm_abstract(get_abstract(meta))
 
         entry_type = "article" if journal else "misc"
         key = _bibtex_key(cid, year_i)
@@ -87,7 +60,6 @@ def captures_to_bibtex(rows: list[dict[str, Any]]) -> str:
         fields: list[tuple[str, str]] = []
         fields.append(("title", _escape_bibtex(title or "Untitled")))
         if authors:
-            # BibTeX expects "and" between authors
             fields.append(("author", _escape_bibtex(" and ".join(authors))))
         if journal:
             fields.append(("journal", _escape_bibtex(journal)))
@@ -100,14 +72,7 @@ def captures_to_bibtex(rows: list[dict[str, Any]]) -> str:
         if abstract:
             fields.append(("abstract", _escape_bibtex(abstract)))
         if keywords:
-            fields.append(
-                (
-                    "keywords",
-                    _escape_bibtex(
-                        ", ".join(str(x) for x in keywords if str(x).strip())
-                    ),
-                )
-            )
+            fields.append(("keywords", _escape_bibtex(", ".join(keywords))))
 
         body = ",\n".join([f"  {k} = {{{v}}}" for k, v in fields])
         entries.append(f"@{entry_type}{{{key},\n{body}\n}}")
@@ -131,14 +96,9 @@ def captures_to_ris(rows: list[dict[str, Any]]) -> str:
 
         meta = _meta_from_row(r)
 
-        keywords = meta.get("keywords") or []
-        if isinstance(keywords, str):
-            keywords = [keywords]
-        if not isinstance(keywords, list):
-            keywords = []
-
-        authors = _norm_authors(meta.get("authors"))
-        abstract = _norm_abstract(meta.get("abstract"))
+        keywords = get_keywords(meta)
+        authors = get_authors(meta)
+        abstract = _norm_abstract(get_abstract(meta))
 
         ty = "JOUR" if journal else "GEN"
         lines.append(f"TY  - {ty}")
@@ -161,6 +121,6 @@ def captures_to_ris(rows: list[dict[str, Any]]) -> str:
             if k:
                 lines.append(f"KW  - {k}")
         lines.append("ER  -")
-        lines.append("")  # blank line between records
+        lines.append("")
 
     return "\n".join(lines).strip() + ("\n" if lines else "")

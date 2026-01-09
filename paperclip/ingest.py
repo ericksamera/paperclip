@@ -21,6 +21,7 @@ from .extract import (
     html_to_text,
     parse_head_meta,
 )
+from .metaschema import build_meta_record
 from .timeutil import utc_now_iso
 from .urlnorm import canonicalize_url, url_hash
 
@@ -232,14 +233,15 @@ def ingest_capture(
     }
     _write_json(cap_dir / "reduced.json", reduced)
 
-    meta_json = {
-        "meta": meta,
-        "keywords": keywords,
-        "authors": authors,
-        "abstract": abstract,
-        "published_date_raw": date_str,
-        "client": reduced.get("client", {}),
-    }
+    # Canonical meta_json for DB (single source of truth)
+    meta_record = build_meta_record(
+        head_meta=meta,
+        keywords=keywords,
+        authors=authors,
+        abstract=abstract,
+        published_date_raw=date_str,
+        client=reduced.get("client", {}),
+    )
 
     try:
         db.execute(
@@ -269,7 +271,7 @@ def ingest_capture(
                 doi,
                 year,
                 container_title,
-                json.dumps(meta_json, ensure_ascii=False),
+                json.dumps(meta_record, ensure_ascii=False),
                 created_at,
                 now,
             ),
@@ -331,7 +333,7 @@ def ingest_capture(
                 doi,
                 year,
                 container_title,
-                json.dumps(meta_json, ensure_ascii=False),
+                json.dumps(meta_record, ensure_ascii=False),
                 now,
                 capture_id,
             ),

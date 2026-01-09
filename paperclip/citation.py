@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
+
+from .metaschema import (
+    get_abstract,
+    get_authors,
+    normalize_meta_record,
+    parse_meta_json as _parse_meta_json,
+)
 
 
 def _snip_text(s: str, n: int = 200) -> str:
@@ -32,37 +38,24 @@ def _format_authors_apa_short(authors: list[str]) -> str:
 
 
 def citation_fields_from_meta(meta: dict[str, Any]) -> dict[str, str]:
+    """
+    Accepts either:
+      - the normalized meta record (recommended), OR
+      - a loosely-shaped dict
+
+    Produces stable display fields for UI.
+    """
     if not isinstance(meta, dict):
         meta = {}
 
-    authors_in = meta.get("authors") or meta.get("author") or []
-    authors: list[str] = []
+    meta = normalize_meta_record(meta)
 
-    if isinstance(authors_in, list):
-        for a in authors_in:
-            if isinstance(a, str):
-                if a.strip():
-                    authors.append(a.strip())
-            elif isinstance(a, dict):
-                family = (
-                    a.get("family") or a.get("last") or a.get("last_name") or ""
-                ).strip()
-                given = (
-                    a.get("given") or a.get("first") or a.get("first_name") or ""
-                ).strip()
-                name = (a.get("name") or "").strip()
-                if family and given:
-                    authors.append(f"{given} {family}".strip())
-                elif family:
-                    authors.append(family)
-                elif name:
-                    authors.append(name)
-
+    authors = get_authors(meta)
     authors_str = ", ".join(authors) if authors else ""
     authors_short = _format_authors_apa_short(authors)
 
-    abstract = meta.get("abstract") or meta.get("description") or ""
-    abstract_snip = _snip_text(str(abstract), 220) if abstract else ""
+    abstract = get_abstract(meta)
+    abstract_snip = _snip_text(abstract, 220) if abstract else ""
 
     return {
         "authors_str": authors_str,
@@ -72,18 +65,10 @@ def citation_fields_from_meta(meta: dict[str, Any]) -> dict[str, str]:
 
 
 def citation_fields_from_meta_json(meta_json: Any) -> dict[str, str]:
-    try:
-        meta = json.loads(meta_json) if meta_json else {}
-    except Exception:
-        meta = {}
-    if not isinstance(meta, dict):
-        meta = {}
+    meta = normalize_meta_record(_parse_meta_json(meta_json))
     return citation_fields_from_meta(meta)
 
 
+# Back-compat: keep this symbol stable (a few places historically imported it from citation.py)
 def parse_meta_json(meta_json: Any) -> dict[str, Any]:
-    try:
-        v = json.loads(meta_json) if meta_json else {}
-        return v if isinstance(v, dict) else {}
-    except Exception:
-        return {}
+    return _parse_meta_json(meta_json)

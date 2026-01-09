@@ -20,14 +20,15 @@
               href="{{ capture.url }}"
               target="_blank"
               rel="noopener noreferrer"
-              >{{ capture.url }}</a
             >
+              {{ capture.url }}
+            </a>
           </div>
 
-          {% if abstract %}
+          {% if meta.abstract %}
             <div style="margin-top: 10px">
               <div class="muted small" style="margin-bottom: 4px">Abstract</div>
-              <div>{{ abstract }}</div>
+              <div>{{ meta.abstract }}</div>
             </div>
           {% endif %}
         </div>
@@ -102,23 +103,17 @@
                 <div class="v">{{ capture.container_title or "" }}</div>
               </div>
 
-              {% if meta.get('published_date_raw') %}
+              {% if meta.published_date_raw %}
                 <div class="kv">
                   <div class="k">Published</div>
-                  <div class="v">{{ meta.get('published_date_raw') }}</div>
+                  <div class="v">{{ meta.published_date_raw }}</div>
                 </div>
               {% endif %}
 
-              {% if meta.get('keywords') %}
+              {% if meta.keywords %}
                 <div class="kv">
                   <div class="k">Keywords</div>
-                  <div class="v">
-                    {% if meta.get('keywords') is string %}
-                      {{ meta.get('keywords') }}
-                    {% else %}
-                      {{ meta.get('keywords') | join(', ') }}
-                    {% endif %}
-                  </div>
+                  <div class="v">{{ meta.keywords | join(', ') }}</div>
                 </div>
               {% endif %}
             </div>
@@ -148,11 +143,11 @@
             </div>
           </div>
 
-          {% if meta.get('meta') %}
+          {% if meta.meta %}
             <div class="panel inner" style="margin-top: 10px">
               <div class="panel__title">Raw head meta</div>
               <div class="panel__body">
-                <pre class="pre">{{ meta.get('meta') | tojson(indent=2) }}</pre>
+                <pre class="pre">{{ meta.meta | tojson(indent=2) }}</pre>
               </div>
             </div>
           {% endif %}

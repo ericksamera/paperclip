@@ -14,10 +14,11 @@ from flask import (
     url_for,
 )
 
-from ..citation import citation_fields_from_meta, parse_meta_json
+from ..citation import citation_fields_from_meta
 from ..constants import ALLOWED_ARTIFACTS
 from ..db import get_db
 from ..httputil import parse_int, redirect_next
+from ..metaschema import normalize_meta_record, parse_meta_json
 from ..repo import captures_repo
 from ..timeutil import utc_now_iso
 from ..tx import db_tx
@@ -34,13 +35,9 @@ def register(app: Flask) -> None:
         if not capture:
             abort(404)
 
-        meta = parse_meta_json(capture.get("meta_json"))
+        meta = normalize_meta_record(parse_meta_json(capture.get("meta_json")))
         citation = citation_fields_from_meta(meta)
-
         authors_str = citation.get("authors_str") or ""
-        abstract = (
-            (meta.get("abstract") or "").strip() if isinstance(meta, dict) else ""
-        )
 
         collections = captures_repo.list_collections_for_capture(db, capture_id)
 
@@ -57,7 +54,6 @@ def register(app: Flask) -> None:
             "capture.html",
             capture=capture,
             authors_str=authors_str,
-            abstract=abstract,
             meta=meta,
             collections=collections,
             artifact_links=artifact_links,
