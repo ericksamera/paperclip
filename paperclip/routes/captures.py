@@ -20,6 +20,7 @@ from ..db import get_db
 from ..httputil import parse_int, redirect_next
 from ..repo import captures_repo
 from ..timeutil import utc_now_iso
+from ..tx import db_tx
 
 
 def register(app: Flask) -> None:
@@ -64,13 +65,6 @@ def register(app: Flask) -> None:
 
     @app.post("/captures/<capture_id>/collections/")
     def capture_set_collections(capture_id: str):
-        db = get_db()
-        cap = db.execute(
-            "SELECT id FROM captures WHERE id = ?", (capture_id,)
-        ).fetchone()
-        if not cap:
-            abort(404)
-
         selected_raw = request.form.getlist("collections") or []
         selected_ids: set[int] = set()
         for x in selected_raw:
@@ -79,13 +73,19 @@ def register(app: Flask) -> None:
                 selected_ids.add(v)
 
         now = utc_now_iso()
-        captures_repo.set_capture_collections(
-            db,
-            capture_id=capture_id,
-            selected_ids=selected_ids,
-            now=now,
-        )
-        db.commit()
+        with db_tx() as db:
+            cap = db.execute(
+                "SELECT id FROM captures WHERE id = ?", (capture_id,)
+            ).fetchone()
+            if not cap:
+                abort(404)
+
+            captures_repo.set_capture_collections(
+                db,
+                capture_id=capture_id,
+                selected_ids=selected_ids,
+                now=now,
+            )
 
         flash("Collections updated.", "success")
         return redirect(url_for("capture_detail", capture_id=capture_id))
@@ -110,14 +110,13 @@ def register(app: Flask) -> None:
             flash("No captures selected.", "warning")
             return redirect_next("library")
 
-        db = get_db()
         arts_dir = Path(app.config["ARTIFACTS_DIR"])
         fts_enabled = bool(app.config.get("FTS_ENABLED"))
 
-        captures_repo.delete_captures(
-            db, capture_ids=capture_ids, fts_enabled=fts_enabled
-        )
-        db.commit()
+        with db_tx() as db:
+            captures_repo.delete_captures(
+                db, capture_ids=capture_ids, fts_enabled=fts_enabled
+            )
 
         for cid in capture_ids:
             try:
@@ -141,16 +140,14 @@ def register(app: Flask) -> None:
             flash("Pick a collection.", "warning")
             return redirect_next("library")
 
-        db = get_db()
         now = utc_now_iso()
-
-        captures_repo.bulk_add_to_collection(
-            db,
-            capture_ids=capture_ids,
-            collection_id=collection_id,
-            now=now,
-        )
-        db.commit()
+        with db_tx() as db:
+            captures_repo.bulk_add_to_collection(
+                db,
+                capture_ids=capture_ids,
+                collection_id=collection_id,
+                now=now,
+            )
 
         flash(f"Added {len(capture_ids)} capture(s) to collection.", "success")
         return redirect_next("library")
@@ -168,16 +165,14 @@ def register(app: Flask) -> None:
             flash("Pick a collection.", "warning")
             return redirect_next("library")
 
-        db = get_db()
         now = utc_now_iso()
-
-        captures_repo.bulk_remove_from_collection(
-            db,
-            capture_ids=capture_ids,
-            collection_id=collection_id,
-            now=now,
-        )
-        db.commit()
+        with db_tx() as db:
+            captures_repo.bulk_remove_from_collection(
+                db,
+                capture_ids=capture_ids,
+                collection_id=collection_id,
+                now=now,
+            )
 
         flash(f"Removed {len(capture_ids)} capture(s) from collection.", "success")
         return redirect_next("library")

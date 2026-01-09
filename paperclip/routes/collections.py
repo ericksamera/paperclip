@@ -5,6 +5,7 @@ from flask import Flask, flash, redirect, render_template, request, url_for
 from ..db import get_db
 from ..repo import collections_repo
 from ..timeutil import utc_now_iso
+from ..tx import db_tx
 
 
 def register(app: Flask) -> None:
@@ -21,9 +22,8 @@ def register(app: Flask) -> None:
             flash("Name required.", "warning")
             return redirect(url_for("collections_page"))
 
-        db = get_db()
-        collections_repo.create_collection(db, name=name, created_at=utc_now_iso())
-        db.commit()
+        with db_tx() as db:
+            collections_repo.create_collection(db, name=name, created_at=utc_now_iso())
 
         flash("Collection created.", "success")
         return redirect(url_for("collections_page"))
@@ -35,18 +35,18 @@ def register(app: Flask) -> None:
             flash("Name required.", "warning")
             return redirect(url_for("collections_page"))
 
-        db = get_db()
-        collections_repo.rename_collection(db, collection_id=collection_id, name=name)
-        db.commit()
+        with db_tx() as db:
+            collections_repo.rename_collection(
+                db, collection_id=collection_id, name=name
+            )
 
         flash("Collection renamed.", "success")
         return redirect(url_for("collections_page"))
 
     @app.post("/collections/<int:collection_id>/delete/")
     def collections_delete(collection_id: int):
-        db = get_db()
-        collections_repo.delete_collection(db, collection_id=collection_id)
-        db.commit()
+        with db_tx() as db:
+            collections_repo.delete_collection(db, collection_id=collection_id)
 
         flash("Collection deleted.", "success")
         return redirect(url_for("collections_page"))
