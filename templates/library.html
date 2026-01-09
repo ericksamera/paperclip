@@ -175,7 +175,9 @@
                   {% for cap in captures %}
                     <tr
                       class="cap-row"
+                      tabindex="0"
                       data-href="{{ url_for('capture_detail', capture_id=cap.id) }}"
+                      title="Double-click to open"
                     >
                       <td class="sel">
                         <input
@@ -187,12 +189,10 @@
                       </td>
 
                       <td class="title-cell">
-                        <a
-                          class="title-link"
-                          href="{{ url_for('capture_detail', capture_id=cap.id) }}"
-                        >
-                          {{ cap.title }}
-                        </a>
+                        <div class="title-line">
+                          <span class="title-text">{{ cap.title }}</span>
+                        </div>
+
                         {% if cap.abstract_snip %}
                           <div class="muted small">{{ cap.abstract_snip }}</div>
                         {% endif %}

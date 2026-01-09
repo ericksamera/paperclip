@@ -6,10 +6,15 @@ from typing import Any
 
 from flask import Flask, g, request
 
+from .config import load_config
 from .db import close_db, init_db
 
 
 def _repo_root() -> Path:
+    # repo_root/
+    #   paperclip/
+    #   templates/
+    #   static/
     return Path(__file__).resolve().parent.parent
 
 
@@ -18,52 +23,55 @@ def _ensure_dirs(*paths: Path) -> None:
         p.mkdir(parents=True, exist_ok=True)
 
 
-def create_app(config: dict[str, Any] | None = None) -> Flask:
-    cfg = config or {}
+def create_app(config_overrides: dict[str, Any] | None = None) -> Flask:
+    repo_root = _repo_root()
 
-    root = _repo_root()
-    data_dir = Path(cfg.get("DATA_DIR") or (root / "data")).resolve()
-    db_path = Path(cfg.get("DB_PATH") or (data_dir / "db.sqlite3")).resolve()
-    artifacts_dir = Path(cfg.get("ARTIFACTS_DIR") or (data_dir / "artifacts")).resolve()
-
-    _ensure_dirs(data_dir, artifacts_dir)
-
-    fts_enabled = init_db(db_path)
-
+    # IMPORTANT: templates/ and static/ live at repo root, not inside the package.
     app = Flask(
         __name__,
-        static_folder=str((root / "static").resolve()),
-        template_folder=str((root / "templates").resolve()),
+        instance_relative_config=False,
+        template_folder=str(repo_root / "templates"),
+        static_folder=str(repo_root / "static"),
+        static_url_path="/static",
     )
 
-    app.config.update(
-        DATA_DIR=data_dir,
-        DB_PATH=db_path,
-        ARTIFACTS_DIR=artifacts_dir,
-        FTS_ENABLED=fts_enabled,
-    )
+    # Base config from environment + safe defaults
+    base_cfg = load_config(repo_root=repo_root)
+    app.config.update(base_cfg)
 
-    if "MAX_CONTENT_LENGTH" in cfg:
-        app.config["MAX_CONTENT_LENGTH"] = cfg["MAX_CONTENT_LENGTH"]
+    # Optional overrides (tests/dev)
+    if config_overrides:
+        app.config.update(config_overrides)
 
-    app.secret_key = cfg.get("SECRET_KEY") or "paperclip-dev"
-    app.teardown_appcontext(close_db)
+    # Normalize to Path objects where appropriate
+    app.config["DATA_DIR"] = Path(app.config["DATA_DIR"])
+    app.config["DB_PATH"] = Path(app.config["DB_PATH"])
+    app.config["ARTIFACTS_DIR"] = Path(app.config["ARTIFACTS_DIR"])
+
+    _ensure_dirs(app.config["DATA_DIR"], app.config["ARTIFACTS_DIR"])
+
+    # Ensure DB exists and schema/migrations are applied
+    fts_enabled = init_db(app.config["DB_PATH"])
+    app.config["FTS_ENABLED"] = bool(fts_enabled)
 
     @app.before_request
     def _assign_request_id() -> None:
-        # Prefer an incoming request id if present (useful behind proxies),
-        # otherwise generate a short one for debugging.
-        rid = request.headers.get("X-Request-ID")
+        rid = request.headers.get("X-Request-ID", "").strip()
         if not rid:
             rid = uuid.uuid4().hex[:12]
         g.request_id = rid
 
     @app.after_request
     def _add_request_id_header(resp):
+        # API responses already set this in apiutil; for HTML it’s useful too.
         rid = getattr(g, "request_id", None)
-        if rid and "X-Request-ID" not in resp.headers:
+        if isinstance(rid, str) and rid and "X-Request-ID" not in resp.headers:
             resp.headers["X-Request-ID"] = rid
         return resp
+
+    @app.teardown_appcontext
+    def _close_db(err: Any = None) -> None:
+        close_db(err)
 
     from .routes.api import register as register_api_routes
     from .routes.captures import register as register_captures_routes

@@ -55,14 +55,32 @@
 .title-cell {
   max-width: 540px;
 }
-.title-link {
+
+/* Title line stays (now just the title text) */
+.title-line {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.title-text {
   font-weight: 700;
   color: var(--fg);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
-.title-link:hover {
-  color: var(--accent);
-  text-decoration: none;
+
+/* Selected row highlight */
+.table tr.cap-row.selected td {
+  background: rgba(91, 141, 239, 0.08);
+}
+.table tr.cap-row:focus td {
+  outline: 1px solid rgba(91, 141, 239, 0.35);
+  outline-offset: -1px;
+}
+
+.table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .col-item {

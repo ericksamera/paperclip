@@ -16,6 +16,50 @@
     pageSizeSelect.addEventListener("change", () => searchForm.submit());
   }
 
+  // Prevent the "two clicks" from a double-click from visually toggling selection.
+  let suppressClickToggle = false;
+  function suppressClickFor(ms = 250) {
+    suppressClickToggle = true;
+    window.setTimeout(() => {
+      suppressClickToggle = false;
+    }, ms);
+  }
+
+  // --- Shift-click range selection (Gmail-style) ---
+  // anchorRowIndex tracks the last row index that was clicked/toggled.
+  let anchorRowIndex = null;
+
+  function allRows() {
+    if (!tbody || !tbody.querySelectorAll) return [];
+    return Array.from(tbody.querySelectorAll("tr.cap-row"));
+  }
+
+  function rowIndex(row) {
+    const rows = allRows();
+    const i = rows.indexOf(row);
+    return i >= 0 ? i : null;
+  }
+
+  function setRowChecked(row, checked) {
+    const cb = row
+      ? row.querySelector('input[type="checkbox"][name="capture_ids"]')
+      : null;
+    if (!cb) return;
+    cb.checked = checked;
+  }
+
+  function setRangeChecked(fromIdx, toIdx, checked) {
+    const rows = allRows();
+    if (rows.length === 0) return;
+
+    const start = Math.max(0, Math.min(fromIdx, toIdx));
+    const end = Math.min(rows.length - 1, Math.max(fromIdx, toIdx));
+
+    for (let i = start; i <= end; i += 1) {
+      setRowChecked(rows[i], checked);
+    }
+  }
+
   function allBoxes() {
     return document.querySelectorAll(
       'input[type="checkbox"][name="capture_ids"]',
@@ -30,28 +74,41 @@
     return n;
   }
 
+  function setRowSelectedClass(row, on) {
+    if (!row || !row.classList) return;
+    if (on) row.classList.add("selected");
+    else row.classList.remove("selected");
+  }
+
+  function syncAllRowSelectedClasses() {
+    allBoxes().forEach((b) => {
+      const row = b.closest ? b.closest("tr.cap-row") : null;
+      if (row) setRowSelectedClass(row, !!b.checked);
+    });
+  }
+
   function updateSelectedUI() {
     const n = selectedCount();
 
     if (selectedCountEl) {
-      if (n > 0) {
-        selectedCountEl.style.display = "inline";
-        selectedCountEl.textContent = `${n} selected`;
-      } else {
-        selectedCountEl.style.display = "none";
-        selectedCountEl.textContent = "";
-      }
+      selectedCountEl.textContent = String(n);
+      selectedCountEl.style.display = n > 0 ? "inline-block" : "none";
     }
 
     if (clearBtn) {
       clearBtn.style.display = n > 0 ? "inline-flex" : "none";
     }
 
-    if (!selectAll) return;
+    if (!selectAll) {
+      syncAllRowSelectedClasses();
+      return;
+    }
+
     const boxes = allBoxes();
     if (boxes.length === 0) {
       selectAll.checked = false;
       selectAll.indeterminate = false;
+      syncAllRowSelectedClasses();
       return;
     }
 
@@ -65,12 +122,14 @@
       selectAll.checked = false;
       selectAll.indeterminate = true;
     }
+
+    syncAllRowSelectedClasses();
   }
 
   if (selectAll) {
     selectAll.addEventListener("change", () => {
-      const boxes = allBoxes();
-      boxes.forEach((b) => (b.checked = selectAll.checked));
+      const on = !!selectAll.checked;
+      allBoxes().forEach((b) => (b.checked = on));
       selectAll.indeterminate = false;
       updateSelectedUI();
     });
@@ -98,18 +157,140 @@
     }
   });
 
-  // Row click target (ignore interactive elements)
-  document.addEventListener("click", (ev) => {
+  function toggleRowSelection(row) {
+    if (!row) return;
+    const cb = row.querySelector('input[type="checkbox"][name="capture_ids"]');
+    if (!cb) return;
+    cb.checked = !cb.checked;
+    updateSelectedUI();
+  }
+
+  function openRow(row) {
+    if (!row) return;
+    const href = row.getAttribute("data-href");
+    if (href) window.location.href = href;
+  }
+
+  // --- Prevent annoying "text highlight" while clicking rows ---
+  // UX: normal click/shift-click selects rows without selecting text.
+  // To select/copy text on purpose: hold Alt and drag (or Alt+click).
+  document.addEventListener("mousedown", (ev) => {
     const t = ev.target;
     if (!t) return;
-
-    if (t.closest && t.closest("a,button,input,select,textarea,label")) return;
 
     const row = t.closest ? t.closest("tr.cap-row") : null;
     if (!row) return;
 
-    const href = row.getAttribute("data-href");
-    if (href) window.location.href = href;
+    // Allow intentional text selection (Alt-drag), and allow interactive elements.
+    if (ev.altKey) return;
+    if (t.closest && t.closest("a,button,select,textarea,label,input")) return;
+
+    // Stop the browser from starting a text selection region.
+    ev.preventDefault();
+  });
+
+  // Checkbox clicks (capture phase) for shift-range behavior.
+  document.addEventListener(
+    "click",
+    (ev) => {
+      const t = ev.target;
+      if (
+        !t ||
+        !t.matches ||
+        !t.matches('input[type="checkbox"][name="capture_ids"]')
+      ) {
+        return;
+      }
+
+      if (suppressClickToggle) return;
+
+      const row = t.closest ? t.closest("tr.cap-row") : null;
+      if (!row) return;
+
+      const idx = rowIndex(row);
+      if (idx === null) return;
+
+      if (ev.shiftKey && anchorRowIndex !== null) {
+        ev.preventDefault(); // prevent default toggle
+        const desired = !t.checked;
+        setRangeChecked(anchorRowIndex, idx, desired);
+        anchorRowIndex = idx;
+        updateSelectedUI();
+        return;
+      }
+
+      // Normal checkbox click: let the browser toggle it, then set anchor.
+      window.setTimeout(() => {
+        anchorRowIndex = idx;
+      }, 0);
+    },
+    true,
+  );
+
+  // Row click toggles selection; shift-click ranges.
+  document.addEventListener("click", (ev) => {
+    if (suppressClickToggle) return;
+
+    const t = ev.target;
+    if (!t) return;
+
+    if (t.closest && t.closest("a,button,select,textarea,label")) return;
+    if (t.matches && t.matches('input[type="checkbox"]')) return;
+
+    const row = t.closest ? t.closest("tr.cap-row") : null;
+    if (!row) return;
+
+    const idx = rowIndex(row);
+    if (idx === null) return;
+
+    if (ev.shiftKey && anchorRowIndex !== null) {
+      const cb = row.querySelector(
+        'input[type="checkbox"][name="capture_ids"]',
+      );
+      if (!cb) return;
+
+      const desired = !cb.checked;
+      setRangeChecked(anchorRowIndex, idx, desired);
+      anchorRowIndex = idx;
+      updateSelectedUI();
+      return;
+    }
+
+    toggleRowSelection(row);
+    anchorRowIndex = idx;
+  });
+
+  // Double click opens capture.
+  document.addEventListener("dblclick", (ev) => {
+    const t = ev.target;
+    if (!t) return;
+
+    // If they double-click a link, let browser do link behavior.
+    if (t.closest && t.closest("a")) return;
+
+    const row = t.closest ? t.closest("tr.cap-row") : null;
+    if (!row) return;
+
+    suppressClickFor(250);
+    openRow(row);
+  });
+
+  // Keyboard on focused row:
+  // Space = toggle, Enter = open
+  document.addEventListener("keydown", (ev) => {
+    const t = ev.target;
+    if (!t) return;
+
+    const row = t.closest ? t.closest("tr.cap-row") : null;
+    if (!row) return;
+
+    if (ev.key === " " || ev.key === "Spacebar") {
+      ev.preventDefault();
+      toggleRowSelection(row);
+    } else if (ev.key === "Enter") {
+      if (t.closest && t.closest("input,select,textarea,button")) return;
+      openRow(row);
+    }
   });
 
   // --- Infinite scroll ---
@@ -118,47 +299,61 @@
     return;
   }
 
-  const API_BASE = cfgEl.dataset.apiBase || "/api/library/";
-  const DETAIL_TMPL = cfgEl.dataset.detailUrlTemplate || "/captures/__CID__/";
+  // Support both: JSON-in-textContent (old) and data-* attrs (current template).
+  function readCfg() {
+    const base = {};
+    const txt = (cfgEl.textContent || "").trim();
+    if (txt) {
+      try {
+        const j = JSON.parse(txt);
+        if (j && typeof j === "object") Object.assign(base, j);
+      } catch (_) {
+        // ignore
+      }
+    }
+    const ds = cfgEl.dataset || {};
+    if (ds.apiBase) base.api_base = ds.apiBase;
+    if (ds.nextPage) base.next_page = parseInt(ds.nextPage, 10);
+    if (ds.pageSize) base.page_size = parseInt(ds.pageSize, 10);
+    if (ds.hasMore != null)
+      base.has_more = ds.hasMore === "1" || ds.hasMore === "true";
+    return base;
+  }
 
-  let nextPage = parseInt(cfgEl.dataset.nextPage || "2", 10);
-  let pageSize = parseInt(cfgEl.dataset.pageSize || "50", 10);
-  let hasMore = cfgEl.dataset.hasMore === "1";
+  const cfg = readCfg();
+  const API_BASE = cfg.api_base || "/api/library/";
+  const pageSize = cfg.page_size || 50;
+
+  let nextPage = cfg.next_page || 2;
+  let hasMore = !!cfg.has_more;
   let loading = false;
-  let endShown = false;
+
+  function show(el, on) {
+    if (!el) return;
+    el.style.display = on ? "block" : "none";
+  }
 
   function setLoading(on) {
-    if (!loadingEl) return;
-    loadingEl.style.display = on ? "block" : "none";
+    loading = on;
+    show(loadingEl, on);
+    show(errorEl, false);
+    if (on) show(endEl, false);
   }
 
-  function showEnd() {
-    if (!endEl || endShown) return;
-    endEl.style.display = "block";
-    endShown = true;
+  function setEnd() {
+    hasMore = false;
+    show(loadingEl, false);
+    show(errorEl, false);
+    show(endEl, true);
   }
 
-  function showError(msg, onRetry) {
-    if (!errorEl) return;
-    errorEl.innerHTML = "";
-    const span = document.createElement("span");
-    span.textContent = msg + " ";
-    errorEl.appendChild(span);
-
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "btn btn--ghost btn--sm";
-    btn.textContent = "Retry";
-    btn.addEventListener("click", () => onRetry && onRetry());
-    errorEl.appendChild(btn);
-
-    errorEl.style.display = "block";
-  }
-
-  function hideError() {
-    if (!errorEl) return;
-    errorEl.style.display = "none";
-    errorEl.textContent = "";
+  function setError(msg) {
+    show(loadingEl, false);
+    show(endEl, false);
+    if (errorEl) {
+      errorEl.textContent = msg || "Error loading more results.";
+    }
+    show(errorEl, true);
   }
 
   function currentFilters() {
@@ -179,136 +374,56 @@
     return API_BASE + "?" + sp.toString();
   }
 
-  function captureDetailUrl(id) {
-    return DETAIL_TMPL.replace("__CID__", encodeURIComponent(id));
-  }
-
-  function removeEmptyRowIfPresent() {
-    const emptyRow = tbody.querySelector("tr[data-empty='1']");
-    if (emptyRow) emptyRow.remove();
-  }
-
-  function appendRow(cap) {
-    if (!cap || !cap.id) return;
-
-    removeEmptyRowIfPresent();
-
-    const tr = document.createElement("tr");
-    tr.className = "cap-row";
-    tr.setAttribute("data-href", captureDetailUrl(cap.id));
-
-    const tdSel = document.createElement("td");
-    tdSel.className = "sel";
-    const cb = document.createElement("input");
-    cb.className = "cap-check";
-    cb.type = "checkbox";
-    cb.name = "capture_ids";
-    cb.value = cap.id;
-    if (selectAll && selectAll.checked) cb.checked = true;
-    tdSel.appendChild(cb);
-    tr.appendChild(tdSel);
-
-    const tdTitle = document.createElement("td");
-    tdTitle.className = "title-cell";
-
-    const aTitle = document.createElement("a");
-    aTitle.className = "title-link";
-    aTitle.href = captureDetailUrl(cap.id);
-    aTitle.textContent = cap.title || "Untitled";
-    tdTitle.appendChild(aTitle);
-
-    if (cap.abstract_snip) {
-      const divAbs = document.createElement("div");
-      divAbs.className = "muted small";
-      divAbs.textContent = cap.abstract_snip;
-      tdTitle.appendChild(divAbs);
-    }
-
-    if (cap.url) {
-      const divUrl = document.createElement("div");
-      divUrl.className = "muted small";
-      const aUrl = document.createElement("a");
-      aUrl.href = cap.url;
-      aUrl.target = "_blank";
-      aUrl.rel = "noopener noreferrer";
-      aUrl.textContent = cap.url;
-      divUrl.appendChild(aUrl);
-      tdTitle.appendChild(divUrl);
-    }
-
-    tr.appendChild(tdTitle);
-
-    const tdAuthors = document.createElement("td");
-    tdAuthors.className = "small";
-    tdAuthors.textContent = cap.authors_short || "";
-    tr.appendChild(tdAuthors);
-
-    const tdYear = document.createElement("td");
-    tdYear.className = "small";
-    tdYear.textContent = cap.year || "";
-    tr.appendChild(tdYear);
-
-    const tdContainer = document.createElement("td");
-    tdContainer.className = "small";
-    tdContainer.textContent = cap.container_title || "";
-    tr.appendChild(tdContainer);
-
-    const tdDoi = document.createElement("td");
-    tdDoi.className = "small";
-    tdDoi.textContent = cap.doi || "";
-    tr.appendChild(tdDoi);
-
-    tbody.appendChild(tr);
+  function appendRows(html) {
+    if (!html) return;
+    const tmp = document.createElement("tbody");
+    tmp.innerHTML = html;
+    Array.from(tmp.children).forEach((tr) => tbody.appendChild(tr));
   }
 
   async function loadNext() {
-    if (!hasMore || loading) return;
-
-    loading = true;
+    if (loading || !hasMore) return;
     setLoading(true);
-    hideError();
 
     try {
-      const resp = await fetch(buildApiUrl(nextPage), {
-        headers: { Accept: "application/json" },
+      const url = buildApiUrl(nextPage);
+      const res = await fetch(url, {
+        headers: { "X-Requested-With": "fetch" },
       });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
 
-      const data = await resp.json();
-      const caps = data && Array.isArray(data.captures) ? data.captures : [];
-      caps.forEach((cap) => appendRow(cap));
+      // Your API currently returns { captures, page, page_size, total, has_more }.
+      // If you ever add server-rendered row html, we support that too.
+      if (data && data.rows_html) {
+        appendRows(data.rows_html);
+      } else if (data && Array.isArray(data.captures)) {
+        // No-op: current implementation relies on server-rendered HTML rows.
+        // Keeping this block for future expansion.
+      }
 
       hasMore = !!(data && data.has_more);
-      const currentPage =
-        data && data.page != null ? Number(data.page) : nextPage;
-      nextPage = currentPage + 1;
+      nextPage = data && data.page ? data.page + 1 : nextPage + 1;
 
-      if (!hasMore) {
-        observer.disconnect();
-        showEnd();
-      }
+      setLoading(false);
+      if (!hasMore) setEnd();
 
       updateSelectedUI();
     } catch (e) {
-      console.warn("Infinite scroll fetch failed:", e);
-      showError("Couldn’t load more results.", () => loadNext());
-    } finally {
-      loading = false;
-      setLoading(false);
+      console.error(e);
+      setError("Error loading more results.");
     }
   }
 
-  const observer = new IntersectionObserver(
+  const io = new IntersectionObserver(
     (entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) loadNext();
-      }
+      entries.forEach((ent) => {
+        if (ent.isIntersecting) loadNext();
+      });
     },
-    { root: null, rootMargin: "300px 0px", threshold: 0 },
+    { rootMargin: "200px" },
   );
-
-  if (hasMore) observer.observe(sentinel);
-  else showEnd();
+  io.observe(sentinel);
 
   updateSelectedUI();
 })();
