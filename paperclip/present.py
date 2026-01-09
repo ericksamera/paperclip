@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
+from typing import Any, Iterable
 
 from .capture_dto import build_capture_dto_from_row
 from .citation import citation_fields_from_meta
@@ -45,4 +46,70 @@ def present_capture_for_api(cap: dict[str, Any]) -> dict[str, Any]:
         "container_title": dto.get("container_title"),
         "authors_short": citation.get("authors_short") or "",
         "abstract_snip": citation.get("abstract_snip") or "",
+    }
+
+
+def present_capture_detail(
+    *,
+    db,
+    capture_row: dict[str, Any],
+    capture_id: str,
+    artifacts_root: Path,
+    allowed_artifacts: Iterable[str],
+) -> dict[str, Any]:
+    """
+    Build the complete "detail page model" for a capture.
+
+    Returns a dict with:
+      - capture: stable fields for templates
+      - meta: normalized meta record
+      - citation: derived display fields
+      - collections: list[{id,name,has_it}]
+      - artifacts: list[{name,url}]
+      - allowed_artifacts: list[str] (for template use)
+    """
+    # Local import to keep most of the codebase free of Flask deps.
+    from flask import url_for
+
+    from .repo import captures_repo
+
+    dto = build_capture_dto_from_row(capture_row)
+    meta = dto["meta_record"]
+    citation = citation_fields_from_meta(meta)
+
+    capture = {
+        "id": dto.get("id") or capture_id,
+        "title": dto.get("title") or "",
+        "url": dto.get("url") or "",
+        "doi": dto.get("doi") or "",
+        "year": dto.get("year"),
+        "container_title": dto.get("container_title") or "",
+    }
+
+    collections = captures_repo.list_collections_for_capture(db, capture_id)
+
+    allowed_set = set(allowed_artifacts)
+    allowed_list = list(allowed_artifacts)
+
+    cap_dir = artifacts_root / capture_id
+    artifacts: list[dict[str, str]] = []
+    if cap_dir.exists():
+        for p in cap_dir.iterdir():
+            if p.is_file() and p.name in allowed_set:
+                artifacts.append(
+                    {
+                        "name": p.name,
+                        "url": url_for(
+                            "capture_artifact", capture_id=capture_id, name=p.name
+                        ),
+                    }
+                )
+
+    return {
+        "capture": capture,
+        "meta": meta,
+        "citation": citation,
+        "collections": collections,
+        "artifacts": artifacts,
+        "allowed_artifacts": allowed_list,
     }

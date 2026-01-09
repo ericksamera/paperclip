@@ -6,7 +6,9 @@ from flask import Flask, Response, flash, request
 
 from ..db import get_db
 from ..export import captures_to_bibtex, captures_to_ris
+from ..formparams import get_capture_ids
 from ..httputil import redirect_next
+from ..queryparams import get_collection_arg
 from ..repo import exports_repo
 
 
@@ -45,20 +47,17 @@ def register(app: Flask) -> None:
         resp.headers["Cache-Control"] = "no-store"
         return resp
 
-    def _get_collection_arg() -> str | None:
-        # Preferred: ?collection=<id>
-        # Back-compat: ?col=<id>
-        v = (request.args.get("collection") or request.args.get("col") or "").strip()
-        return v or None
-
     @app.get("/exports/bibtex/")
     def export_bibtex():
         db = get_db()
+        col = get_collection_arg(request.args) or None
+        capture_id = (request.args.get("capture_id") or "").strip() or None
+
         captures, capture_id, col_id, col_name = (
             exports_repo.select_captures_for_export(
                 db,
-                capture_id=(request.args.get("capture_id") or "").strip() or None,
-                col=_get_collection_arg(),
+                capture_id=capture_id,
+                col=col,
             )
         )
         bib = captures_to_bibtex(captures)
@@ -74,11 +73,14 @@ def register(app: Flask) -> None:
     @app.get("/exports/ris/")
     def export_ris():
         db = get_db()
+        col = get_collection_arg(request.args) or None
+        capture_id = (request.args.get("capture_id") or "").strip() or None
+
         captures, capture_id, col_id, col_name = (
             exports_repo.select_captures_for_export(
                 db,
-                capture_id=(request.args.get("capture_id") or "").strip() or None,
-                col=_get_collection_arg(),
+                capture_id=capture_id,
+                col=col,
             )
         )
         ris = captures_to_ris(captures)
@@ -97,8 +99,7 @@ def register(app: Flask) -> None:
 
     @app.post("/exports/bibtex/selected/")
     def export_selected_bibtex():
-        capture_ids = request.form.getlist("capture_ids") or []
-        capture_ids = [c.strip() for c in capture_ids if c.strip()]
+        capture_ids = get_capture_ids(request.form)
         if not capture_ids:
             flash("No captures selected.", "warning")
             return redirect_next("library")
@@ -117,8 +118,7 @@ def register(app: Flask) -> None:
 
     @app.post("/exports/ris/selected/")
     def export_selected_ris():
-        capture_ids = request.form.getlist("capture_ids") or []
-        capture_ids = [c.strip() for c in capture_ids if c.strip()]
+        capture_ids = get_capture_ids(request.form)
         if not capture_ids:
             flash("No captures selected.", "warning")
             return redirect_next("library")
