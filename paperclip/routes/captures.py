@@ -14,44 +14,31 @@ from flask import (
 )
 
 from .. import artifacts
-from ..constants import ALLOWED_ARTIFACTS
 from ..db import get_db
 from ..formparams import get_capture_ids, get_collection_id, get_collection_ids
 from ..fsutil import rmtree_best_effort
 from ..httputil import redirect_next
-from ..present import present_capture_detail
-from ..repo import captures_repo
 from ..services import captures_service
 from ..timeutil import utc_now_iso
 from ..tx import db_tx
+from ..constants import ALLOWED_ARTIFACTS
 
 
 def register(app: Flask) -> None:
     @app.get("/captures/<capture_id>/")
     def capture_detail(capture_id: str):
         db = get_db()
-        row = captures_repo.get_capture(db, capture_id)
-        if not row:
-            abort(404)
 
-        model = present_capture_detail(
-            db=db,
-            capture_row=row,
+        ctx = captures_service.capture_detail_context(
+            db,
             capture_id=capture_id,
             artifacts_root=Path(app.config["ARTIFACTS_DIR"]),
             allowed_artifacts=ALLOWED_ARTIFACTS,
         )
+        if not ctx:
+            abort(404)
 
-        return render_template(
-            "capture.html",
-            capture=model["capture"],
-            meta=model["meta"],
-            citation=model["citation"],
-            collections=model["collections"],
-            artifacts=model["artifacts"],
-            allowed_artifacts=model["allowed_artifacts"],
-            parsed=model["parsed"],
-        )
+        return render_template("capture.html", **ctx)
 
     @app.get("/captures/<capture_id>/artifact/<name>")
     def capture_artifact(capture_id: str, name: str):

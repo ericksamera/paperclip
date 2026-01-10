@@ -3,8 +3,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Iterable, Sequence
 
+from ..present import present_capture_detail
 from ..repo import captures_repo
 
 
@@ -15,6 +16,33 @@ class ActionResult:
     category: str = "success"  # success | warning | error
     changed_count: int = 0
     cleanup_paths: list[str] = field(default_factory=list)
+
+
+def capture_detail_context(
+    db,
+    *,
+    capture_id: str,
+    artifacts_root: Path,
+    allowed_artifacts: Iterable[str],
+) -> dict | None:
+    """
+    Service wrapper for the capture detail page.
+
+    - Fetches capture row
+    - Builds the full template context via present_capture_detail(...)
+    - Returns None if capture not found
+    """
+    row = captures_repo.get_capture(db, capture_id)
+    if not row:
+        return None
+
+    return present_capture_detail(
+        db=db,
+        capture_row=row,
+        capture_id=capture_id,
+        artifacts_root=artifacts_root,
+        allowed_artifacts=allowed_artifacts,
+    )
 
 
 def set_capture_collections(

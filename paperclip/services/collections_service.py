@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import sqlite3
 
@@ -12,6 +13,10 @@ class ActionResult:
     ok: bool
     message: str
     category: str = "success"  # success | warning | error
+
+
+def list_collections_with_counts(db) -> list[dict[str, Any]]:
+    return collections_repo.list_collections_with_counts(db)
 
 
 def create_collection(db, *, name: str, created_at: str) -> ActionResult:

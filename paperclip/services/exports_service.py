@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal, Mapping
 
 from ..export import captures_to_bibtex, captures_to_ris
 from ..parseutil import safe_int
+from ..queryparams import get_collection_arg
 from ..repo import exports_repo
 
 
@@ -84,11 +85,7 @@ def export_filename(
 ExportKind = Literal["bibtex", "ris"]
 
 
-def render_export(
-    *,
-    kind: ExportKind,
-    captures: list[dict],
-) -> tuple[str, str]:
+def render_export(*, kind: ExportKind, captures: list[dict]) -> tuple[str, str]:
     """
     Returns (body, mimetype).
     """
@@ -101,3 +98,52 @@ def render_export(
 
 def select_captures_by_ids(db, *, capture_ids: list[str]) -> list[dict]:
     return exports_repo.select_captures_by_ids(db, capture_ids=capture_ids)
+
+
+def export_download_parts_from_args(
+    db,
+    *,
+    kind: ExportKind,
+    args: Mapping[str, Any],
+) -> tuple[str, str, str]:
+    """
+    Thin-route helper: parse args, select captures, render, and return (body, mimetype, filename).
+    """
+    col = get_collection_arg(args) or None
+    capture_id = (str(args.get("capture_id") or "")).strip() or None
+
+    ctx = select_export_context(db, capture_id=capture_id, col=col)
+    body, mimetype = render_export(kind=kind, captures=ctx.captures)
+
+    ext = "bib" if kind == "bibtex" else "ris"
+    filename = export_filename(
+        ext=ext,
+        capture_id=ctx.capture_id,
+        col_id=ctx.col_id,
+        col_name=ctx.col_name,
+        selected=False,
+    )
+    return body, mimetype, filename
+
+
+def export_selected_download_parts(
+    db,
+    *,
+    kind: ExportKind,
+    capture_ids: list[str],
+) -> tuple[str, str, str]:
+    """
+    Thin-route helper for selected exports: returns (body, mimetype, filename).
+    """
+    captures = select_captures_by_ids(db, capture_ids=capture_ids)
+    body, mimetype = render_export(kind=kind, captures=captures)
+
+    ext = "bib" if kind == "bibtex" else "ris"
+    filename = export_filename(
+        ext=ext,
+        capture_id=None,
+        col_id=None,
+        col_name=None,
+        selected=True,
+    )
+    return body, mimetype, filename

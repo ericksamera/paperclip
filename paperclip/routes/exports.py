@@ -5,7 +5,6 @@ from flask import Flask, Response, flash, request
 from ..db import get_db
 from ..formparams import get_capture_ids
 from ..httputil import redirect_next
-from ..queryparams import get_collection_arg
 from ..services import exports_service
 
 
@@ -19,40 +18,20 @@ def register(app: Flask) -> None:
     @app.get("/exports/bibtex/")
     def export_bibtex():
         db = get_db()
-        col = get_collection_arg(request.args) or None
-        capture_id = (request.args.get("capture_id") or "").strip() or None
-
-        ctx = exports_service.select_export_context(db, capture_id=capture_id, col=col)
-        body, mimetype = exports_service.render_export(
-            kind="bibtex", captures=ctx.captures
-        )
-
-        filename = exports_service.export_filename(
-            ext="bib",
-            capture_id=ctx.capture_id,
-            col_id=ctx.col_id,
-            col_name=ctx.col_name,
-            selected=False,
+        body, mimetype, filename = exports_service.export_download_parts_from_args(
+            db,
+            kind="bibtex",
+            args=request.args,
         )
         return _as_download(body, mimetype=mimetype, filename=filename)
 
     @app.get("/exports/ris/")
     def export_ris():
         db = get_db()
-        col = get_collection_arg(request.args) or None
-        capture_id = (request.args.get("capture_id") or "").strip() or None
-
-        ctx = exports_service.select_export_context(db, capture_id=capture_id, col=col)
-        body, mimetype = exports_service.render_export(
-            kind="ris", captures=ctx.captures
-        )
-
-        filename = exports_service.export_filename(
-            ext="ris",
-            capture_id=ctx.capture_id,
-            col_id=ctx.col_id,
-            col_name=ctx.col_name,
-            selected=False,
+        body, mimetype, filename = exports_service.export_download_parts_from_args(
+            db,
+            kind="ris",
+            args=request.args,
         )
         return _as_download(body, mimetype=mimetype, filename=filename)
 
@@ -64,15 +43,10 @@ def register(app: Flask) -> None:
             return redirect_next("library")
 
         db = get_db()
-        captures = exports_service.select_captures_by_ids(db, capture_ids=capture_ids)
-        body, mimetype = exports_service.render_export(kind="bibtex", captures=captures)
-
-        filename = exports_service.export_filename(
-            ext="bib",
-            capture_id=None,
-            col_id=None,
-            col_name=None,
-            selected=True,
+        body, mimetype, filename = exports_service.export_selected_download_parts(
+            db,
+            kind="bibtex",
+            capture_ids=capture_ids,
         )
         return _as_download(body, mimetype=mimetype, filename=filename)
 
@@ -84,14 +58,9 @@ def register(app: Flask) -> None:
             return redirect_next("library")
 
         db = get_db()
-        captures = exports_service.select_captures_by_ids(db, capture_ids=capture_ids)
-        body, mimetype = exports_service.render_export(kind="ris", captures=captures)
-
-        filename = exports_service.export_filename(
-            ext="ris",
-            capture_id=None,
-            col_id=None,
-            col_name=None,
-            selected=True,
+        body, mimetype, filename = exports_service.export_selected_download_parts(
+            db,
+            kind="ris",
+            capture_ids=capture_ids,
         )
         return _as_download(body, mimetype=mimetype, filename=filename)

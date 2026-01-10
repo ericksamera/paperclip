@@ -3,7 +3,6 @@ from __future__ import annotations
 from flask import Flask, flash, redirect, render_template, request, url_for
 
 from ..db import get_db
-from ..repo import collections_repo
 from ..services import collections_service
 from ..timeutil import utc_now_iso
 from ..tx import db_tx
@@ -13,7 +12,7 @@ def register(app: Flask) -> None:
     @app.get("/collections/")
     def collections_page():
         db = get_db()
-        collections = collections_repo.list_collections_with_counts(db)
+        collections = collections_service.list_collections_with_counts(db)
         return render_template("collections.html", collections=collections)
 
     @app.post("/collections/create/")
