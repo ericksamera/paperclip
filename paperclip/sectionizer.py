@@ -126,6 +126,13 @@ def looks_like_heading(line: str) -> bool:
     if _KEYWORDS_PREFIX_RX.match(ln):
         return True
 
+    # --- NEW: don't treat short "Label:" lines as headings unless they map to a real kind ---
+    # e.g. "Aims:" / "Methods and Results:" / "Conclusions:" inside abstract paragraphs
+    if ln.endswith(":"):
+        base = _norm_space(ln[:-1])
+        if base and classify_heading(base) == "other":
+            return False
+
     num, rest = _split_heading_number(ln)
     candidate = rest if num else _norm_space(ln)
 
@@ -171,6 +178,28 @@ def split_into_sections(article_text: str) -> list[dict[str, Any]]:
     raw_lines = (article_text or "").splitlines()
     lines = [_norm_space(ln) for ln in raw_lines]
 
+    # --- NEW: merge "orphan" micro-lines (often produced by inline tags) into the previous line ---
+    # Example: "S." + "Dublin" should become "S. Dublin"
+    merged: list[str] = []
+    for ln in lines:
+        if not ln:
+            merged.append("")
+            continue
+
+        if (
+            merged
+            and merged[-1]
+            and (
+                # tiny fragments like "S." / "S" / "et" etc
+                (len(ln) <= 3)
+                or (len(ln) <= 6 and ln.endswith("."))
+            )
+        ):
+            merged[-1] = _norm_space(merged[-1] + " " + ln)
+            continue
+
+        merged.append(ln)
+
     sections: list[Section] = []
     cur_title = "Body"
     cur_kind = "other"
@@ -196,7 +225,7 @@ def split_into_sections(article_text: str) -> list[dict[str, Any]]:
         )
         buf = []
 
-    for ln in lines:
+    for ln in merged:
         if not ln.strip():
             if buf and buf[-1] != "":
                 buf.append("")
