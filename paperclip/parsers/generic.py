@@ -5,8 +5,8 @@ from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
+from ..sectionizer import build_sections_meta
 from .base import ParseResult
-
 
 _WALL_PATTERNS = [
     (re.compile(r"\bcookie(s)?\b.*\b(consent|preferences)\b", re.I), "cookie_wall"),
@@ -231,7 +231,6 @@ def _split_body_and_references(best_tag: Tag) -> tuple[str, str, str, str, list[
     if not split_child:
         # text-only split fallback
         all_text = _build_text_no_dupes(best_tag)
-        # crude: split at first line that equals "References" etc
         lines = all_text.splitlines()
         out_body: list[str] = []
         out_refs: list[str] = []
@@ -395,6 +394,11 @@ def parse_generic(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> Pars
     if best_hint.startswith("fallback"):
         notes.append("used_fallback_candidate")
 
+    meta: dict[str, Any] = {}
+    # NEW: sectionize the extracted article_text (body-only; references already split out)
+    if (article_text or "").strip():
+        meta.update(build_sections_meta(article_text))
+
     return ParseResult(
         ok=True,
         parser="generic",
@@ -408,5 +412,5 @@ def parse_generic(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> Pars
         selected_hint=best_hint,
         score_breakdown=best_breakdown,
         notes=notes,
-        meta={},
+        meta=meta,
     )

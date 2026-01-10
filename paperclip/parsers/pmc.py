@@ -5,8 +5,8 @@ from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
+from ..sectionizer import build_sections_meta
 from .base import ParseResult
-
 
 _REF_HEADING_RX = re.compile(
     r"^\s*(references|bibliography|works cited|literature cited)\s*$", re.I
@@ -333,6 +333,9 @@ def parse_pmc(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> ParseRes
             selected_hint=hint,
             notes=["pmc_empty_article_text"] + notes,
         )
+
+    # NEW: sectionize
+    meta.update(build_sections_meta(article_text))
 
     confidence = 0.9 if len(article_text) >= 1200 else 0.65
     if confidence < 0.8:

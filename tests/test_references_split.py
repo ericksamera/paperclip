@@ -69,6 +69,17 @@ def test_ingest_writes_references_artifacts_and_splits_text(client, app):
     assert "references_text" in article_json
     assert "references_html" in article_json
 
+    # NEW: sectionizer meta should exist and should NOT include the references section
+    meta = article_json.get("meta") or {}
+    assert isinstance(meta, dict)
+    assert meta.get("sections_count", 0) >= 1
+    sections = meta.get("sections") or []
+    assert isinstance(sections, list)
+    # We should have an introduction-like section in the body
+    assert any((s.get("kind") == "introduction") for s in sections)
+    # And we should not see References heading as a section in article_text (it was split out)
+    assert not any((s.get("kind") == "references") for s in sections)
+
 
 def test_capture_detail_page_renders_with_parsed_context(client, app):
     payload = {
