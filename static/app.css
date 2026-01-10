@@ -1,0 +1,5 @@
+/* CSS manifest: keep templates pointing at /static/app.css */
+@import url("css/base.css");
+@import url("css/components.css");
+@import url("css/pages/library.css");
+@import url("css/pages/capture.css");

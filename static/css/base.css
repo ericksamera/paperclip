@@ -1,0 +1,133 @@
+:root {
+  --bg: #0b0d10;
+  --panel: #12151a;
+  --panel2: #161a20;
+  --fg: #e9eef5;
+  --muted: #aab3c2;
+  --line: #2a3140;
+  --accent: #5b8def;
+  --danger: #c62828;
+  --ok: #2e7d32;
+  --mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  --sans:
+    ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+}
+h1 {
+  font-size: 18px;
+}
+h2 {
+  font-size: 16px;
+}
+h3 {
+  font-size: 14px;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  background: rgba(11, 13, 16, 0.9);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(6px);
+  z-index: 10;
+}
+.topbar__inner {
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.brand {
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  color: var(--fg);
+  font-size: 15px;
+}
+.nav {
+  display: flex;
+  gap: 10px;
+}
+.nav a {
+  color: var(--muted);
+  font-size: 13px;
+}
+.nav a:hover {
+  color: var(--fg);
+}
+
+.main {
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.footer {
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+}
+.footer__inner {
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.flash {
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 0 12px;
+}
+.flash__msg {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 11px;
+}
+.mono {
+  font-family: var(--mono);
+}

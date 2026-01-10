@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Library · Paperclip{% endblock %}
+
+{% block content %}
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="panel">
+        <div class="panel__title">Collections</div>
+        <div class="panel__body">
+          <div class="col-item">
+            <a
+              class="{% if not selected_col %}active{% endif %}"
+              href="{{ url_for('library', q=q, page_size=page_size) }}"
+              >All</a
+            >
+            <span class="muted">{{ total_all }}</span>
+          </div>
+
+          {% for c in collections %}
+            <div class="col-item">
+              <a
+                class="{% if selected_col == (c.id|string) %}active{% endif %}"
+                href="{{ url_for('library', collection=c.id, q=q, page_size=page_size) }}"
+              >
+                {{ c.name }}
+              </a>
+              <span class="muted">{{ c.count }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="panel">
+        <div class="panel__title">Library</div>
+        <div class="panel__body">
+          <form
+            id="search-form"
+            class="search"
+            method="get"
+            action="{{ url_for('library') }}"
+          >
+            <input type="hidden" name="collection" value="{{ selected_col }}" />
+            <input
+              class="search__input"
+              type="text"
+              name="q"
+              value="{{ q }}"
+              placeholder="Search title, url, DOI, content…"
+            />
+            <button class="btn btn--primary" type="submit">Search</button>
+            <select
+              class="select"
+              name="page_size"
+              id="page-size"
+              title="Page size"
+            >
+              <option value="25" {% if page_size == 25 %}selected{% endif %}>
+                25
+              </option>
+              <option value="50" {% if page_size == 50 %}selected{% endif %}>
+                50
+              </option>
+              <option value="100" {% if page_size == 100 %}selected{% endif %}>
+                100
+              </option>
+            </select>
+            {% if q %}
+              <a
+                class="btn"
+                href="{{ url_for('library', collection=selected_col, page_size=page_size) }}"
+                >Clear</a
+              >
+            {% endif %}
+          </form>
+
+          <div class="panel-row">
+            <div class="muted small">
+              {{ total }} result{{ "" if total == 1 else "s" }}
+            </div>
+            <div class="exports">
+              <a
+                class="btn"
+                href="{{ url_for('export_bibtex', collection=selected_col) }}"
+                >Export BibTeX</a
+              >
+              <a
+                class="btn"
+                href="{{ url_for('export_ris', collection=selected_col) }}"
+                >Export RIS</a
+              >
+              <a
+                class="btn"
+                href="{{ url_for('export_sections_json', collection=selected_col) }}"
+                >Export Sections JSON</a
+              >
+            </div>
+          </div>
+
+          <form method="post" action="{{ url_for('captures_delete') }}">
+            <input type="hidden" name="next" value="{{ request.full_path }}" />
+
+            <div class="bulkbar" id="bulkbar">
+              <div class="bulk-left">
+                <label class="small">
+                  <input type="checkbox" id="select-all" />
+                  Select all
+                </label>
+                <span
+                  class="muted small"
+                  id="selected-count"
+                  style="margin-left: 10px; display:none;"
+                ></span>
+                <button
+                  class="btn btn--ghost"
+                  type="button"
+                  id="clear-selection"
+                  style="display:none;"
+                >
+                  Clear
+                </button>
+              </div>
+
+              <div class="bulk-actions">
+                <select class="select" name="collection_id">
+                  <option value="">Choose collection…</option>
+                  {% for c in collections %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                  {% endfor %}
+                </select>
+
+                <button
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('captures_collections_add') }}"
+                >
+                  Add to collection
+                </button>
+                <button
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('captures_collections_remove') }}"
+                >
+                  Remove from collection
+                </button>
+                <button
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('export_selected_bibtex') }}"
+                >
+                  Export selected (BibTeX)
+                </button>
+                <button
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('export_selected_ris') }}"
+                >
+                  Export selected (RIS)
+                </button>
+                <button class="btn btn--danger" type="submit">
+                  Delete selected
+                </button>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table" id="library-table">
+                <thead>
+                  <tr>
+                    <th class="sel"></th>
+                    <th>Title</th>
+                    <th>Authors</th>
+                    <th>Year</th>
+                    <th>Container</th>
+                    <th>DOI</th>
+                  </tr>
+                </thead>
+                <tbody id="library-tbody">
+                  {% if captures|length > 0 %}
+                    {% include "_library_rows.html" %}
+                  {% else %}
+                    <tr data-empty="1">
+                      <td colspan="6" class="muted">No captures found.</td>
+                    </tr>
+                  {% endif %}
+                </tbody>
+              </table>
+            </div>
+
+            <div
+              id="infinite-loading"
+              class="muted small"
+              style="margin-top: 8px; display: none"
+            >
+              Loading…
+            </div>
+            <div
+              id="infinite-end"
+              class="muted small"
+              style="margin-top: 8px; display: none"
+            >
+              End of results.
+            </div>
+            <div
+              id="infinite-error"
+              class="muted small"
+              style="margin-top: 8px; display: none"
+            ></div>
+
+            <div id="infinite-sentinel" style="height: 1px"></div>
+
+            <div
+              id="library-config"
+              data-api-base="{{ url_for('api_library') }}"
+              data-detail-url-template="{{ url_for('capture_detail', capture_id='__CID__') }}"
+              data-next-page="{{ page + 1 }}"
+              data-page-size="{{ page_size }}"
+              data-has-more="{{ 1 if has_more else 0 }}"
+              style="display: none"
+            ></div>
+          </form>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='library/ui.js') }}"></script>
+  <script src="{{ url_for('static', filename='library/selection.js') }}"></script>
+  <script src="{{ url_for('static', filename='library/infinite_scroll.js') }}"></script>
+  <script src="{{ url_for('static', filename='library.js') }}"></script>
+{% endblock %}

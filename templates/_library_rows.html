@@ -1,0 +1,37 @@
+{% for cap in captures %}
+  <tr
+    class="cap-row"
+    tabindex="0"
+    data-href="{{ url_for('capture_detail', capture_id=cap.id) }}"
+    title="Double-click to open"
+  >
+    <td class="sel">
+      <input
+        class="cap-check"
+        type="checkbox"
+        name="capture_ids"
+        value="{{ cap.id }}"
+      />
+    </td>
+
+    <td class="title-cell">
+      <div class="title-line">
+        <span class="title-text">{{ cap.title }}</span>
+      </div>
+
+      {% if cap.abstract_snip %}
+        <div class="muted small">{{ cap.abstract_snip }}</div>
+      {% endif %}
+      <div class="muted small">
+        <a href="{{ cap.url }}" target="_blank" rel="noopener noreferrer"
+          >{{ cap.url }}</a
+        >
+      </div>
+    </td>
+
+    <td class="small">{{ cap.authors_short or cap.authors_str or "" }}</td>
+    <td class="small">{{ cap.year or "" }}</td>
+    <td class="small">{{ cap.container_title or "" }}</td>
+    <td class="small">{{ cap.doi or "" }}</td>
+  </tr>
+{% endfor %}

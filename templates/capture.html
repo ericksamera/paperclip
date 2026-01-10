@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}{{ capture.title }} · Paperclip{% endblock %}
+
+{% block content %}
+  <div class="panel">
+    <div class="panel__title">Capture</div>
+    <div class="panel__body">
+      <div class="capture-head">
+        <div>
+          <h2 style="margin: 0 0 6px">{{ capture.title }}</h2>
+
+          {% if citation.authors_str %}
+            <div class="muted small" style="margin: 0 0 6px">
+              {{ citation.authors_str }}
+            </div>
+          {% endif %}
+
+          <div class="muted small">
+            <a
+              href="{{ capture.url }}"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {{ capture.url }}
+            </a>
+          </div>
+
+          {% if meta.abstract %}
+            <div style="margin-top: 10px">
+              <div class="muted small" style="margin-bottom: 4px">Abstract</div>
+              <div>{{ meta.abstract }}</div>
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="capture-actions">
+          <a
+            class="btn"
+            href="{{ url_for('export_bibtex', capture_id=capture.id) }}"
+            >BibTeX</a
+          >
+          <a
+            class="btn"
+            href="{{ url_for('export_ris', capture_id=capture.id) }}"
+            >RIS</a
+          >
+
+          <form
+            method="post"
+            action="{{ url_for('captures_delete') }}"
+            onsubmit="return confirm('Delete this capture?')"
+          >
+            <input type="hidden" name="capture_ids" value="{{ capture.id }}" />
+            <input type="hidden" name="next" value="{{ url_for('library') }}" />
+            <button class="btn btn--danger" type="submit">Delete</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <div class="panel inner">
+            <div class="panel__title">Collections</div>
+            <div class="panel__body">
+              <form
+                method="post"
+                action="{{ url_for('capture_set_collections', capture_id=capture.id) }}"
+              >
+                <div class="col-list">
+                  {% for c in collections %}
+                    <label class="col-check">
+                      <input
+                        class="cap-check"
+                        type="checkbox"
+                        name="collection_ids"
+                        value="{{ c.id }}"
+                        {% if c.has_it %}checked{% endif %}
+                      />
+                      {{ c.name }}
+                    </label>
+                  {% endfor %}
+                </div>
+                <div style="margin-top: 10px">
+                  <button class="btn btn--primary" type="submit">Save</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="panel inner" style="margin-top: 10px">
+            <div class="panel__title">Metadata</div>
+            <div class="panel__body">
+              <div class="kv">
+                <div class="k">DOI</div>
+                <div class="v">{{ capture.doi or "" }}</div>
+              </div>
+              <div class="kv">
+                <div class="k">Year</div>
+                <div class="v">{{ capture.year or "" }}</div>
+              </div>
+              <div class="kv">
+                <div class="k">Container</div>
+                <div class="v">{{ capture.container_title or "" }}</div>
+              </div>
+
+              {% if meta.published_date_raw %}
+                <div class="kv">
+                  <div class="k">Published</div>
+                  <div class="v">{{ meta.published_date_raw }}</div>
+                </div>
+              {% endif %}
+
+              {% if meta.keywords %}
+                <div class="kv">
+                  <div class="k">Keywords</div>
+                  <div class="v">{{ meta.keywords | join(", ") }}</div>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="panel inner" style="margin-top: 10px">
+            <div class="panel__title">Parsed text</div>
+            <div class="panel__body">
+              <details open>
+                <summary style="cursor:pointer;">
+                  Article body
+                  {% if parsed.article.exists %}
+                    <span class="muted small"
+                      >·
+                      <a
+                        href="{{ parsed.article.url }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >article.txt</a
+                      ></span
+                    >
+                    <span class="muted small"
+                      >· {{ parsed.article.chars }}
+                      chars{% if parsed.article.truncated %}(truncated){% endif %}</span
+                    >
+                  {% endif %}
+                </summary>
+
+                {% if parsed.article.exists and parsed.article.text %}
+                  <pre class="pre" style="margin-top: 8px">
+{{ parsed.article.text }}</pre
+                  >
+                {% else %}
+                  <div class="muted small" style="margin-top: 8px">
+                    No parsed article text available.
+                  </div>
+                {% endif %}
+              </details>
+
+              <div style="height:10px"></div>
+
+              <details>
+                <summary style="cursor:pointer;">
+                  References
+                  {% if parsed.references.exists %}
+                    <span class="muted small"
+                      >·
+                      <a
+                        href="{{ parsed.references.url }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >references.txt</a
+                      ></span
+                    >
+                    <span class="muted small"
+                      >· {{ parsed.references.chars }}
+                      chars{% if parsed.references.truncated %}(truncated){% endif %}</span
+                    >
+                  {% endif %}
+                </summary>
+
+                {% if parsed.references.exists and parsed.references.text %}
+                  <pre class="pre" style="margin-top: 8px">
+{{ parsed.references.text }}</pre
+                  >
+                {% else %}
+                  <div class="muted small" style="margin-top: 8px">
+                    No references text available.
+                  </div>
+                {% endif %}
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="panel inner">
+            <div class="panel__title">Artifacts</div>
+            <div class="panel__body">
+              {% if artifacts and artifacts|length > 0 %}
+                <ul class="clean">
+                  {% for a in artifacts %}
+                    <li>
+                      <a
+                        href="{{ a.url }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >{{ a.name }}</a
+                      >
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <div class="muted">No artifacts available.</div>
+              {% endif %}
+            </div>
+          </div>
+
+          {% if meta.meta %}
+            <div class="panel inner" style="margin-top: 10px">
+              <div class="panel__title">Raw head meta</div>
+              <div class="panel__body">
+                <pre class="pre">{{ meta.meta | tojson(indent=2) }}</pre>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
