@@ -16,6 +16,30 @@ def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
 
+def _upsert_capture_fts(db, *, capture_id: str, title: str, content_text: str) -> None:
+    """
+    Maintain capture_fts (virtual FTS5 table).
+
+    We intentionally do DELETE+INSERT because:
+      - capture_fts has no declared UNIQUE constraint on capture_id
+      - ON CONFLICT is not reliable/available for this schema
+    """
+    if not capture_id:
+        return
+    try:
+        db.execute("DELETE FROM capture_fts WHERE capture_id = ?", (capture_id,))
+        db.execute(
+            "INSERT INTO capture_fts (capture_id, title, content_text) VALUES (?, ?, ?)",
+            (capture_id, title or "", content_text or ""),
+        )
+    except sqlite3.OperationalError:
+        # FTS not available on this SQLite build, or table missing
+        pass
+    except Exception:
+        # Best-effort: never break ingest
+        pass
+
+
 @dataclass(frozen=True)
 class IdentityDecision:
     capture_id: str
@@ -36,6 +60,7 @@ def upsert_capture(
     now: str,
     artifacts_root: Path,
     cap_dir: Path,
+    fts_enabled: bool,
 ) -> tuple[str, bool, list[str]]:
     """
     DB upsert + IntegrityError fallback.
@@ -44,6 +69,9 @@ def upsert_capture(
       - upsert captures and capture_text
       - on IntegrityError: find existing row (DOI first, then url_hash)
       - if existing_id != capture_id: copy artifacts if dst missing; cleanup new dir
+
+    NEW:
+      - when fts_enabled: maintain capture_fts for the final capture id
     """
     title = str(dto.get("title") or "")
     doi = str(dto.get("doi") or "")
@@ -102,6 +130,11 @@ def upsert_capture(
             (capture_id, content_text),
         )
 
+        if fts_enabled:
+            _upsert_capture_fts(
+                db, capture_id=capture_id, title=title, content_text=content_text
+            )
+
         return capture_id, created, cleanup_dirs
 
     except sqlite3.IntegrityError:
@@ -124,6 +157,11 @@ def upsert_capture(
                     shutil.copyfile(src, dst)
 
             cleanup_dirs.append(os.fspath(cap_dir))
+
+        if fts_enabled:
+            _upsert_capture_fts(
+                db, capture_id=existing_id, title=title, content_text=content_text
+            )
 
         return existing_id, False, cleanup_dirs
 

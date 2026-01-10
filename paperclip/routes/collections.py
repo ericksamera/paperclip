@@ -4,6 +4,7 @@ from flask import Flask, flash, redirect, render_template, request, url_for
 
 from ..db import get_db
 from ..repo import collections_repo
+from ..services import collections_service
 from ..timeutil import utc_now_iso
 from ..tx import db_tx
 
@@ -18,35 +19,30 @@ def register(app: Flask) -> None:
     @app.post("/collections/create/")
     def collections_create():
         name = (request.form.get("name") or "").strip()
-        if not name:
-            flash("Name required.", "warning")
-            return redirect(url_for("collections_page"))
+        now = utc_now_iso()
 
         with db_tx() as db:
-            collections_repo.create_collection(db, name=name, created_at=utc_now_iso())
+            res = collections_service.create_collection(db, name=name, created_at=now)
 
-        flash("Collection created.", "success")
+        flash(res.message, res.category)
         return redirect(url_for("collections_page"))
 
     @app.post("/collections/<int:collection_id>/rename/")
     def collections_rename(collection_id: int):
         name = (request.form.get("name") or "").strip()
-        if not name:
-            flash("Name required.", "warning")
-            return redirect(url_for("collections_page"))
 
         with db_tx() as db:
-            collections_repo.rename_collection(
+            res = collections_service.rename_collection(
                 db, collection_id=collection_id, name=name
             )
 
-        flash("Collection renamed.", "success")
+        flash(res.message, res.category)
         return redirect(url_for("collections_page"))
 
     @app.post("/collections/<int:collection_id>/delete/")
     def collections_delete(collection_id: int):
         with db_tx() as db:
-            collections_repo.delete_collection(db, collection_id=collection_id)
+            res = collections_service.delete_collection(db, collection_id=collection_id)
 
-        flash("Collection deleted.", "success")
+        flash(res.message, res.category)
         return redirect(url_for("collections_page"))

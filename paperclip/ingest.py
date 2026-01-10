@@ -66,6 +66,7 @@ def ingest_capture(
         now=parsed.captured_at,
         artifacts_root=artifacts_root,
         cap_dir=arts.cap_dir,
+        fts_enabled=fts_enabled,
     )
 
     dto = parsed.dto
