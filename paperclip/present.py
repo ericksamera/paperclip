@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterable
 
+from . import artifacts
 from .capture_dto import build_capture_dto_from_row
 from .citation import citation_fields_from_meta
 
@@ -49,61 +50,6 @@ def present_capture_for_api(cap: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _read_text_artifact(
-    *, cap_dir: Path, name: str, max_chars: int = 120_000
-) -> dict[str, Any]:
-    """
-    Safe-ish helper for capture detail page.
-    Reads a UTF-8-ish text artifact with a hard max size, and reports truncation.
-    Never raises.
-    """
-    p = cap_dir / name
-    if not p.exists() or not p.is_file():
-        return {
-            "name": name,
-            "exists": False,
-            "text": "",
-            "truncated": False,
-            "chars": 0,
-        }
-
-    try:
-        raw = p.read_bytes()
-    except Exception:
-        return {
-            "name": name,
-            "exists": True,
-            "text": "",
-            "truncated": False,
-            "chars": 0,
-        }
-
-    # Decode best-effort
-    try:
-        text = raw.decode("utf-8", errors="replace")
-    except Exception:
-        text = ""
-
-    chars = len(text)
-    if chars > max_chars:
-        text = text[:max_chars].rstrip() + "\n… (truncated)"
-        return {
-            "name": name,
-            "exists": True,
-            "text": text,
-            "truncated": True,
-            "chars": chars,
-        }
-
-    return {
-        "name": name,
-        "exists": True,
-        "text": text,
-        "truncated": False,
-        "chars": chars,
-    }
-
-
 def present_capture_detail(
     *,
     db,
@@ -144,28 +90,30 @@ def present_capture_detail(
 
     collections = captures_repo.list_collections_for_capture(db, capture_id)
 
-    allowed_set = set(allowed_artifacts)
     allowed_list = list(allowed_artifacts)
 
-    cap_dir = artifacts_root / capture_id
+    # Present artifacts (disk) filtered to allowed list
+    artifact_names = artifacts.list_present_artifacts(
+        artifacts_root=artifacts_root,
+        capture_id=capture_id,
+        allowed_artifacts=allowed_artifacts,
+    )
+    artifacts_list: list[dict[str, str]] = [
+        {
+            "name": name,
+            "url": url_for("capture_artifact", capture_id=capture_id, name=name),
+        }
+        for name in artifact_names
+    ]
 
-    artifacts: list[dict[str, str]] = []
-    if cap_dir.exists():
-        for p in cap_dir.iterdir():
-            if p.is_file() and p.name in allowed_set:
-                artifacts.append(
-                    {
-                        "name": p.name,
-                        "url": url_for(
-                            "capture_artifact", capture_id=capture_id, name=p.name
-                        ),
-                    }
-                )
-
-    # Parsed previews (future-friendly: can add sections/figures/etc later)
+    # Parsed previews (bounded, safe-ish)
     parsed = {
-        "article": _read_text_artifact(cap_dir=cap_dir, name="article.txt"),
-        "references": _read_text_artifact(cap_dir=cap_dir, name="references.txt"),
+        "article": artifacts.read_text_artifact(
+            artifacts_root=artifacts_root, capture_id=capture_id, name="article.txt"
+        ),
+        "references": artifacts.read_text_artifact(
+            artifacts_root=artifacts_root, capture_id=capture_id, name="references.txt"
+        ),
     }
 
     # Convenience links (so templates don't rebuild URLs)
@@ -181,7 +129,7 @@ def present_capture_detail(
         "meta": meta,
         "citation": citation,
         "collections": collections,
-        "artifacts": artifacts,
+        "artifacts": artifacts_list,
         "allowed_artifacts": allowed_list,
         "parsed": parsed,
     }

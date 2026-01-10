@@ -13,6 +13,7 @@ from flask import (
     url_for,
 )
 
+from .. import artifacts
 from ..constants import ALLOWED_ARTIFACTS
 from ..db import get_db
 from ..formparams import get_capture_ids, get_collection_id, get_collection_ids
@@ -20,14 +21,12 @@ from ..fsutil import rmtree_best_effort
 from ..httputil import redirect_next
 from ..present import present_capture_detail
 from ..repo import captures_repo
+from ..services import captures_service
 from ..timeutil import utc_now_iso
 from ..tx import db_tx
-from ..services import captures_service
 
 
 def register(app: Flask) -> None:
-    allowed_artifacts_set = set(ALLOWED_ARTIFACTS)
-
     @app.get("/captures/<capture_id>/")
     def capture_detail(capture_id: str):
         db = get_db()
@@ -56,9 +55,10 @@ def register(app: Flask) -> None:
 
     @app.get("/captures/<capture_id>/artifact/<name>")
     def capture_artifact(capture_id: str, name: str):
-        if name not in allowed_artifacts_set:
+        if name not in artifacts.ALLOWED_ARTIFACTS_SET:
             abort(404)
-        p = Path(app.config["ARTIFACTS_DIR"]) / capture_id / name
+
+        p = artifacts.artifact_path(Path(app.config["ARTIFACTS_DIR"]), capture_id, name)
         if not p.exists():
             abort(404)
         return send_file(p)
