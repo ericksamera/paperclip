@@ -11,9 +11,10 @@ from flask import (
 )
 
 from ..db import get_db
-from ..present import present_capture_for_api, present_capture_for_library
-from ..queryparams import library_params_from_args
-from ..repo import collections_repo, library_repo
+from ..services.library_service import (
+    api_library_response_from_args,
+    library_page_context_from_args,
+)
 
 
 def register(app: Flask) -> None:
@@ -24,64 +25,29 @@ def register(app: Flask) -> None:
     @app.get("/library/")
     def library():
         db = get_db()
-        p = library_params_from_args(request.args, default_page_size=50)
+        fts_enabled = bool(current_app.config.get("FTS_ENABLED"))
 
-        collections = collections_repo.list_collections_with_counts(db)
-        total_all = library_repo.count_all_captures(db)
-
-        captures, total, has_more = library_repo.search_captures(
+        ctx = library_page_context_from_args(
             db,
-            q=p.q,
-            selected_col=p.selected_col,
-            page=p.page,
-            page_size=p.page_size,
-            fts_enabled=bool(current_app.config.get("FTS_ENABLED")),
+            args=request.args,
+            fts_enabled=fts_enabled,
+            default_page_size=50,
         )
-
-        out_caps = [present_capture_for_library(c) for c in captures]
-
-        return render_template(
-            "library.html",
-            q=p.q,
-            selected_col=p.selected_col,
-            collections=collections,
-            total_all=total_all,
-            captures=out_caps,
-            page=p.page,
-            page_size=p.page_size,
-            total=total,
-            has_more=has_more,
-            fts_enabled=bool(current_app.config.get("FTS_ENABLED")),
-        )
+        return render_template("library.html", **ctx)
 
     @app.get("/api/library/")
     def api_library():
         db = get_db()
-        p = library_params_from_args(request.args, default_page_size=50)
+        fts_enabled = bool(current_app.config.get("FTS_ENABLED"))
 
-        captures, total, has_more = library_repo.search_captures(
+        def _render_rows(captures):
+            return render_template("_library_rows.html", captures=captures)
+
+        payload = api_library_response_from_args(
             db,
-            q=p.q,
-            selected_col=p.selected_col,
-            page=p.page,
-            page_size=p.page_size,
-            fts_enabled=bool(current_app.config.get("FTS_ENABLED")),
+            args=request.args,
+            fts_enabled=fts_enabled,
+            render_rows=_render_rows,
+            default_page_size=50,
         )
-
-        # HTML rows for infinite scroll (server-rendered)
-        caps_for_rows = [present_capture_for_library(c) for c in captures]
-        rows_html = render_template("_library_rows.html", captures=caps_for_rows)
-
-        # Keep JSON captures too (useful for future client-rendering)
-        out_caps = [present_capture_for_api(c) for c in captures]
-
-        return jsonify(
-            {
-                "captures": out_caps,
-                "rows_html": rows_html,
-                "page": p.page,
-                "page_size": p.page_size,
-                "total": total,
-                "has_more": has_more,
-            }
-        )
+        return jsonify(payload)
