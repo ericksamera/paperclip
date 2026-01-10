@@ -118,6 +118,75 @@
               {% endif %}
             </div>
           </div>
+
+          <div class="panel inner" style="margin-top: 10px">
+            <div class="panel__title">Parsed text</div>
+            <div class="panel__body">
+              <details open>
+                <summary style="cursor:pointer;">
+                  Article body
+                  {% if parsed.article.exists %}
+                    <span class="muted small"
+                      >·
+                      <a
+                        href="{{ parsed.article.url }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >article.txt</a
+                      ></span
+                    >
+                    <span class="muted small"
+                      >· {{ parsed.article.chars }}
+                      chars{% if parsed.article.truncated %}(truncated){% endif %}</span
+                    >
+                  {% endif %}
+                </summary>
+
+                {% if parsed.article.exists and parsed.article.text %}
+                  <pre class="pre" style="margin-top: 8px">
+{{ parsed.article.text }}</pre
+                  >
+                {% else %}
+                  <div class="muted small" style="margin-top: 8px">
+                    No parsed article text available.
+                  </div>
+                {% endif %}
+              </details>
+
+              <div style="height:10px"></div>
+
+              <details>
+                <summary style="cursor:pointer;">
+                  References
+                  {% if parsed.references.exists %}
+                    <span class="muted small"
+                      >·
+                      <a
+                        href="{{ parsed.references.url }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >references.txt</a
+                      ></span
+                    >
+                    <span class="muted small"
+                      >· {{ parsed.references.chars }}
+                      chars{% if parsed.references.truncated %}(truncated){% endif %}</span
+                    >
+                  {% endif %}
+                </summary>
+
+                {% if parsed.references.exists and parsed.references.text %}
+                  <pre class="pre" style="margin-top: 8px">
+{{ parsed.references.text }}</pre
+                  >
+                {% else %}
+                  <div class="muted small" style="margin-top: 8px">
+                    No references text available.
+                  </div>
+                {% endif %}
+              </details>
+            </div>
+          </div>
         </div>
 
         <div>

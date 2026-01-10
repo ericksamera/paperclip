@@ -128,6 +128,7 @@ def split_authors(raw: Any) -> list[str]:
 
     Supports:
       - repeated <meta name="citation_author" ...> => list[str]
+      - "citation_authors" (plural) strings, often separated by ';' on PubMed-like pages
       - dc.creator strings, sometimes separated by ';' or newlines
       - minimal support for "A and B" forms
 
@@ -159,7 +160,13 @@ def split_authors(raw: Any) -> list[str]:
 
 
 def best_authors(meta: dict[str, Any]) -> list[str]:
-    for k in ("citation_author", "dc.creator", "dcterms.creator"):
+    # Order matters: prefer the canonical repeated tag, but accept common variants.
+    for k in (
+        "citation_author",  # repeated meta tags
+        "citation_authors",  # PubMed (often semicolon-separated)
+        "dc.creator",
+        "dcterms.creator",
+    ):
         authors = split_authors(meta.get(k))
         if authors:
             return authors

@@ -12,7 +12,6 @@
   }
 
   function gatherMeta() {
-    // Keep this list tight and "boring".
     // Values are stored as strings; if repeated meta keys exist, we return an array.
     const wanted = [
       "citation_title",
@@ -21,6 +20,7 @@
       "citation_journal_title",
       "citation_keywords",
       "citation_author",
+      "citation_authors", // <-- add plural variant
       "dc.title",
       "dc.identifier",
       "dc.date",

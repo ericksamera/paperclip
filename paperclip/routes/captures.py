@@ -50,6 +50,7 @@ def register(app: Flask) -> None:
             collections=model["collections"],
             artifacts=model["artifacts"],
             allowed_artifacts=model["allowed_artifacts"],
+            parsed=model["parsed"],  # <-- FIX
         )
 
     @app.get("/captures/<capture_id>/artifact/<name>")

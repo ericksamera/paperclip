@@ -5,6 +5,8 @@ ALLOWED_ARTIFACTS = (
     "content.html",
     "article.html",
     "article.txt",
+    "references.html",
+    "references.txt",
     "article.json",
     "raw.json",
     "reduced.json",

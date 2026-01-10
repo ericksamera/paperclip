@@ -41,6 +41,8 @@ class ArtifactWriteResult:
     cap_dir: Path
     article_html: str
     article_text: str
+    references_html: str
+    references_text: str
 
 
 def write_capture_artifacts(
@@ -56,9 +58,10 @@ def write_capture_artifacts(
     captured_at: str,
 ) -> ArtifactWriteResult:
     """
-    Writes the same artifact set as before:
+    Writes artifacts:
       - page.html, content.html
       - article.html/article.txt if non-empty
+      - references.html/references.txt if non-empty
       - article.json (always)
       - raw.json (always, original request payload)
       - reduced.json (always)
@@ -71,11 +74,18 @@ def write_capture_artifacts(
 
     article_html = parse_result.article_html or ""
     article_text = parse_result.article_text or ""
+    references_html = parse_result.references_html or ""
+    references_text = parse_result.references_text or ""
 
     if article_html:
         _write_text(cap_dir / "article.html", article_html)
     if article_text:
         _write_text(cap_dir / "article.txt", article_text)
+
+    if references_html:
+        _write_text(cap_dir / "references.html", references_html)
+    if references_text:
+        _write_text(cap_dir / "references.txt", references_text)
 
     article_json = parse_result.to_json()
     if parse_exc:
@@ -118,11 +128,17 @@ def write_capture_artifacts(
             "content_text_chars": len(content_text or ""),
             "article_html_chars": len(article_html or ""),
             "article_text_chars": len(article_text or ""),
+            "references_html_chars": len(references_html or ""),
+            "references_text_chars": len(references_text or ""),
         },
         "client": dto.get("client") if isinstance(dto.get("client"), dict) else {},
     }
     _write_json(cap_dir / "reduced.json", reduced)
 
     return ArtifactWriteResult(
-        cap_dir=cap_dir, article_html=article_html, article_text=article_text
+        cap_dir=cap_dir,
+        article_html=article_html,
+        article_text=article_text,
+        references_html=references_html,
+        references_text=references_text,
     )

@@ -14,9 +14,13 @@ class ParseResult:
     blocked_reason: str = ""  # cookie_wall | paywall | bot_block | unknown
     confidence_fulltext: float = 0.0
 
-    # Outputs
+    # Outputs (article body)
     article_html: str = ""
     article_text: str = ""
+
+    # Outputs (references/bibliography)
+    references_html: str = ""
+    references_text: str = ""
 
     # Debug/provenance
     selected_hint: str = ""  # e.g. "article", "main", "selector:.foo", "largest_block"
@@ -37,8 +41,14 @@ class ParseResult:
             "score_breakdown": self.score_breakdown,
             "notes": self.notes,
             "meta": self.meta,
+            "article_html": self.article_html,
+            "article_text": self.article_text,
+            "references_html": self.references_html,
+            "references_text": self.references_text,
             "stats": {
                 "article_html_chars": len(self.article_html or ""),
                 "article_text_chars": len(self.article_text or ""),
+                "references_html_chars": len(self.references_html or ""),
+                "references_text_chars": len(self.references_text or ""),
             },
         }
