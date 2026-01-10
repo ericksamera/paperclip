@@ -44,6 +44,21 @@
             href="{{ url_for('export_ris', capture_id=capture.id) }}"
             >RIS</a
           >
+          <a
+            class="btn"
+            href="{{ url_for('export_sections_json', capture_id=capture.id) }}"
+            >Sections JSON</a
+          >
+          <a
+            class="btn"
+            href="{{ url_for('export_papers_jsonl', capture_id=capture.id) }}"
+            >Papers JSONL</a
+          >
+          <a
+            class="btn"
+            href="{{ url_for('export_master_md', capture_id=capture.id) }}"
+            >Master MD</a
+          >
 
           <form
             method="post"

@@ -43,6 +43,20 @@
                   >
                   ·
                   <a href="{{ url_for('export_ris', collection=c.id) }}">RIS</a>
+                  ·
+                  <a
+                    href="{{ url_for('export_sections_json', collection=c.id) }}"
+                    >Sections JSON</a
+                  >
+                  ·
+                  <a
+                    href="{{ url_for('export_papers_jsonl', collection=c.id) }}"
+                    >Papers JSONL</a
+                  >
+                  ·
+                  <a href="{{ url_for('export_master_md', collection=c.id) }}"
+                    >Master MD</a
+                  >
                 </td>
                 <td>
                   <form

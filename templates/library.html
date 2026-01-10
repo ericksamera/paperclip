@@ -95,6 +95,16 @@
                 href="{{ url_for('export_sections_json', collection=selected_col) }}"
                 >Export Sections JSON</a
               >
+              <a
+                class="btn"
+                href="{{ url_for('export_papers_jsonl', collection=selected_col) }}"
+                >Export Papers JSONL</a
+              >
+              <a
+                class="btn"
+                href="{{ url_for('export_master_md', collection=selected_col) }}"
+                >Export Master MD</a
+              >
             </div>
           </div>
 
@@ -157,6 +167,27 @@
                   formaction="{{ url_for('export_selected_ris') }}"
                 >
                   Export selected (RIS)
+                </button>
+                <button
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('export_selected_sections_json') }}"
+                >
+                  Export selected (Sections JSON)
+                </button>
+                <button
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('export_selected_papers_jsonl') }}"
+                >
+                  Export selected (Papers JSONL)
+                </button>
+                <button
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('export_selected_master_md') }}"
+                >
+                  Export selected (Master MD)
                 </button>
                 <button class="btn btn--danger" type="submit">
                   Delete selected

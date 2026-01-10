@@ -415,3 +415,185 @@ def sections_json_selected_download_parts(
         suffix="sections",
     )
     return body, mimetype, filename
+
+
+# -------------------------
+# Papers JSONL export (LLM-friendly)
+# -------------------------
+
+
+# Section kinds we exclude from papers.jsonl (noise for “read the paper” use cases)
+_PAPERS_EXCLUDE_KINDS = {
+    "acknowledgements",
+    "author_contributions",
+    "funding",
+    "conflicts",
+    # usually not useful as body text (and can be huge/duplicative on some sites)
+    "keywords",
+}
+
+
+def _filtered_sections_for_papers_export(
+    sections: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for s in sections:
+        if not isinstance(s, dict):
+            continue
+        kind = str(s.get("kind") or "").strip()
+        if kind in _PAPERS_EXCLUDE_KINDS:
+            continue
+        text = str(s.get("text") or "").strip()
+        if not text:
+            continue
+
+        out.append(
+            {
+                "id": str(s.get("id") or ""),
+                "kind": kind,
+                "title": str(s.get("title") or ""),
+                "text": text,
+            }
+        )
+    return out
+
+
+def _reduced_for_capture(*, artifacts_root: Path, cap_id: str) -> dict[str, Any]:
+    """
+    Best-effort: read reduced.json (for stable metadata + parse summary).
+    If missing/unreadable, return {}.
+    """
+    if not cap_id:
+        return {}
+    p = (artifacts_root / cap_id) / "reduced.json"
+    v = _read_json_file(p) if p.exists() else None
+    return v if isinstance(v, dict) else {}
+
+
+def render_papers_export_jsonl(
+    *,
+    captures: list[dict[str, Any]],
+    artifacts_root: Path,
+) -> str:
+    """
+    Returns NDJSON (JSONL) with one line per capture.
+
+    Each line shape (Option A):
+      {
+        id, title, doi, url, year, container_title, authors,
+        capture_quality, confidence_fulltext,
+        sections: [{id, kind, title, text}, ...]
+      }
+
+    Notes:
+      - Sections are sourced from artifacts/<id>/sections.json (preferred).
+      - Metadata is sourced from artifacts/<id>/reduced.json when available,
+        falling back to DB row fields.
+      - Certain section kinds are excluded (acknowledgements, funding, etc.).
+    """
+    lines: list[str] = []
+    for cap in captures:
+        cap_id = str(cap.get("id") or "").strip()
+        if not cap_id:
+            continue
+
+        reduced = _reduced_for_capture(artifacts_root=artifacts_root, cap_id=cap_id)
+
+        # metadata: prefer reduced.json; fallback to DB row
+        title = str(reduced.get("title") or cap.get("title") or "")
+        doi = str(reduced.get("doi") or cap.get("doi") or "")
+        url = str(
+            reduced.get("source_url")
+            or reduced.get("canonical_url")
+            or cap.get("url")
+            or ""
+        )
+        year = reduced.get("year", cap.get("year", None))
+        container_title = str(
+            reduced.get("container_title") or cap.get("container_title") or ""
+        )
+        authors = reduced.get("authors", [])
+        if not isinstance(authors, list):
+            authors = []
+
+        parse_summary = reduced.get("parse", {})
+        if not isinstance(parse_summary, dict):
+            parse_summary = {}
+
+        capture_quality = str(parse_summary.get("capture_quality") or "")
+        confidence_fulltext = float(parse_summary.get("confidence_fulltext") or 0.0)
+
+        sections_raw = _sections_for_capture(
+            artifacts_root=artifacts_root, cap_id=cap_id
+        )
+        sections = _filtered_sections_for_papers_export(sections_raw)
+
+        obj = {
+            "id": cap_id,
+            "title": title,
+            "doi": doi,
+            "url": url,
+            "year": year,
+            "container_title": container_title,
+            "authors": authors,
+            "capture_quality": capture_quality,
+            "confidence_fulltext": confidence_fulltext,
+            "sections": sections,
+        }
+
+        lines.append(json.dumps(obj, ensure_ascii=False, separators=(",", ":")))
+
+    return "\n".join(lines).rstrip() + ("\n" if lines else "")
+
+
+def papers_jsonl_download_parts_from_args(
+    db,
+    *,
+    args: Mapping[str, Any],
+    artifacts_root: Path,
+) -> tuple[str, str, str]:
+    """
+    GET /exports/papers.jsonl/?collection=<id>&capture_id=<id>
+    """
+    col = get_collection_arg(args) or None
+    capture_id = (str(args.get("capture_id") or "")).strip() or None
+
+    ctx = select_export_context(db, capture_id=capture_id, col=col)
+
+    body = render_papers_export_jsonl(
+        captures=ctx.captures, artifacts_root=artifacts_root
+    )
+    mimetype = "application/x-ndjson; charset=utf-8"
+    filename = export_filename(
+        ext="jsonl",
+        capture_id=ctx.capture_id,
+        col_id=ctx.col_id,
+        col_name=ctx.col_name,
+        selected=False,
+        suffix="papers",
+    )
+    return body, mimetype, filename
+
+
+def papers_jsonl_selected_download_parts(
+    db,
+    *,
+    capture_ids: list[str],
+    artifacts_root: Path,
+) -> tuple[str, str, str]:
+    """
+    POST /exports/papers.jsonl/selected/ with capture_ids
+    """
+    captures = select_captures_by_ids(db, capture_ids=capture_ids)
+
+    body = render_papers_export_jsonl(captures=captures, artifacts_root=artifacts_root)
+    mimetype = "application/x-ndjson; charset=utf-8"
+    filename = export_filename(
+        ext="jsonl",
+        capture_id=None,
+        col_id=None,
+        col_name=None,
+        selected=True,
+        suffix="papers",
+    )
+    return body, mimetype, filename

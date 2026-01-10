@@ -132,3 +132,36 @@ def register(app: Flask) -> None:
             )
         )
         return _as_download(body, mimetype=mimetype, filename=filename)
+
+    # -------------------------
+    # Papers JSONL export
+    # -------------------------
+
+    @app.get("/exports/papers.jsonl/")
+    def export_papers_jsonl():
+        db = get_db()
+        artifacts_root = Path(app.config["ARTIFACTS_DIR"])
+        body, mimetype, filename = (
+            exports_service.papers_jsonl_download_parts_from_args(
+                db,
+                args=request.args,
+                artifacts_root=artifacts_root,
+            )
+        )
+        return _as_download(body, mimetype=mimetype, filename=filename)
+
+    @app.post("/exports/papers.jsonl/selected/")
+    def export_selected_papers_jsonl():
+        capture_ids = get_capture_ids(request.form)
+        if not capture_ids:
+            flash("No captures selected.", "warning")
+            return redirect_next("library")
+
+        db = get_db()
+        artifacts_root = Path(app.config["ARTIFACTS_DIR"])
+        body, mimetype, filename = exports_service.papers_jsonl_selected_download_parts(
+            db,
+            capture_ids=capture_ids,
+            artifacts_root=artifacts_root,
+        )
+        return _as_download(body, mimetype=mimetype, filename=filename)
