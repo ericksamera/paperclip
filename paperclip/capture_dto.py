@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .external_meta import best_external_authors_for_doi
 from .extract import (
     best_abstract,
     best_authors,
@@ -100,6 +101,52 @@ def build_capture_dto_from_payload(
     authors = best_authors(merged_meta)
     abstract = best_abstract(merged_meta)
 
+    # --- NEW: DOI-backed author standardization (Crossref) ---
+    # If Crossref has authors, treat them as authoritative and override.
+    external_provenance: dict[str, Any] | None = None
+    if doi:
+        ext_authors, prov = best_external_authors_for_doi(doi)
+        external_provenance = prov
+        if ext_authors:
+            # keep local extraction for debugging
+            merged_meta = dict(merged_meta)
+            merged_meta["_paperclip_local_authors"] = authors
+            authors = ext_authors
+
+            # If the date was missing, a Crossref-derived year might exist.
+            if (
+                year is None
+                and isinstance(prov, dict)
+                and isinstance(prov.get("year"), int)
+            ):
+                year = prov["year"]
+
+            # If container title is missing, Crossref often has it.
+            if (
+                not container_title
+                and isinstance(prov, dict)
+                and isinstance(prov.get("container_title"), str)
+            ):
+                container_title = prov["container_title"]
+
+            # If title is weak/empty, Crossref might have it.
+            if (
+                (not title or title == source_url)
+                and isinstance(prov, dict)
+                and isinstance(prov.get("title"), str)
+            ):
+                t = prov["title"].strip()
+                if t:
+                    title = t
+
+            # If published date raw is empty, use Crossref's best-effort string.
+            if (
+                not date_str
+                and isinstance(prov, dict)
+                and isinstance(prov.get("published_date_raw"), str)
+            ):
+                date_str = prov["published_date_raw"].strip()
+
     # Text for indexing/search
     base_text = html_to_text(content_html)
     parsed_text = (parse_result.article_text or "").strip()
@@ -125,6 +172,8 @@ def build_capture_dto_from_payload(
             "source_url": source_url,
             "canonical_url": canon_url,
             "captured_at": captured_at,
+            # Debug/provenance: record that an external DOI lookup was attempted/used.
+            "_external": external_provenance or {},
         },
     )
 
