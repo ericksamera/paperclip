@@ -50,11 +50,11 @@ class LibraryQuery:
             fts_q = _fts_query(q) if self.fts_enabled else ""
 
             if self.fts_enabled and fts_q:
-                # Avoid JOIN+alias MATCH quirks: use correlated subquery against the FTS table.
+                # Use captures.rowid <-> capture_fts.rowid linkage (no capture_id column needed).
                 self.where_parts.append(
                     "("
                     "cap.title LIKE ? OR cap.url LIKE ? OR cap.doi LIKE ? "
-                    "OR cap.id IN (SELECT capture_id FROM capture_fts WHERE capture_fts MATCH ?)"
+                    "OR cap.rowid IN (SELECT rowid FROM capture_fts WHERE capture_fts MATCH ?)"
                     ")"
                 )
                 self.params.extend([qlike, qlike, qlike, fts_q])

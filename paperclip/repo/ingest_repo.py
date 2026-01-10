@@ -19,6 +19,19 @@ def find_capture_by_url_hash(db, *, url_hash: str):
     ).fetchone()
 
 
+def _rowid_for_id(db, capture_id: str) -> int | None:
+    try:
+        row = db.execute(
+            "SELECT rowid AS rid FROM captures WHERE id = ? LIMIT 1", (capture_id,)
+        ).fetchone()
+        if not row:
+            return None
+        rid = row["rid"]
+        return int(rid) if rid is not None else None
+    except Exception:
+        return None
+
+
 def merge_duplicate_capture(
     db,
     *,
@@ -45,9 +58,10 @@ def merge_duplicate_capture(
         )
 
     if fts_enabled:
-        # capture_fts is a virtual table
         try:
-            db.execute("DELETE FROM capture_fts WHERE capture_id = ?", (drop_id,))
+            rid = _rowid_for_id(db, drop_id)
+            if rid is not None:
+                db.execute("DELETE FROM capture_fts WHERE rowid = ?", (rid,))
         except Exception:
             pass
 

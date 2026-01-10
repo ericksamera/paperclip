@@ -94,6 +94,19 @@ def set_capture_collections(
     )
 
 
+def _rowid_for_id(db, capture_id: str) -> int | None:
+    try:
+        row = db.execute(
+            "SELECT rowid AS rid FROM captures WHERE id = ? LIMIT 1", (capture_id,)
+        ).fetchone()
+        if not row:
+            return None
+        rid = row["rid"]
+        return int(rid) if rid is not None else None
+    except Exception:
+        return None
+
+
 def delete_captures(db, *, capture_ids: list[str], fts_enabled: bool) -> int:
     """
     Delete captures and related rows. Does NOT commit.
@@ -102,10 +115,18 @@ def delete_captures(db, *, capture_ids: list[str], fts_enabled: bool) -> int:
     """
     deleted = 0
     for cid in capture_ids:
+        # Compute rowid before deleting captures row (needed to delete FTS row)
+        rid = _rowid_for_id(db, cid) if fts_enabled else None
+
         db.execute("DELETE FROM collection_items WHERE capture_id = ?", (cid,))
         db.execute("DELETE FROM capture_text WHERE capture_id = ?", (cid,))
-        if fts_enabled:
-            db.execute("DELETE FROM capture_fts WHERE capture_id = ?", (cid,))
+
+        if fts_enabled and rid is not None:
+            try:
+                db.execute("DELETE FROM capture_fts WHERE rowid = ?", (rid,))
+            except Exception:
+                pass
+
         cur = db.execute("DELETE FROM captures WHERE id = ?", (cid,))
         try:
             deleted += int(cur.rowcount or 0)

@@ -16,21 +16,44 @@ def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
 
-def _upsert_capture_fts(db, *, capture_id: str, title: str, content_text: str) -> None:
+def _capture_rowid(db, *, capture_id: str) -> int | None:
     """
-    Maintain capture_fts (virtual FTS5 table).
-
-    We intentionally do DELETE+INSERT because:
-      - capture_fts has no declared UNIQUE constraint on capture_id
-      - ON CONFLICT is not reliable/available for this schema
+    Returns the SQLite INTEGER rowid for captures.id (TEXT PK).
+    Used as the stable key for capture_fts.rowid.
     """
     if not capture_id:
-        return
+        return None
     try:
-        db.execute("DELETE FROM capture_fts WHERE capture_id = ?", (capture_id,))
+        row = db.execute(
+            "SELECT rowid AS rid FROM captures WHERE id = ? LIMIT 1", (capture_id,)
+        ).fetchone()
+        if not row:
+            return None
+        rid = row["rid"]
+        return int(rid) if rid is not None else None
+    except Exception:
+        return None
+
+
+def _upsert_capture_fts(db, *, capture_id: str, title: str, content_text: str) -> None:
+    """
+    Maintain capture_fts (virtual FTS5 table) using captures.rowid as the key.
+
+    IMPORTANT:
+    - FTS5 virtual tables do NOT reliably support UPSERT's "ON CONFLICT DO UPDATE".
+    - "INSERT OR REPLACE" works and keeps exactly one row per rowid.
+    """
+    rid = _capture_rowid(db, capture_id=capture_id)
+    if rid is None:
+        return
+
+    try:
         db.execute(
-            "INSERT INTO capture_fts (capture_id, title, content_text) VALUES (?, ?, ?)",
-            (capture_id, title or "", content_text or ""),
+            """
+            INSERT OR REPLACE INTO capture_fts(rowid, title, content_text)
+            VALUES(?, ?, ?)
+            """,
+            (rid, title or "", content_text or ""),
         )
     except sqlite3.OperationalError:
         # FTS not available on this SQLite build, or table missing

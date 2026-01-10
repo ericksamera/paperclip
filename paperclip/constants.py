@@ -7,6 +7,8 @@ ALLOWED_ARTIFACTS = (
     "article.txt",
     "references.html",
     "references.txt",
+    # NEW: structured references list (always written)
+    "references.json",
     "article.json",
     "raw.json",
     "reduced.json",

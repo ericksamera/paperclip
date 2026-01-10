@@ -48,9 +48,13 @@ CREATE INDEX IF NOT EXISTS idx_collection_items_capture ON collection_items(capt
 """
 
 
+# NOTE:
+# We intentionally use the FTS rowid (INTEGER) and store only the indexed columns.
+# We map capture_id <-> rowid via the captures table rowid:
+#   - upsert: INSERT ... (rowid, title, content_text) ... ON CONFLICT(rowid) DO UPDATE ...
+#   - query:  cap.rowid IN (SELECT rowid FROM capture_fts WHERE capture_fts MATCH ?)
 FTS_SQL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS capture_fts USING fts5(
-  capture_id UNINDEXED,
   title,
   content_text
 );
@@ -103,6 +107,18 @@ def init_db(db_path: Path) -> bool:
         except sqlite3.OperationalError:
             # Some SQLite builds might not have FTS5. We can still operate without it.
             fts_enabled = False
+
+        # Migration: rebuild capture_fts to the rowid-keyed schema (safe, idempotent).
+        # Older versions may have had a capture_id column; we drop and recreate.
+        mid = "2026-01-10_capture_fts_rowid_schema"
+        if fts_enabled and not _applied(mid):
+            try:
+                conn.execute("DROP TABLE IF EXISTS capture_fts;")
+                conn.executescript(FTS_SQL)
+            except Exception:
+                # Best effort: if anything fails, we keep running without hard-failing startup.
+                pass
+            _mark(mid)
 
         conn.commit()
         return fts_enabled

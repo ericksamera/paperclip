@@ -63,6 +63,7 @@ def write_capture_artifacts(
       - page.html, content.html
       - article.html/article.txt if non-empty
       - references.html/references.txt if non-empty
+      - references.json (always; list)
       - article.json (always)
       - raw.json (always, original request payload)
       - reduced.json (always)
@@ -89,6 +90,11 @@ def write_capture_artifacts(
         _write_text(cap_dir / "references.html", references_html)
     if references_text:
         _write_text(cap_dir / "references.txt", references_text)
+
+    # --- NEW: references.json is always written (stable shape for downstream tooling) ---
+    meta = parse_result.meta if isinstance(parse_result.meta, dict) else {}
+    refs = meta.get("references") if isinstance(meta.get("references"), list) else []
+    _write_json(cap_dir / "references.json", refs)
 
     article_json = parse_result.to_json()
     if parse_exc:
@@ -138,8 +144,7 @@ def write_capture_artifacts(
     }
     _write_json(cap_dir / "reduced.json", reduced)
 
-    # --- NEW: structured sections + deterministic paper markdown ---
-    meta = parse_result.meta if isinstance(parse_result.meta, dict) else {}
+    # --- structured sections + deterministic paper markdown ---
     sections = meta.get("sections") if isinstance(meta.get("sections"), list) else None
     if sections is not None:
         _write_json(cap_dir / "sections.json", sections)
