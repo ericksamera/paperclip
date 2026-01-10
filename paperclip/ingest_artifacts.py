@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .paper_md import render_paper_markdown
 from .parsers.base import ParseResult
 
 
@@ -65,6 +66,8 @@ def write_capture_artifacts(
       - article.json (always)
       - raw.json (always, original request payload)
       - reduced.json (always)
+      - sections.json (if present)
+      - paper.md (if sections or references exist)
     """
     cap_dir = artifacts_root / capture_id
     _ensure_dir(cap_dir)
@@ -134,6 +137,25 @@ def write_capture_artifacts(
         "client": dto.get("client") if isinstance(dto.get("client"), dict) else {},
     }
     _write_json(cap_dir / "reduced.json", reduced)
+
+    # --- NEW: structured sections + deterministic paper markdown ---
+    meta = parse_result.meta if isinstance(parse_result.meta, dict) else {}
+    sections = meta.get("sections") if isinstance(meta.get("sections"), list) else None
+    if sections is not None:
+        _write_json(cap_dir / "sections.json", sections)
+
+    # Write paper.md if we have anything meaningful to bundle
+    if (sections and len(sections) > 0) or (references_text or "").strip():
+        md = render_paper_markdown(
+            title=title,
+            source_url=source_url,
+            doi=doi,
+            container_title=container_title,
+            year=year if isinstance(year, int) else None,
+            sections=sections or [],
+            references_text=references_text,
+        )
+        _write_text(cap_dir / "paper.md", md)
 
     return ArtifactWriteResult(
         cap_dir=cap_dir,

@@ -10,6 +10,28 @@ def get_capture(db, capture_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def list_existing_capture_ids(db, *, capture_ids: list[str]) -> list[str]:
+    """
+    Return only capture ids that exist in the DB (preserves input order).
+    """
+    ids = [str(x).strip() for x in (capture_ids or []) if str(x).strip()]
+    if not ids:
+        return []
+
+    qmarks = ",".join(["?"] * len(ids))
+    rows = db.execute(
+        f"SELECT id FROM captures WHERE id IN ({qmarks})",
+        tuple(ids),
+    ).fetchall()
+    present = {str(r["id"]) for r in rows}
+
+    out: list[str] = []
+    for cid in ids:
+        if cid in present:
+            out.append(cid)
+    return out
+
+
 def list_collections_for_capture(db, capture_id: str) -> list[dict[str, Any]]:
     rows = db.execute(
         """
@@ -72,17 +94,24 @@ def set_capture_collections(
     )
 
 
-def delete_captures(db, *, capture_ids: list[str], fts_enabled: bool) -> None:
+def delete_captures(db, *, capture_ids: list[str], fts_enabled: bool) -> int:
     """
     Delete captures and related rows. Does NOT commit.
     We explicitly delete from capture_fts because it's a virtual table.
+    Returns number of capture rows deleted (best effort).
     """
+    deleted = 0
     for cid in capture_ids:
         db.execute("DELETE FROM collection_items WHERE capture_id = ?", (cid,))
         db.execute("DELETE FROM capture_text WHERE capture_id = ?", (cid,))
         if fts_enabled:
             db.execute("DELETE FROM capture_fts WHERE capture_id = ?", (cid,))
-        db.execute("DELETE FROM captures WHERE id = ?", (cid,))
+        cur = db.execute("DELETE FROM captures WHERE id = ?", (cid,))
+        try:
+            deleted += int(cur.rowcount or 0)
+        except Exception:
+            pass
+    return deleted
 
 
 def bulk_add_to_collection(
@@ -91,16 +120,23 @@ def bulk_add_to_collection(
     capture_ids: list[str],
     collection_id: int,
     now: str,
-) -> None:
+) -> int:
     """
     Add each capture to a collection and bump updated_at. Does NOT commit.
+    Returns number of new memberships created (INSERT OR IGNORE rowcount sum).
     """
+    added = 0
     for cid in capture_ids:
-        db.execute(
+        cur = db.execute(
             "INSERT OR IGNORE INTO collection_items(collection_id, capture_id, added_at) VALUES(?, ?, ?)",
             (collection_id, cid, now),
         )
+        try:
+            added += int(cur.rowcount or 0)
+        except Exception:
+            pass
         db.execute("UPDATE captures SET updated_at = ? WHERE id = ?", (now, cid))
+    return added
 
 
 def bulk_remove_from_collection(
@@ -109,13 +145,20 @@ def bulk_remove_from_collection(
     capture_ids: list[str],
     collection_id: int,
     now: str,
-) -> None:
+) -> int:
     """
     Remove each capture from a collection and bump updated_at. Does NOT commit.
+    Returns number of memberships removed (DELETE rowcount sum).
     """
+    removed = 0
     for cid in capture_ids:
-        db.execute(
+        cur = db.execute(
             "DELETE FROM collection_items WHERE collection_id = ? AND capture_id = ?",
             (collection_id, cid),
         )
+        try:
+            removed += int(cur.rowcount or 0)
+        except Exception:
+            pass
         db.execute("UPDATE captures SET updated_at = ? WHERE id = ?", (now, cid))
+    return removed

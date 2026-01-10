@@ -10,4 +10,7 @@ ALLOWED_ARTIFACTS = (
     "article.json",
     "raw.json",
     "reduced.json",
+    # NEW
+    "sections.json",
+    "paper.md",
 )

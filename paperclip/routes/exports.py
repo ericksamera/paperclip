@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from flask import Flask, Response, flash, request
 
 from ..db import get_db
@@ -62,5 +64,71 @@ def register(app: Flask) -> None:
             db,
             kind="ris",
             capture_ids=capture_ids,
+        )
+        return _as_download(body, mimetype=mimetype, filename=filename)
+
+    # -------------------------
+    # Master Markdown export
+    # -------------------------
+
+    @app.get("/exports/master.md/")
+    def export_master_md():
+        db = get_db()
+        artifacts_root = Path(app.config["ARTIFACTS_DIR"])
+        body, mimetype, filename = exports_service.master_md_download_parts_from_args(
+            db,
+            args=request.args,
+            artifacts_root=artifacts_root,
+        )
+        return _as_download(body, mimetype=mimetype, filename=filename)
+
+    @app.post("/exports/master.md/selected/")
+    def export_selected_master_md():
+        capture_ids = get_capture_ids(request.form)
+        if not capture_ids:
+            flash("No captures selected.", "warning")
+            return redirect_next("library")
+
+        db = get_db()
+        artifacts_root = Path(app.config["ARTIFACTS_DIR"])
+        body, mimetype, filename = exports_service.master_md_selected_download_parts(
+            db,
+            capture_ids=capture_ids,
+            artifacts_root=artifacts_root,
+        )
+        return _as_download(body, mimetype=mimetype, filename=filename)
+
+    # -------------------------
+    # Sections JSON export
+    # -------------------------
+
+    @app.get("/exports/sections.json/")
+    def export_sections_json():
+        db = get_db()
+        artifacts_root = Path(app.config["ARTIFACTS_DIR"])
+        body, mimetype, filename = (
+            exports_service.sections_json_download_parts_from_args(
+                db,
+                args=request.args,
+                artifacts_root=artifacts_root,
+            )
+        )
+        return _as_download(body, mimetype=mimetype, filename=filename)
+
+    @app.post("/exports/sections.json/selected/")
+    def export_selected_sections_json():
+        capture_ids = get_capture_ids(request.form)
+        if not capture_ids:
+            flash("No captures selected.", "warning")
+            return redirect_next("library")
+
+        db = get_db()
+        artifacts_root = Path(app.config["ARTIFACTS_DIR"])
+        body, mimetype, filename = (
+            exports_service.sections_json_selected_download_parts(
+                db,
+                capture_ids=capture_ids,
+                artifacts_root=artifacts_root,
+            )
         )
         return _as_download(body, mimetype=mimetype, filename=filename)

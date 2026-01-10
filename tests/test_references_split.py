@@ -69,16 +69,28 @@ def test_ingest_writes_references_artifacts_and_splits_text(client, app):
     assert "references_text" in article_json
     assert "references_html" in article_json
 
-    # NEW: sectionizer meta should exist and should NOT include the references section
+    # sectionizer meta should exist and should NOT include the references section
     meta = article_json.get("meta") or {}
     assert isinstance(meta, dict)
     assert meta.get("sections_count", 0) >= 1
     sections = meta.get("sections") or []
     assert isinstance(sections, list)
-    # We should have an introduction-like section in the body
     assert any((s.get("kind") == "introduction") for s in sections)
-    # And we should not see References heading as a section in article_text (it was split out)
     assert not any((s.get("kind") == "references") for s in sections)
+
+    # NEW artifacts
+    assert (cap_dir / "sections.json").exists()
+    secs_json = json.loads((cap_dir / "sections.json").read_text(encoding="utf-8"))
+    assert isinstance(secs_json, list)
+    assert any((s.get("kind") == "introduction") for s in secs_json)
+
+    assert (cap_dir / "paper.md").exists()
+    paper_md = (cap_dir / "paper.md").read_text(encoding="utf-8")
+    assert paper_md.startswith("# Split Test")
+    assert "## Introduction" in paper_md
+    assert "This is the body paragraph." in paper_md
+    assert "## References" in paper_md
+    assert "Ref A" in paper_md
 
 
 def test_capture_detail_page_renders_with_parsed_context(client, app):

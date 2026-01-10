@@ -4,19 +4,37 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-# Recognize headings that look like typical paper sections.
-# We keep this conservative: fewer false positives, and it still works well for journal HTML->text.
-# Accept: "Introduction", "1 Introduction", "Materials and Methods", "DISCUSSION", etc.
-_HEADING_LINE_RX = re.compile(
-    r"^\s*(?:(\d+(?:\.\d+)*)\s+)?([A-Za-z][A-Za-z0-9 \-–—,:;()]{2,120})\s*$"
+# Text-based sectionizer (generic use)
+
+# Capture optional leading numbering and a heading-ish remainder.
+# Examples:
+#   "1. Introduction" -> num="1", title="Introduction"
+#   "3.2 Methods"     -> num="3.2", title="Methods"
+#   "2) Results"      -> num="2", title="Results"
+_HEADING_WITH_NUM_RX = re.compile(
+    r"^\s*(?:(?P<num>\d+(?:\.\d+)*)\s*[.)]\s+)?(?P<title>.+?)\s*$",
+    re.UNICODE,
 )
 
-# Avoid treating sentence lines as headings (common in scraped text).
-_HEADING_BAD_END_RX = re.compile(r"[.?!]\s*$")
+# Unicode-friendly heading line: must start with a unicode letter (not digit/underscore),
+# then allow common punctuation (including curly apostrophes).
+_HEADING_LINE_RX = re.compile(
+    r"^\s*([^\W\d_][\w \-–—,:;()'’/]{2,160})\s*$",
+    re.UNICODE,
+)
 
-# Canonical section kinds (extend later as needed)
+_HEADING_BAD_END_RX = re.compile(r"[.?!]\s*$")
+_KEYWORDS_PREFIX_RX = re.compile(r"^\s*keywords?\s*:\s*(.+)\s*$", re.I)
+
+# Combined headings (common in journals)
+_RESULTS_AND_DISCUSSION_RX = re.compile(
+    r"^\s*(results?\s*(and|&)\s*discussion|discussion\s*(and|&)\s*results?)\s*$",
+    re.I,
+)
+
 _CANON_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("abstract", re.compile(r"^\s*abstract\s*$", re.I)),
+    ("keywords", re.compile(r"^\s*keywords?\s*$", re.I)),
     ("introduction", re.compile(r"^\s*(introduction|background)\s*$", re.I)),
     (
         "methods",
@@ -41,6 +59,7 @@ _CANON_RULES: list[tuple[str, re.Pattern[str]]] = [
         "conflicts",
         re.compile(r"^\s*(conflicts? of interest|competing interests?)\s*$", re.I),
     ),
+    ("author_contributions", re.compile(r"^\s*author contributions?\s*$", re.I)),
 ]
 
 
@@ -48,47 +67,80 @@ def _norm_space(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip())
 
 
+def _split_heading_number(line: str) -> tuple[str | None, str]:
+    """
+    Returns (number, clean_title).
+    """
+    ln = _norm_space(line)
+    m = _HEADING_WITH_NUM_RX.match(ln)
+    if not m:
+        return None, ln
+    num = (m.group("num") or "").strip() or None
+    title = _norm_space(m.group("title") or "")
+    return num, title
+
+
 def classify_heading(title: str) -> str:
+    """
+    Canonical kind classification for headings.
+    IMPORTANT: strips leading numbering (e.g. "1. Introduction") before matching.
+    """
     t = _norm_space(title)
+
+    # Allow "Keywords: ..." inputs to classify as keywords
+    if _KEYWORDS_PREFIX_RX.match(t):
+        return "keywords"
+
+    _num, clean = _split_heading_number(t)
+    clean = _norm_space(clean)
+
+    # Combined headings
+    if _RESULTS_AND_DISCUSSION_RX.match(clean):
+        return "results_discussion"
+
     for kind, rx in _CANON_RULES:
-        if rx.match(t):
+        if rx.match(clean):
             return kind
     return "other"
 
 
+def kinds_for_kind(kind: str) -> list[str]:
+    """
+    Normalized multi-tag list for retrieval.
+    """
+    if kind == "results_discussion":
+        return ["results", "discussion"]
+    return [kind]
+
+
 def looks_like_heading(line: str) -> bool:
-    """
-    Conservative heading detector on a single line of already-extracted article_text.
-    """
     ln = (line or "").strip()
     if not ln:
         return False
-    if len(ln) < 3 or len(ln) > 140:
+    if len(ln) < 3 or len(ln) > 220:
         return False
     if _HEADING_BAD_END_RX.search(ln):
         return False
 
-    m = _HEADING_LINE_RX.match(ln)
-    if not m:
-        return False
+    # Allow "Keywords: ..." as a pseudo-heading line
+    if _KEYWORDS_PREFIX_RX.match(ln):
+        return True
 
-    title = _norm_space(m.group(2) or "")
-    if not title:
-        return False
+    num, rest = _split_heading_number(ln)
+    candidate = rest if num else _norm_space(ln)
 
-    # Avoid obvious non-headings: very long "headings" or those with too many words.
-    words = title.split()
-    if len(words) > 12:
+    if _HEADING_BAD_END_RX.search(candidate):
         return False
-
-    # Avoid heading candidates that start with common paragraph starters.
+    if not _HEADING_LINE_RX.match(candidate):
+        return False
+    if len(candidate.split()) > 16:
+        return False
     if (
-        title[:15]
+        candidate[:15]
         .lower()
         .startswith(("this ", "we ", "in this ", "however ", "therefore "))
     ):
         return False
-
     return True
 
 
@@ -98,61 +150,82 @@ class Section:
     title: str
     kind: str
     text: str
+    level: int = 2
+    number: str | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "id": self.id,
             "title": self.title,
             "kind": self.kind,
+            "kinds": kinds_for_kind(self.kind),
             "text": self.text,
+            "level": self.level,
         }
+        if self.number:
+            out["number"] = self.number
+        return out
 
 
 def split_into_sections(article_text: str) -> list[dict[str, Any]]:
-    """
-    Input: ParseResult.article_text (usually newline-separated headings + paragraphs).
-    Output: list of sections in order, each with id/title/kind/text.
-    """
     raw_lines = (article_text or "").splitlines()
     lines = [_norm_space(ln) for ln in raw_lines]
-    # Keep blank lines as separators, but don't emit them.
-    # We do NOT join paragraphs; we preserve newlines for later prompt/citation work.
-    sections: list[Section] = []
 
+    sections: list[Section] = []
     cur_title = "Body"
     cur_kind = "other"
+    cur_number: str | None = None
     buf: list[str] = []
 
     def flush() -> None:
-        nonlocal buf, cur_title, cur_kind
+        nonlocal buf, cur_title, cur_kind, cur_number
         text = "\n".join([x for x in buf if x.strip()]).strip()
         if not text:
             buf = []
             return
         sid = f"s{len(sections)+1:02d}"
-        sections.append(Section(id=sid, title=cur_title, kind=cur_kind, text=text))
+        sections.append(
+            Section(
+                id=sid,
+                title=cur_title,
+                kind=cur_kind,
+                text=text,
+                level=2,
+                number=cur_number,
+            )
+        )
         buf = []
 
     for ln in lines:
         if not ln.strip():
-            # Preserve paragraph breaks within a section
             if buf and buf[-1] != "":
                 buf.append("")
             continue
 
         if looks_like_heading(ln):
-            # Start a new section
+            # "Keywords: a, b, c" carries content on same line.
+            mkw = _KEYWORDS_PREFIX_RX.match(ln)
+            if mkw:
+                flush()
+                cur_title = "Keywords"
+                cur_kind = "keywords"
+                cur_number = None
+                kw_text = _norm_space(mkw.group(1) or "")
+                if kw_text:
+                    buf.append(f"Keywords: {kw_text}")
+                continue
+
             flush()
-            cur_title = ln
+
+            num, clean = _split_heading_number(ln)
+            cur_number = num
+            cur_title = clean
             cur_kind = classify_heading(cur_title)
             continue
 
         buf.append(ln)
 
     flush()
-
-    # If we ended up with a single "Body" section that contains recognizable headings
-    # but they were missed, that's fine; this keeps false positives down.
     return [s.to_json() for s in sections]
 
 

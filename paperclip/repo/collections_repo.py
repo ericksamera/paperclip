@@ -25,10 +25,21 @@ def create_collection(db, *, name: str, created_at: str) -> None:
     )
 
 
-def rename_collection(db, *, collection_id: int, name: str) -> None:
-    db.execute("UPDATE collections SET name = ? WHERE id = ?", (name, collection_id))
+def rename_collection(db, *, collection_id: int, name: str) -> int:
+    cur = db.execute(
+        "UPDATE collections SET name = ? WHERE id = ?", (name, collection_id)
+    )
+    try:
+        return int(cur.rowcount or 0)
+    except Exception:
+        return 0
 
 
-def delete_collection(db, *, collection_id: int) -> None:
+def delete_collection(db, *, collection_id: int) -> int:
+    # remove membership first for cleanliness (though FK cascade should handle it)
     db.execute("DELETE FROM collection_items WHERE collection_id = ?", (collection_id,))
-    db.execute("DELETE FROM collections WHERE id = ?", (collection_id,))
+    cur = db.execute("DELETE FROM collections WHERE id = ?", (collection_id,))
+    try:
+        return int(cur.rowcount or 0)
+    except Exception:
+        return 0

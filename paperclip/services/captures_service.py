@@ -1,21 +1,11 @@
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
 
 from ..present import present_capture_detail
 from ..repo import captures_repo
-
-
-@dataclass(frozen=True)
-class ActionResult:
-    ok: bool
-    message: str
-    category: str = "success"  # success | warning | error
-    changed_count: int = 0
-    cleanup_paths: list[str] = field(default_factory=list)
+from .types import ActionResult
 
 
 def capture_detail_context(
@@ -25,14 +15,7 @@ def capture_detail_context(
     artifacts_root: Path,
     allowed_artifacts: Iterable[str],
 ) -> dict | None:
-    """
-    Service wrapper for the capture detail page.
-
-    - Fetches capture row
-    - Builds the full template context via present_capture_detail(...)
-    - Returns None if capture not found
-    """
-    row = captures_repo.get_capture(db, capture_id)
+    row = captures_repo.get_capture(db, capture_id=capture_id)
     if not row:
         return None
 
@@ -62,10 +45,7 @@ def set_capture_collections(
         selected_ids=selected_ids,
         now=now,
     )
-
-    return ActionResult(
-        ok=True, message="Collections updated.", category="success", changed_count=1
-    )
+    return ActionResult(ok=True, message="Saved.", category="success")
 
 
 def delete_captures(
@@ -75,30 +55,30 @@ def delete_captures(
     artifacts_root: Path,
     fts_enabled: bool,
 ) -> ActionResult:
-    ids = [str(x).strip() for x in (capture_ids or []) if str(x or "").strip()]
-    # De-dupe while preserving order
-    seen: set[str] = set()
-    out_ids: list[str] = []
-    for cid in ids:
-        if cid in seen:
-            continue
-        seen.add(cid)
-        out_ids.append(cid)
-
-    if not out_ids:
+    ids = [c for c in (capture_ids or []) if str(c or "").strip()]
+    if not ids:
         return ActionResult(
             ok=False, message="No captures selected.", category="warning"
         )
 
-    captures_repo.delete_captures(db, capture_ids=out_ids, fts_enabled=fts_enabled)
+    existing = captures_repo.list_existing_capture_ids(db, capture_ids=list(ids))
+    if not existing:
+        return ActionResult(
+            ok=False, message="No matching captures found.", category="warning"
+        )
 
-    cleanup = [os.fspath(artifacts_root / cid) for cid in out_ids]
+    deleted = captures_repo.delete_captures(
+        db, capture_ids=existing, fts_enabled=fts_enabled
+    )
+
+    cleanup_paths = [str(artifacts_root / cid) for cid in existing]
+
     return ActionResult(
         ok=True,
-        message=f"Deleted {len(out_ids)} capture(s).",
+        message=f"Deleted {deleted} capture(s).",
         category="success",
-        changed_count=len(out_ids),
-        cleanup_paths=cleanup,
+        changed_count=deleted,
+        cleanup_paths=cleanup_paths,
     )
 
 
@@ -109,26 +89,35 @@ def bulk_add_to_collection(
     collection_id: int | None,
     now: str,
 ) -> ActionResult:
-    ids = [str(x).strip() for x in (capture_ids or []) if str(x or "").strip()]
+    ids = [c for c in (capture_ids or []) if str(c or "").strip()]
     if not ids:
         return ActionResult(
             ok=False, message="No captures selected.", category="warning"
         )
-    if not collection_id or int(collection_id) <= 0:
-        return ActionResult(ok=False, message="Pick a collection.", category="warning")
 
-    captures_repo.bulk_add_to_collection(
+    if not collection_id:
+        return ActionResult(
+            ok=False, message="Choose a collection.", category="warning"
+        )
+
+    existing = captures_repo.list_existing_capture_ids(db, capture_ids=list(ids))
+    if not existing:
+        return ActionResult(
+            ok=False, message="No matching captures found.", category="warning"
+        )
+
+    changed = captures_repo.bulk_add_to_collection(
         db,
-        capture_ids=list(ids),
+        capture_ids=existing,
         collection_id=int(collection_id),
         now=now,
     )
 
     return ActionResult(
         ok=True,
-        message=f"Added {len(ids)} capture(s) to collection.",
+        message=f"Added {changed} capture(s) to collection.",
         category="success",
-        changed_count=len(ids),
+        changed_count=changed,
     )
 
 
@@ -139,24 +128,33 @@ def bulk_remove_from_collection(
     collection_id: int | None,
     now: str,
 ) -> ActionResult:
-    ids = [str(x).strip() for x in (capture_ids or []) if str(x or "").strip()]
+    ids = [c for c in (capture_ids or []) if str(c or "").strip()]
     if not ids:
         return ActionResult(
             ok=False, message="No captures selected.", category="warning"
         )
-    if not collection_id or int(collection_id) <= 0:
-        return ActionResult(ok=False, message="Pick a collection.", category="warning")
 
-    captures_repo.bulk_remove_from_collection(
+    if not collection_id:
+        return ActionResult(
+            ok=False, message="Choose a collection.", category="warning"
+        )
+
+    existing = captures_repo.list_existing_capture_ids(db, capture_ids=list(ids))
+    if not existing:
+        return ActionResult(
+            ok=False, message="No matching captures found.", category="warning"
+        )
+
+    changed = captures_repo.bulk_remove_from_collection(
         db,
-        capture_ids=list(ids),
+        capture_ids=existing,
         collection_id=int(collection_id),
         now=now,
     )
 
     return ActionResult(
         ok=True,
-        message=f"Removed {len(ids)} capture(s) from collection.",
+        message=f"Removed {changed} capture(s) from collection.",
         category="success",
-        changed_count=len(ids),
+        changed_count=changed,
     )

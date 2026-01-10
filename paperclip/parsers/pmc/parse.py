@@ -5,8 +5,9 @@ from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
-from ..sectionizer import build_sections_meta
-from .base import ParseResult
+from ...sectionizer import build_sections_meta
+from ..base import ParseResult
+from .sections import pmc_sections_from_html
 
 _REF_HEADING_RX = re.compile(
     r"^\s*(references|bibliography|works cited|literature cited)\s*$", re.I
@@ -81,9 +82,6 @@ def _strip_media_blocks(root: Tag) -> int:
 def _find_roots(soup: BeautifulSoup) -> tuple[str, Tag | None, Tag | None]:
     """
     Returns (hint, article_content_root, main_body_root)
-
-    - article_content_root: where references often live (siblings of body)
-    - main_body_root: the main article body
     """
     ac = soup.select_one("section[aria-label='Article content']")
     if isinstance(ac, Tag) and ac.get_text(" ", strip=True):
@@ -92,7 +90,6 @@ def _find_roots(soup: BeautifulSoup) -> tuple[str, Tag | None, Tag | None]:
             return "pmc:article-content + main-body", ac, mb
         return "pmc:article-content", ac, None
 
-    # fallback (older-ish)
     for sel in ("article", "main", "[role='main']", "#content", "#mc", "#main-content"):
         t = soup.select_one(sel)
         if isinstance(t, Tag) and t.get_text(" ", strip=True):
@@ -102,7 +99,6 @@ def _find_roots(soup: BeautifulSoup) -> tuple[str, Tag | None, Tag | None]:
 
 
 def _find_references_section(search_root: Tag) -> Tag | None:
-    # Best: explicit ref-list sections
     t = search_root.select_one("section.ref-list")
     if isinstance(t, Tag) and len(t.find_all("li")) >= 3:
         return t
@@ -115,7 +111,6 @@ def _find_references_section(search_root: Tag) -> Tag | None:
     if isinstance(t, Tag) and len(t.find_all("li")) >= 3:
         return t
 
-    # Heading fallback
     for h in search_root.find_all(["h1", "h2", "h3", "h4"]):
         ht = _normalize(h.get_text(" ", strip=True))
         if ht and _REF_HEADING_RX.match(ht):
@@ -145,7 +140,6 @@ def _ref_number(li: Tag) -> str:
 
 
 def _ref_text(li: Tag) -> str:
-    # Prefer <cite> so we don't pull "[DOI] [PubMed] [Google Scholar]" into the line
     cite = li.find("cite")
     if isinstance(cite, Tag):
         return _normalize(cite.get_text(" ", strip=True))
@@ -322,10 +316,32 @@ def parse_pmc(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> ParseRes
     if removed_media:
         notes.append(f"pmc_removed_media_blocks:{removed_media}")
 
-    article_text = _build_body_text(body)
+    # Site-specific section extraction (preferred), fallback to text sectionizer
+    sections = pmc_sections_from_html(body)
+    if sections:
+        meta["sections"] = sections
+        meta["sections_count"] = len(sections)
+
+        lines: list[str] = []
+        for s in sections:
+            title = str(s.get("title") or "").strip()
+            txt = str(s.get("text") or "").strip()
+            if title:
+                lines.append(title)
+            if txt:
+                lines.append(txt)
+            lines.append("")
+        article_text = "\n".join(lines).strip()
+        notes.append("pmc_sections_from_html")
+    else:
+        article_text = _build_body_text(body)
+        if (article_text or "").strip():
+            meta.update(build_sections_meta(article_text))
+        notes.append("pmc_sections_fallback_text")
+
     article_html = '<div data-paperclip="article-body">' + str(body) + "</div>"
 
-    if not article_text.strip():
+    if not (article_text or "").strip():
         return ParseResult(
             ok=False,
             parser="pmc",
@@ -333,9 +349,6 @@ def parse_pmc(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> ParseRes
             selected_hint=hint,
             notes=["pmc_empty_article_text"] + notes,
         )
-
-    # NEW: sectionize
-    meta.update(build_sections_meta(article_text))
 
     confidence = 0.9 if len(article_text) >= 1200 else 0.65
     if confidence < 0.8:
