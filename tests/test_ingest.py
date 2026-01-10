@@ -123,3 +123,63 @@ def test_dedupe_by_doi_returns_same_capture_id_for_different_urls(client):
     id1 = r1.get_json()["capture_id"]
     id2 = r2.get_json()["capture_id"]
     assert id1 == id2
+
+
+def test_ingest_missing_source_url_is_400(client):
+    payload = {"dom_html": "<html></html>"}
+    r = client.post(
+        "/api/captures/", data=json.dumps(payload), content_type="application/json"
+    )
+    assert r.status_code == 400
+    j = r.get_json()
+    assert j["error"]["code"] == "missing_field"
+    assert j["error"]["details"]["field"] == "source_url"
+
+
+def test_ingest_weird_extraction_types_still_ingests(client):
+    payload = {
+        "source_url": "https://example.org/weird",
+        "dom_html": DOM_FOR_POST,
+        "extraction": "nope",  # should be coerced to {}
+        "client": {"ext": "chrome", "v": "0.1.0"},
+    }
+    r = client.post(
+        "/api/captures/", data=json.dumps(payload), content_type="application/json"
+    )
+    assert r.status_code in (200, 201)
+    assert r.get_json()["capture_id"]
+
+
+def test_parser_exception_still_saves_capture_and_persists_parse_error_summary(
+    client, monkeypatch
+):
+    import paperclip.ingest_parse as ingest_parse
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(ingest_parse, "parse_article", boom)
+
+    payload = {
+        "source_url": "https://example.org/crash",
+        "dom_html": DOM_FOR_POST,
+        "extraction": {"meta": {"citation_title": "X"}},
+        "client": {"ext": "chrome", "v": "0.1.0"},
+    }
+
+    r = client.post(
+        "/api/captures/", data=json.dumps(payload), content_type="application/json"
+    )
+    assert r.status_code in (200, 201)
+    cap_id = r.get_json()["capture_id"]
+
+    r2 = client.get(f"/api/captures/{cap_id}/")
+    assert r2.status_code == 200
+    row = r2.get_json()
+
+    meta = json.loads(row["meta_json"])
+    assert "_parse" in meta
+    assert meta["_parse"]["parser"] == "crashed"
+    assert meta["_parse"]["ok"] is False
+    assert isinstance(meta["_parse"].get("error"), dict)
+    assert meta["_parse"]["error"]["type"] == "RuntimeError"

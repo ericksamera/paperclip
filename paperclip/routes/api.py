@@ -7,15 +7,16 @@ from flask import Flask, current_app, request
 
 from ..apiutil import api_error, api_ok
 from ..db import get_db
+from ..errors import BadRequest, InternalError, NotFound
 from ..fsutil import rmtree_best_effort
 from ..ingest import ingest_capture
+from ..ingest_schema import validate_ingest_payload
 from ..services.maintenance_service import rebuild_fts, verify_fts
 from ..tx import db_tx
 
 
 def _artifacts_root() -> Path:
-    root = current_app.config.get("ARTIFACTS_DIR")
-    return Path(root)
+    return Path(str(current_app.config.get("ARTIFACTS_DIR") or ""))
 
 
 def _maintenance_allowed() -> bool:
@@ -28,23 +29,14 @@ def register(app: Flask) -> None:
     @app.post("/api/captures/")
     def api_ingest_capture():
         try:
-            payload = request.get_json(force=True)
-            if not isinstance(payload, dict):
-                return api_error(
-                    status=400,
-                    code="invalid_json",
-                    message="Expected a JSON object",
-                )
-        except Exception:
-            return api_error(
-                status=400,
-                code="invalid_json",
-                message="Invalid JSON payload",
-            )
+            try:
+                raw = request.get_json(force=True)
+            except Exception:
+                raise BadRequest(code="invalid_json", message="Invalid JSON payload")
 
-        fts_enabled = bool(current_app.config.get("FTS_ENABLED"))
+            payload = validate_ingest_payload(raw)
 
-        try:
+            fts_enabled = bool(current_app.config.get("FTS_ENABLED"))
             with db_tx(commit=True) as db:
                 res = ingest_capture(
                     payload=payload,
@@ -52,15 +44,16 @@ def register(app: Flask) -> None:
                     artifacts_root=_artifacts_root(),
                     fts_enabled=fts_enabled,
                 )
+
+        except BadRequest:
+            raise
         except Exception:
             tb = traceback.format_exc()
-            return api_error(
-                status=500,
-                code="ingest_failed",
-                message="Capture ingest failed",
-                details=(
-                    {"traceback": tb} if bool(current_app.config.get("DEBUG")) else None
-                ),
+            details = (
+                {"traceback": tb} if bool(current_app.config.get("DEBUG")) else None
+            )
+            raise InternalError(
+                code="ingest_failed", message="Capture ingest failed", details=details
             )
 
         if res.cleanup_dirs:
@@ -84,79 +77,60 @@ def register(app: Flask) -> None:
             "SELECT * FROM captures WHERE id = ? LIMIT 1", (capture_id,)
         ).fetchone()
         if not row:
-            return api_error(status=404, code="not_found", message="Capture not found")
+            raise NotFound(code="not_found", message="Capture not found")
         return api_ok(dict(row), status=200)
 
     @app.post("/api/maintenance/rebuild-fts/")
     def api_rebuild_fts():
         if not _maintenance_allowed():
-            return api_error(status=404, code="not_found", message="Not found")
+            raise NotFound(code="not_found", message="Not found")
 
         if not bool(current_app.config.get("FTS_ENABLED")):
-            return api_error(
-                status=400,
-                code="fts_disabled",
-                message="FTS is not enabled in this environment",
-            )
+            raise BadRequest(code="fts_disabled", message="FTS is disabled")
 
-        try:
-            with db_tx(commit=True) as db:
-                stats = rebuild_fts(db)
-        except Exception as e:
-            return api_error(
-                status=500,
-                code="fts_rebuild_failed",
-                message="FTS rebuild failed",
-                details=(
-                    {"error": str(e)} if bool(current_app.config.get("DEBUG")) else None
-                ),
-            )
+        with db_tx(commit=True) as db:
+            stats = rebuild_fts(db)
 
         return api_ok({"ok": True, "stats": stats}, status=200)
 
     @app.get("/api/maintenance/verify-fts/")
     def api_verify_fts():
         if not _maintenance_allowed():
-            return api_error(status=404, code="not_found", message="Not found")
+            raise NotFound(code="not_found", message="Not found")
 
         if not bool(current_app.config.get("FTS_ENABLED")):
-            return api_error(
-                status=400,
-                code="fts_disabled",
-                message="FTS is not enabled in this environment",
-            )
+            raise BadRequest(code="fts_disabled", message="FTS is disabled")
 
-        repair = request.args.get("repair", "").strip().lower() in (
+        repair_flag = (str(request.args.get("repair") or "")).strip().lower() in {
             "1",
             "true",
             "yes",
             "y",
             "on",
-        )
+        }
+        repaired = False
 
-        try:
-            with db_tx(commit=True) as db:
-                stats = verify_fts(db)
-                repaired = False
-
-                if repair and not stats["ok"]:
-                    rebuild_fts(db)
-                    stats = verify_fts(db)
+        with db_tx(commit=True) as db:
+            try:
+                stats = verify_fts(db, repair=False)
+                if repair_flag and not bool(stats.get("ok")):
+                    stats = verify_fts(db, repair=True)
                     repaired = True
-
-        except Exception as e:
-            return api_error(
-                status=500,
-                code="fts_verify_failed",
-                message="FTS verify failed",
-                details=(
-                    {"error": str(e)} if bool(current_app.config.get("DEBUG")) else None
-                ),
-            )
+            except Exception as e:
+                return api_error(
+                    status=500,
+                    code="fts_verify_failed",
+                    message="FTS verify failed",
+                    details=(
+                        {"error": str(e)}
+                        if bool(current_app.config.get("DEBUG"))
+                        else None
+                    ),
+                )
 
         return api_ok(
             {
-                "ok": bool(stats["ok"]),
+                "ok": bool(stats.get("ok")),
                 "stats": stats,
                 "repaired": bool(repaired),
             },

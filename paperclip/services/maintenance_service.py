@@ -34,9 +34,11 @@ def rebuild_fts(db) -> dict[str, Any]:
     }
 
 
-def verify_fts(db) -> dict[str, Any]:
+def verify_fts(db, *, repair: bool = False) -> dict[str, Any]:
     """
     Verify that capture_fts is in sync with captures.
+
+    If repair=True and mismatch is detected, rebuilds FTS and re-verifies.
 
     Returns:
       {
@@ -46,44 +48,52 @@ def verify_fts(db) -> dict[str, Any]:
         "extra_rows": int,     # FTS rows without a captures row
         "ok": bool,
       }
-
-    Raises sqlite3.OperationalError if FTS isn't available.
     """
-    captures = int(db.execute("SELECT COUNT(1) AS n FROM captures").fetchone()["n"])
-    fts_rows = int(db.execute("SELECT COUNT(1) AS n FROM capture_fts").fetchone()["n"])
 
-    # Missing FTS rows for existing captures
-    missing_rows = int(
-        db.execute(
-            """
-            SELECT COUNT(1) AS n
-            FROM captures cap
-            LEFT JOIN capture_fts fts
-              ON fts.rowid = cap.rowid
-            WHERE fts.rowid IS NULL
-            """
-        ).fetchone()["n"]
-    )
+    def _check() -> dict[str, Any]:
+        captures = int(db.execute("SELECT COUNT(1) AS n FROM captures").fetchone()["n"])
+        fts_rows = int(
+            db.execute("SELECT COUNT(1) AS n FROM capture_fts").fetchone()["n"]
+        )
 
-    # Extra FTS rows whose rowid no longer exists in captures
-    extra_rows = int(
-        db.execute(
-            """
-            SELECT COUNT(1) AS n
-            FROM capture_fts fts
-            LEFT JOIN captures cap
-              ON cap.rowid = fts.rowid
-            WHERE cap.rowid IS NULL
-            """
-        ).fetchone()["n"]
-    )
+        missing_rows = int(
+            db.execute(
+                """
+                SELECT COUNT(1) AS n
+                FROM captures cap
+                LEFT JOIN capture_fts fts
+                  ON fts.rowid = cap.rowid
+                WHERE fts.rowid IS NULL
+                """
+            ).fetchone()["n"]
+        )
 
-    ok = (missing_rows == 0) and (extra_rows == 0) and (captures == fts_rows)
+        extra_rows = int(
+            db.execute(
+                """
+                SELECT COUNT(1) AS n
+                FROM capture_fts fts
+                LEFT JOIN captures cap
+                  ON cap.rowid = fts.rowid
+                WHERE cap.rowid IS NULL
+                """
+            ).fetchone()["n"]
+        )
 
-    return {
-        "captures": captures,
-        "fts_rows": fts_rows,
-        "missing_rows": missing_rows,
-        "extra_rows": extra_rows,
-        "ok": bool(ok),
-    }
+        ok = (missing_rows == 0) and (extra_rows == 0) and (captures == fts_rows)
+
+        return {
+            "captures": captures,
+            "fts_rows": fts_rows,
+            "missing_rows": missing_rows,
+            "extra_rows": extra_rows,
+            "ok": bool(ok),
+        }
+
+    stats = _check()
+    if stats["ok"] or not repair:
+        return stats
+
+    # Repair: rebuild then re-check
+    rebuild_fts(db)
+    return _check()

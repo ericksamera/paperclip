@@ -103,6 +103,14 @@ def upsert_capture(
     meta_record = (
         dto.get("meta_record") if isinstance(dto.get("meta_record"), dict) else {}
     )
+
+    # Persist parse diagnostics in meta_json for debugging + UI.
+    parse_summary = (
+        dto.get("parse_summary") if isinstance(dto.get("parse_summary"), dict) else {}
+    )
+    if parse_summary:
+        meta_record = dict(meta_record)
+        meta_record["_parse"] = parse_summary
     content_text = str(dto.get("content_text") or "")
 
     created_at = identity.created_at

@@ -8,13 +8,10 @@ from flask import Flask, g, request
 
 from .config import load_config
 from .db import close_db, init_db
+from .errors import register_error_handlers
 
 
 def _repo_root() -> Path:
-    # repo_root/
-    #   paperclip/
-    #   templates/
-    #   static/
     return Path(__file__).resolve().parent.parent
 
 
@@ -23,47 +20,53 @@ def _ensure_dirs(*paths: Path) -> None:
         p.mkdir(parents=True, exist_ok=True)
 
 
-def create_app(config_overrides: dict[str, Any] | None = None) -> Flask:
+def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     repo_root = _repo_root()
 
-    # IMPORTANT: templates/ and static/ live at repo root, not inside the package.
     app = Flask(
         __name__,
-        instance_relative_config=False,
+        instance_relative_config=True,
         template_folder=str(repo_root / "templates"),
         static_folder=str(repo_root / "static"),
-        static_url_path="/static",
     )
 
-    # Base config from environment + safe defaults
-    base_cfg = load_config(repo_root=repo_root)
-    app.config.update(base_cfg)
+    app.config.from_mapping(load_config(repo_root=repo_root))
+    if test_config:
+        app.config.update(test_config)
 
-    # Optional overrides (tests/dev)
-    if config_overrides:
-        app.config.update(config_overrides)
+    # Back-compat: allow ARTIFACTS_ROOT but standardize on ARTIFACTS_DIR.
+    if "ARTIFACTS_DIR" not in app.config and "ARTIFACTS_ROOT" in app.config:
+        app.config["ARTIFACTS_DIR"] = app.config["ARTIFACTS_ROOT"]
 
-    # Normalize to Path objects where appropriate
-    app.config["DATA_DIR"] = Path(app.config["DATA_DIR"])
-    app.config["DB_PATH"] = Path(app.config["DB_PATH"])
-    app.config["ARTIFACTS_DIR"] = Path(app.config["ARTIFACTS_DIR"])
+    _ensure_dirs(
+        Path(app.config["DB_PATH"]).parent,
+        Path(app.config["ARTIFACTS_DIR"]),
+    )
 
-    _ensure_dirs(app.config["DATA_DIR"], app.config["ARTIFACTS_DIR"])
+    # Initialize DB + detect FTS once
+    with app.app_context():
+        db_path = Path(app.config["DB_PATH"])
+        try:
+            fts_enabled = init_db(db_path)
+        except TypeError:
+            # Extremely defensive: if init_db signature changes unexpectedly
+            init_db(db_path)  # type: ignore[arg-type]
+            fts_enabled = False
+        app.config["FTS_ENABLED"] = bool(fts_enabled)
 
-    # Ensure DB exists and schema/migrations are applied
-    fts_enabled = init_db(app.config["DB_PATH"])
-    app.config["FTS_ENABLED"] = bool(fts_enabled)
+    register_error_handlers(app)
 
     @app.before_request
-    def _assign_request_id() -> None:
-        rid = request.headers.get("X-Request-ID", "").strip()
-        if not rid:
-            rid = uuid.uuid4().hex[:12]
-        g.request_id = rid
+    def _request_id() -> None:
+        rid = request.headers.get("X-Request-ID")
+        g.request_id = (
+            rid.strip()
+            if isinstance(rid, str) and rid.strip()
+            else uuid.uuid4().hex[:12]
+        )
 
     @app.after_request
-    def _add_request_id_header(resp):
-        # API responses already set this in apiutil; for HTML it’s useful too.
+    def _request_id_header(resp):
         rid = getattr(g, "request_id", None)
         if isinstance(rid, str) and rid and "X-Request-ID" not in resp.headers:
             resp.headers["X-Request-ID"] = rid
