@@ -9,10 +9,7 @@ from .parsers import parse_article
 from .parsers.base import ParseResult
 from .timeutil import utc_now_iso
 from .urlnorm import canonicalize_url, url_hash
-
-
-def _as_dict(v: Any) -> dict[str, Any]:
-    return v if isinstance(v, dict) else {}
+from .util import as_dict
 
 
 @dataclass(frozen=True)
@@ -44,8 +41,8 @@ def parse_payload(payload: dict[str, Any]) -> ParsedPayload:
     h = url_hash(canon)
 
     dom_html = str(payload.get("dom_html") or "")
-    extraction = _as_dict(payload.get("extraction"))
-    client_meta = _as_dict(extraction.get("meta"))
+    extraction = as_dict(payload.get("extraction"))
+    client_meta = as_dict(extraction.get("meta"))
 
     parse_exc: dict[str, Any] | None = None
     try:

@@ -5,6 +5,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
+from ...htmlutil import strip_noise
 from ..base import ParseResult
 from .sections import wiley_sections_from_html
 
@@ -37,26 +38,7 @@ def _norm_space(s: str) -> str:
     return _WS_RX.sub(" ", (s or "").strip())
 
 
-def _safe_decompose(tag: Tag) -> None:
-    try:
-        tag.decompose()
-    except Exception:
-        try:
-            tag.clear()
-        except Exception:
-            pass
-
-
-def _strip_noise(root: Tag) -> None:
-    for t in root.find_all(list(_STRIP_TAGS)):
-        if isinstance(t, Tag):
-            _safe_decompose(t)
-
-
 def _find_article_root(soup: BeautifulSoup) -> tuple[str, Tag | None]:
-    # Wiley (Literatum) often:
-    #   div.article__body > article
-    # Your sample matches this.
     for sel in (
         "div.article__body article",
         "article.article",
@@ -69,14 +51,12 @@ def _find_article_root(soup: BeautifulSoup) -> tuple[str, Tag | None]:
 
 
 def _extract_doi_from_ref_li(li: Tag) -> str:
-    # Prefer hidden doi span if present
     doi_span = li.select_one("span.hidden.data-doi")
     if isinstance(doi_span, Tag):
         s = _norm_space(doi_span.get_text(" ", strip=True))
         if s:
             return s.lower()
 
-    # Otherwise regex match in rendered text
     t = li.get_text(" ", strip=True) or ""
     m = _DOI_RX.search(t)
     if m:
@@ -85,11 +65,6 @@ def _extract_doi_from_ref_li(li: Tag) -> str:
 
 
 def _parse_references(article: Tag) -> tuple[str, str, list[dict[str, str]]]:
-    """
-    Wiley refs are commonly in:
-      section.article-section__references  ul li[data-bib-id]
-    Even if accordion is collapsed, li nodes are usually present.
-    """
     refs_root = article.select_one("section.article-section__references")
     if not isinstance(refs_root, Tag):
         return "", "", []
@@ -147,7 +122,7 @@ def parse_wiley(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> ParseR
             selected_hint=hint,
         )
 
-    _strip_noise(article)
+    strip_noise(article, strip_tags=_STRIP_TAGS)
 
     notes: list[str] = []
     meta: dict[str, Any] = {}
@@ -161,14 +136,13 @@ def parse_wiley(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> ParseR
     else:
         notes.append("wiley_no_refs_found")
 
-    # Sections from HTML (same approach as OUP/PMC)
+    # Sections from HTML
     sections = wiley_sections_from_html(article)
     if sections:
         meta["sections"] = sections
         meta["sections_count"] = len(sections)
         notes.append("wiley_sections_from_html")
 
-        # Deterministic article_text from sections
         lines: list[str] = []
         for s in sections:
             title = str(s.get("title") or "").strip()

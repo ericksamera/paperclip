@@ -14,14 +14,14 @@ from flask import (
 )
 
 from .. import artifacts
+from ..constants import ALLOWED_ARTIFACTS
 from ..db import get_db
 from ..formparams import get_capture_ids, get_collection_id, get_collection_ids
-from ..fsutil import rmtree_best_effort
 from ..httputil import redirect_next
 from ..services import captures_service
 from ..timeutil import utc_now_iso
 from ..tx import db_tx
-from ..constants import ALLOWED_ARTIFACTS
+from ..util import rmtree_best_effort
 
 
 def register(app: Flask) -> None:

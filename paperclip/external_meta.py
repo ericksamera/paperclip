@@ -6,13 +6,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-
-def _as_str(v: Any) -> str:
-    if v is None:
-        return ""
-    if isinstance(v, str):
-        return v
-    return str(v)
+from .textutil import as_str
 
 
 def _join_name(given: str, family: str) -> str:
@@ -30,9 +24,9 @@ def _parse_crossref_authors(message: dict[str, Any]) -> list[str]:
     ):
         if not isinstance(a, dict):
             continue
-        name = _join_name(_as_str(a.get("given")), _as_str(a.get("family")))
+        name = _join_name(as_str(a.get("given")), as_str(a.get("family")))
         if not name:
-            name = _as_str(a.get("name")).strip()
+            name = as_str(a.get("name")).strip()
         if name:
             out.append(name)
 
@@ -107,14 +101,14 @@ def fetch_crossref_metadata(
     title = ""
     t = message.get("title")
     if isinstance(t, list) and t:
-        title = _as_str(t[0]).strip()
+        title = as_str(t[0]).strip()
     elif isinstance(t, str):
         title = t.strip()
 
     container_title = ""
     ct = message.get("container-title")
     if isinstance(ct, list) and ct:
-        container_title = _as_str(ct[0]).strip()
+        container_title = as_str(ct[0]).strip()
     elif isinstance(ct, str):
         container_title = ct.strip()
 

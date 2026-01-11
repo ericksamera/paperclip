@@ -8,14 +8,11 @@ from typing import Any
 
 from .paper_md import render_paper_markdown
 from .parsers.base import ParseResult
-
-
-def _ensure_dir(p: Path) -> None:
-    p.mkdir(parents=True, exist_ok=True)
+from .util import ensure_dir
 
 
 def _atomic_write_bytes(p: Path, b: bytes) -> None:
-    _ensure_dir(p.parent)
+    ensure_dir(p.parent)
     tmp = p.with_name(p.name + ".tmp")
     with open(tmp, "wb") as f:
         f.write(b)
@@ -71,7 +68,7 @@ def write_capture_artifacts(
       - paper.md (if sections or references exist)
     """
     cap_dir = artifacts_root / capture_id
-    _ensure_dir(cap_dir)
+    ensure_dir(cap_dir)
 
     _write_text(cap_dir / "page.html", str(dto.get("dom_html") or ""))
     _write_text(cap_dir / "content.html", str(dto.get("content_html") or ""))

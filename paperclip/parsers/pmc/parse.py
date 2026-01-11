@@ -5,6 +5,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
+from ...htmlutil import safe_decompose, strip_noise
 from ...sectionizer import build_sections_meta
 from ..base import ParseResult
 from .sections import pmc_sections_from_html
@@ -32,35 +33,28 @@ _STRIP_TAGS = {
 _MEDIA_TAGS = {"figure", "video", "audio", "source", "track", "picture"}
 
 
-def _safe_decompose(tag: Tag) -> None:
-    try:
-        tag.decompose()
-    except Exception:
-        pass
-
-
 def _normalize(s: str) -> str:
     s = (s or "").strip()
     s = re.sub(r"\s+", " ", s)
     return s
 
 
-def _strip_noise(root: Tag) -> None:
-    for t in root.find_all(list(_STRIP_TAGS)):
-        _safe_decompose(t)
+def _strip_noise_pmc(root: Tag) -> None:
+    # Common stripping (tags)
+    strip_noise(root, strip_tags=_STRIP_TAGS)
 
-    # Courtesy footer / boilerplate
+    # Courtesy footer / boilerplate (PMC specific)
     for sel in ("footer", ".courtesy-note"):
         for t in root.select(sel):
             if isinstance(t, Tag) and len(t.get_text(" ", strip=True)) < 1000:
-                _safe_decompose(t)
+                safe_decompose(t)
 
 
 def _strip_media_blocks(root: Tag) -> int:
     removed = 0
     for t in root.find_all(list(_MEDIA_TAGS)):
         if isinstance(t, Tag):
-            _safe_decompose(t)
+            safe_decompose(t)
             removed += 1
 
     # "Open in a new tab" affordances are noise
@@ -71,10 +65,10 @@ def _strip_media_blocks(root: Tag) -> int:
         if txt == "open in a new tab" or "open in a new tab" in txt:
             parent = a.parent if isinstance(a.parent, Tag) else None
             if parent and len(parent.get_text(" ", strip=True)) < 160:
-                _safe_decompose(parent)
+                safe_decompose(parent)
                 removed += 1
             else:
-                _safe_decompose(a)
+                safe_decompose(a)
                 removed += 1
     return removed
 
@@ -233,13 +227,7 @@ def _build_body_text(root: Tag) -> str:
 
 
 def _remove_subtree(t: Tag) -> None:
-    try:
-        t.decompose()
-    except Exception:
-        try:
-            t.clear()
-        except Exception:
-            pass
+    safe_decompose(t)
 
 
 def parse_pmc(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> ParseResult:
@@ -286,9 +274,9 @@ def parse_pmc(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> ParseRes
     notes: list[str] = []
     meta: dict[str, Any] = {}
 
-    _strip_noise(ac)
+    _strip_noise_pmc(ac)
     if body is not ac:
-        _strip_noise(body)
+        _strip_noise_pmc(body)
 
     # References (search in article content)
     refs_tag = _find_references_section(ac)

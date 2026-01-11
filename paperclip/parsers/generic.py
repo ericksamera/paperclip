@@ -5,6 +5,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
+from ..htmlutil import strip_noise
 from ..sectionizer import build_sections_meta
 from .base import ParseResult
 
@@ -65,56 +66,6 @@ def _paragraph_count(tag: Tag) -> int:
 
 def _heading_count(tag: Tag) -> int:
     return len(tag.find_all(["h1", "h2", "h3", "h4"]))
-
-
-def _strip_noise(tag: Tag) -> None:
-    for t in tag.find_all(list(_STRIP_TAGS)):
-        try:
-            t.decompose()
-        except Exception:
-            pass
-
-    for bad in tag.find_all(True):
-        try:
-            if not isinstance(bad, Tag):
-                continue
-            cls_val = bad.get("class")
-            if isinstance(cls_val, list):
-                cls = " ".join([str(x) for x in cls_val if x is not None])
-            elif isinstance(cls_val, str):
-                cls = cls_val
-            else:
-                cls = ""
-            bid = bad.get("id")
-            bid = bid if isinstance(bid, str) else ""
-
-            hay = f"{cls} {bid}".lower()
-            if any(
-                k in hay
-                for k in (
-                    "nav",
-                    "breadcrumb",
-                    "toolbar",
-                    "cookie",
-                    "consent",
-                    "subscribe",
-                    "paywall",
-                    "header",
-                    "footer",
-                    "sidebar",
-                    "related",
-                    "recommend",
-                    "advert",
-                    "promo",
-                )
-            ):
-                if _text_len(bad) < 400:
-                    try:
-                        bad.decompose()
-                    except Exception:
-                        pass
-        except Exception:
-            continue
 
 
 def _detect_wall(soup: BeautifulSoup) -> tuple[str, str, list[str]]:
@@ -353,7 +304,44 @@ def parse_generic(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> Pars
         if not isinstance(root, Tag):
             continue
 
-        _strip_noise(root)
+        strip_noise(
+            root,
+            strip_tags=_STRIP_TAGS,
+            skip_class_fragments=(
+                "nav",
+                "breadcrumb",
+                "toolbar",
+                "cookie",
+                "consent",
+                "subscribe",
+                "paywall",
+                "header",
+                "footer",
+                "sidebar",
+                "related",
+                "recommend",
+                "advert",
+                "promo",
+            ),
+            skip_id_fragments=(
+                "nav",
+                "breadcrumb",
+                "toolbar",
+                "cookie",
+                "consent",
+                "subscribe",
+                "paywall",
+                "header",
+                "footer",
+                "sidebar",
+                "related",
+                "recommend",
+                "advert",
+                "promo",
+            ),
+            max_text_len=400,
+        )
+
         score, breakdown = _score_candidate(root)
         if score > best_score:
             best_score = score
@@ -395,7 +383,6 @@ def parse_generic(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> Pars
         notes.append("used_fallback_candidate")
 
     meta: dict[str, Any] = {}
-    # NEW: sectionize the extracted article_text (body-only; references already split out)
     if (article_text or "").strip():
         meta.update(build_sections_meta(article_text))
 

@@ -3,10 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .errors import BadRequest
-
-
-def _as_dict(v: Any) -> dict[str, Any]:
-    return v if isinstance(v, dict) else {}
+from .util import as_dict
 
 
 def validate_ingest_payload(payload: Any) -> dict[str, Any]:
@@ -34,8 +31,8 @@ def validate_ingest_payload(payload: Any) -> dict[str, Any]:
     out["source_url"] = source_url
     out["dom_html"] = str(payload.get("dom_html") or "")
 
-    extraction = _as_dict(payload.get("extraction"))
-    meta = _as_dict(extraction.get("meta"))
+    extraction = as_dict(payload.get("extraction"))
+    meta = as_dict(extraction.get("meta"))
     extraction["meta"] = meta
     out["extraction"] = extraction
 

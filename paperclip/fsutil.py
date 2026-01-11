@@ -1,23 +1,10 @@
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
-from typing import Iterable, Union
+# Deprecated: use paperclip.util.rmtree_best_effort instead.
+#
+# Kept temporarily so any external imports fail loudly in review rather than at runtime,
+# but our internal code should no longer import from here.
 
-Pathish = Union[str, Path]
+from .util import rmtree_best_effort
 
-
-def rmtree_best_effort(paths: Iterable[Pathish]) -> None:
-    """Delete directories/files best-effort; never raises."""
-    for p in paths:
-        try:
-            shutil.rmtree(Path(p))
-        except FileNotFoundError:
-            pass
-        except NotADirectoryError:
-            try:
-                Path(p).unlink(missing_ok=True)  # type: ignore[arg-type]
-            except Exception:
-                pass
-        except Exception:
-            pass
+__all__ = ["rmtree_best_effort"]

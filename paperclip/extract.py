@@ -5,20 +5,11 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
+from .textutil import as_str
+
 
 _DOI_RX = re.compile(r"10\.\d{4,9}/[^\s<>\"']+", re.I)
 _YEAR_RX = re.compile(r"\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b")
-
-
-def _as_str(v: Any) -> str:
-    if v is None:
-        return ""
-    if isinstance(v, str):
-        return v
-    if isinstance(v, (list, tuple)):
-        # join but keep reasonably readable
-        return "; ".join(_as_str(x) for x in v if _as_str(x))
-    return str(v)
 
 
 def parse_head_meta(dom_html: str) -> tuple[dict[str, Any], str]:
@@ -56,7 +47,7 @@ def parse_head_meta(dom_html: str) -> tuple[dict[str, Any], str]:
 
 
 def normalize_doi(raw: Any) -> str:
-    s = _as_str(raw).strip()
+    s = as_str(raw).strip()
     if not s:
         return ""
     s = s.replace("\u200b", "").strip()
@@ -71,7 +62,7 @@ def normalize_doi(raw: Any) -> str:
 
 
 def extract_year(raw_date: Any) -> int | None:
-    s = _as_str(raw_date)
+    s = as_str(raw_date)
     if not s:
         return None
     m = _YEAR_RX.search(s)
@@ -88,7 +79,7 @@ def extract_year(raw_date: Any) -> int | None:
 
 
 def split_keywords(raw: Any) -> list[str]:
-    s = _as_str(raw)
+    s = as_str(raw)
     if not s:
         return []
     # common separators: comma, semicolon, newline
@@ -142,7 +133,7 @@ def split_authors(raw: Any) -> list[str]:
             parts.extend(split_authors(v))
         return _dedupe_strs(parts)
 
-    s = _as_str(raw).strip()
+    s = as_str(raw).strip()
     if not s:
         return []
 
@@ -175,7 +166,7 @@ def best_authors(meta: dict[str, Any]) -> list[str]:
 
 def best_abstract(meta: dict[str, Any], *, max_chars: int = 20000) -> str:
     for k in ("citation_abstract", "dcterms.abstract", "dc.description"):
-        s = _as_str(meta.get(k)).strip()
+        s = as_str(meta.get(k)).strip()
         if not s:
             continue
         s = re.sub(r"\s+", " ", s).strip()
@@ -208,7 +199,7 @@ def best_title(meta: dict[str, Any], title_tag_text: str, source_url: str) -> st
         title_tag_text,
     ]
     for c in candidates:
-        s = _as_str(c).strip()
+        s = as_str(c).strip()
         if s:
             return s
     return source_url or "Untitled"
@@ -216,7 +207,7 @@ def best_title(meta: dict[str, Any], title_tag_text: str, source_url: str) -> st
 
 def best_container_title(meta: dict[str, Any]) -> str:
     for k in ("citation_journal_title", "prism.publicationname"):
-        s = _as_str(meta.get(k)).strip()
+        s = as_str(meta.get(k)).strip()
         if s:
             return s
     return ""
@@ -230,7 +221,7 @@ def best_date(meta: dict[str, Any]) -> str:
         "dc.date",
         "dcterms.issued",
     ):
-        s = _as_str(meta.get(k)).strip()
+        s = as_str(meta.get(k)).strip()
         if s:
             return s
     return ""

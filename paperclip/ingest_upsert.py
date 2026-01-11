@@ -10,10 +10,7 @@ from typing import Any
 
 from .constants import ALLOWED_ARTIFACTS
 from .repo import ingest_repo
-
-
-def _ensure_dir(p: Path) -> None:
-    p.mkdir(parents=True, exist_ok=True)
+from .util import ensure_dir
 
 
 def _capture_rowid(db, *, capture_id: str) -> int | None:
@@ -179,7 +176,7 @@ def upsert_capture(
         existing_id = row2["id"]
         if existing_id != capture_id:
             existing_dir = artifacts_root / existing_id
-            _ensure_dir(existing_dir)
+            ensure_dir(existing_dir)
 
             for name in ALLOWED_ARTIFACTS:
                 src = cap_dir / name

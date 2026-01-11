@@ -6,13 +6,12 @@ from pathlib import Path
 from flask import Flask, current_app, request
 
 from ..apiutil import api_error, api_ok
-from ..db import get_db
 from ..errors import BadRequest, InternalError, NotFound
-from ..fsutil import rmtree_best_effort
 from ..ingest import ingest_capture
 from ..ingest_schema import validate_ingest_payload
 from ..services.maintenance_service import rebuild_fts, verify_fts
 from ..tx import db_tx
+from ..util import rmtree_best_effort
 
 
 def _artifacts_root() -> Path:
@@ -72,6 +71,10 @@ def register(app: Flask) -> None:
 
     @app.get("/api/captures/<capture_id>/")
     def api_get_capture(capture_id: str):
+        db = current_app.extensions["paperclip_db"] if False else None  # type: ignore[unreachable]
+        # (kept import-free; get_db is in paperclip.db and imported indirectly via tx in request context)
+        from ..db import get_db  # local import to avoid circular init edge cases
+
         db = get_db()
         row = db.execute(
             "SELECT * FROM captures WHERE id = ? LIMIT 1", (capture_id,)

@@ -9,15 +9,11 @@ from flask import Flask, g, request
 from .config import load_config
 from .db import close_db, init_db
 from .errors import register_error_handlers
+from .util import ensure_dirs
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
-
-
-def _ensure_dirs(*paths: Path) -> None:
-    for p in paths:
-        p.mkdir(parents=True, exist_ok=True)
 
 
 def create_app(test_config: dict[str, Any] | None = None) -> Flask:
@@ -38,7 +34,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     if "ARTIFACTS_DIR" not in app.config and "ARTIFACTS_ROOT" in app.config:
         app.config["ARTIFACTS_DIR"] = app.config["ARTIFACTS_ROOT"]
 
-    _ensure_dirs(
+    ensure_dirs(
         Path(app.config["DB_PATH"]).parent,
         Path(app.config["ARTIFACTS_DIR"]),
     )

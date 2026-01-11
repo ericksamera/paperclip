@@ -5,6 +5,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
+from ...htmlutil import strip_noise
 from ..base import ParseResult
 from ...sectionizer import build_sections_meta
 from .sections import oup_sections_from_html
@@ -30,24 +31,7 @@ def _norm(s: str) -> str:
     return _WS_RX.sub(" ", (s or "").strip())
 
 
-def _safe_decompose(tag: Tag) -> None:
-    try:
-        tag.decompose()
-    except Exception:
-        try:
-            tag.clear()
-        except Exception:
-            pass
-
-
-def _strip_noise(root: Tag) -> None:
-    for t in root.find_all(list(_STRIP_TAGS)):
-        if isinstance(t, Tag):
-            _safe_decompose(t)
-
-
 def _find_fulltext_root(soup: BeautifulSoup) -> tuple[str, Tag | None]:
-    # This is the money selector for the HTML you pasted.
     selectors = [
         'div#ContentTab div.widget-ArticleFulltext div.widget-items[data-widgetname="ArticleFulltext"]',
         "div#ContentTab div.widget-ArticleFulltext div.widget-items",
@@ -62,19 +46,15 @@ def _find_fulltext_root(soup: BeautifulSoup) -> tuple[str, Tag | None]:
 
 
 def _find_references_container(soup_or_root: Tag) -> Tag | None:
-    # OUP references live at: h2.backreferences-title + div.ref-list
-    # We grab the div.ref-list (not the whole page).
     ref_list = soup_or_root.select_one("div.ref-list")
     if isinstance(ref_list, Tag) and len(ref_list.get_text(" ", strip=True)) > 200:
         return ref_list
 
-    # Fallback: heading-based
     for h in soup_or_root.find_all(["h2", "h3"]):
         if not isinstance(h, Tag):
             continue
         ht = _norm(h.get_text(" ", strip=True))
         if ht and _REF_HEADING_RX.match(ht):
-            # next sibling ref-list
             sib = h.find_next_sibling()
             while isinstance(sib, Tag):
                 cls = " ".join(sib.get("class") or []).lower()
@@ -89,7 +69,6 @@ def _find_references_container(soup_or_root: Tag) -> Tag | None:
 def _parse_references(refs_root: Tag) -> tuple[str, list[dict[str, str]]]:
     items: list[dict[str, str]] = []
 
-    # OUP references are div.js-splitview-ref-item with inner text, but simplest is item-level text.
     for item in refs_root.select("div.js-splitview-ref-item"):
         if not isinstance(item, Tag):
             continue
@@ -102,7 +81,6 @@ def _parse_references(refs_root: Tag) -> tuple[str, list[dict[str, str]]]:
             doi = m.group(0).lower()
         items.append({"n": "", "text": txt, "doi": doi, "pubmed": ""})
 
-    # Fallback: any div.ref-content
     if not items:
         for rc in refs_root.select("div.ref-content"):
             if not isinstance(rc, Tag):
@@ -157,12 +135,12 @@ def parse_oup(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> ParseRes
             selected_hint=hint,
         )
 
-    _strip_noise(fulltext)
+    strip_noise(fulltext, strip_tags=_STRIP_TAGS)
 
     notes: list[str] = []
     meta: dict[str, Any] = {}
 
-    # References: extract from the *original soup* (full page), not from widget-items (since refs live later).
+    # References: extract from the *original soup* (full page), not from widget-items
     refs_tag = _find_references_container(soup)
     refs_html = ""
     refs_text = ""
@@ -178,14 +156,13 @@ def parse_oup(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> ParseRes
     else:
         notes.append("oup_no_refs_found")
 
-    # Sections from HTML (this is the key fix)
+    # Sections from HTML (preferred)
     sections = oup_sections_from_html(fulltext)
     if sections:
         meta["sections"] = sections
         meta["sections_count"] = len(sections)
         notes.append("oup_sections_from_html")
 
-        # Deterministic article_text from sections
         lines: list[str] = []
         for s in sections:
             title = str(s.get("title") or "").strip()
@@ -197,7 +174,6 @@ def parse_oup(*, url: str, dom_html: str, head_meta: dict[str, Any]) -> ParseRes
             lines.append("")
         article_text = "\n".join(lines).strip()
     else:
-        # Fallback (should be rare now)
         article_text = _norm(fulltext.get_text("\n", strip=True))
         meta.update(build_sections_meta(article_text))
         notes.append("oup_sections_fallback_text")

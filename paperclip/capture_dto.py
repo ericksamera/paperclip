@@ -24,10 +24,7 @@ from .metaschema import (
     parse_meta_json,
 )
 from .parsers.base import ParseResult
-
-
-def _as_dict(v: Any) -> dict[str, Any]:
-    return v if isinstance(v, dict) else {}
+from .util import as_dict
 
 
 def merge_meta(
@@ -85,9 +82,9 @@ def build_capture_dto_from_payload(
     source_url = str(payload.get("source_url") or "").strip()
 
     dom_html = str(payload.get("dom_html") or "")
-    extraction = _as_dict(payload.get("extraction"))
+    extraction = as_dict(payload.get("extraction"))
     content_html = str(extraction.get("content_html") or "")
-    client_meta = _as_dict(extraction.get("meta"))
+    client_meta = as_dict(extraction.get("meta"))
 
     head_meta, title_tag_text = parse_head_meta(dom_html)
     merged_meta = merge_meta(client_meta, head_meta)
