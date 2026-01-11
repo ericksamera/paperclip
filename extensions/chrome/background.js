@@ -2,10 +2,13 @@
 // Flow:
 //  1) collect URL + DOM + main content + meta
 //  2) POST to /api/captures/
-//  3) open the capture detail page on success
+//  3) (optional) open the capture detail page on success
 
 const API_ENDPOINT = "http://127.0.0.1:8000/api/captures/";
 const APP_ORIGIN = new URL(API_ENDPOINT).origin;
+
+// NEW: set to false to stop opening a new tab after saving.
+const OPEN_CAPTURE_AFTER_SAVE = false;
 
 const COLORS = { loading: "#5B8DEF", success: "#2E7D32", error: "#C62828" };
 const SUCCESS_SHOW_MS = 1000;
@@ -125,8 +128,11 @@ chrome.action.onClicked.addListener(async (tab) => {
     }
 
     await showSuccess(tabId);
-    const openUrl = `${APP_ORIGIN}/captures/${captureId}/`;
-    chrome.tabs.create({ url: openUrl });
+
+    if (OPEN_CAPTURE_AFTER_SAVE) {
+      const openUrl = `${APP_ORIGIN}/captures/${captureId}/`;
+      chrome.tabs.create({ url: openUrl });
+    }
   } catch (e) {
     const rid = e && e.request_id ? e.request_id : null;
     if (rid) {
