@@ -3,11 +3,11 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from .base import ParseResult
-from .elsevier import parse_elsevier
 from .generic import parse_generic
 from .oup import parse_oup
 from .pmc import parse_pmc
 from .wiley import parse_wiley
+from .sciencedirect import parse_sciencedirect
 
 
 def _site_kind(url: str) -> str:
@@ -32,9 +32,6 @@ def _site_kind(url: str) -> str:
         return "oup"
 
     # Wiley Online Library (handle institutional proxy hostnames too)
-    # Examples:
-    # - onlinelibrary.wiley.com
-    # - onlinelibrary-wiley-com.ezproxy.<school>.ca
     if (
         ("onlinelibrary.wiley.com" in host)
         or ("onlinelibrary-wiley-com" in host)
@@ -42,8 +39,14 @@ def _site_kind(url: str) -> str:
     ):
         return "wiley"
 
-    if "sciencedirect.com" in host or "elsevier.com" in host:
-        return "elsevier"
+    # ScienceDirect / Elsevier (handle institutional proxy hostnames too)
+    if (
+        ("sciencedirect.com" in host)
+        or ("sciencedirect-com" in host)  # common EZProxy rewrite
+        or ("elsevier.com" in host)
+        or ("elsevier-com" in host)  # common EZProxy rewrite
+    ):
+        return "sciencedirect"
 
     return "generic"
 
@@ -72,8 +75,8 @@ def parse_article(
         if r.ok and (r.article_html or r.article_text):
             return r
 
-    if kind == "elsevier":
-        r = parse_elsevier(url=url, dom_html=dom_html, head_meta=head_meta)
+    if kind == "sciencedirect":
+        r = parse_sciencedirect(url=url, dom_html=dom_html, head_meta=head_meta)
         if r.ok and (r.article_html or r.article_text):
             return r
 
