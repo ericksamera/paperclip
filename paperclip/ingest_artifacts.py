@@ -8,6 +8,7 @@ from typing import Any
 
 from .paper_md import render_paper_markdown
 from .parsers.base import ParseResult
+from .text_standardize import standardize_text
 from .util import ensure_dir
 
 
@@ -32,6 +33,26 @@ def _write_text(p: Path, text: str) -> None:
 def _write_json(p: Path, obj: Any) -> None:
     s = json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     _atomic_write_bytes(p, s.encode("utf-8", errors="ignore"))
+
+
+def _standardize_sections(sections: Any) -> list[dict[str, Any]]:
+    """
+    Standardize section text while preserving the original section shape/keys.
+    Drops sections with empty text after standardization.
+    """
+    if not isinstance(sections, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for s in sections:
+        if not isinstance(s, dict):
+            continue
+        txt = standardize_text(str(s.get("text") or ""))
+        if not txt.strip():
+            continue
+        s2 = dict(s)
+        s2["text"] = txt
+        out.append(s2)
+    return out
 
 
 @dataclass(frozen=True)
@@ -66,6 +87,9 @@ def write_capture_artifacts(
       - reduced.json (always)
       - sections.json (if present)
       - paper.md (if sections or references exist)
+
+    Stage 2: standardize text outputs when writing artifacts (article.txt, references.txt,
+    sections.json, paper.md).
     """
     cap_dir = artifacts_root / capture_id
     ensure_dir(cap_dir)
@@ -74,9 +98,16 @@ def write_capture_artifacts(
     _write_text(cap_dir / "content.html", str(dto.get("content_html") or ""))
 
     article_html = parse_result.article_html or ""
-    article_text = parse_result.article_text or ""
     references_html = parse_result.references_html or ""
-    references_text = parse_result.references_text or ""
+
+    # --- Standardize text artifacts (do NOT change parser output objects) ---
+    raw_article_text = parse_result.article_text or ""
+    raw_references_text = parse_result.references_text or ""
+
+    article_text = standardize_text(raw_article_text) if raw_article_text else ""
+    references_text = (
+        standardize_text(raw_references_text) if raw_references_text else ""
+    )
 
     if article_html:
         _write_text(cap_dir / "article.html", article_html)
@@ -88,7 +119,7 @@ def write_capture_artifacts(
     if references_text:
         _write_text(cap_dir / "references.txt", references_text)
 
-    # --- NEW: references.json is always written (stable shape for downstream tooling) ---
+    # --- references.json is always written (stable shape for downstream tooling) ---
     meta = parse_result.meta if isinstance(parse_result.meta, dict) else {}
     refs = meta.get("references") if isinstance(meta.get("references"), list) else []
     _write_json(cap_dir / "references.json", refs)
@@ -142,19 +173,24 @@ def write_capture_artifacts(
     _write_json(cap_dir / "reduced.json", reduced)
 
     # --- structured sections + deterministic paper markdown ---
-    sections = meta.get("sections") if isinstance(meta.get("sections"), list) else None
-    if sections is not None:
-        _write_json(cap_dir / "sections.json", sections)
+    sections_raw = (
+        meta.get("sections") if isinstance(meta.get("sections"), list) else None
+    )
+    sections_std = (
+        _standardize_sections(sections_raw) if sections_raw is not None else None
+    )
+    if sections_std is not None:
+        _write_json(cap_dir / "sections.json", sections_std)
 
     # Write paper.md if we have anything meaningful to bundle
-    if (sections and len(sections) > 0) or (references_text or "").strip():
+    if (sections_std and len(sections_std) > 0) or references_text.strip():
         md = render_paper_markdown(
             title=title,
             source_url=source_url,
             doi=doi,
             container_title=container_title,
             year=year if isinstance(year, int) else None,
-            sections=sections or [],
+            sections=sections_std or [],
             references_text=references_text,
         )
         _write_text(cap_dir / "paper.md", md)

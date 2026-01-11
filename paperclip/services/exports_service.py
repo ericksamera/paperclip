@@ -11,6 +11,7 @@ from ..paper_md import render_paper_markdown
 from ..parseutil import safe_int
 from ..queryparams import get_collection_arg
 from ..repo import exports_repo
+from ..text_standardize import standardize_text
 
 
 def _slug(s: str) -> str:
@@ -168,6 +169,15 @@ def _read_text_file(p: Path) -> str:
         return ""
 
 
+def _read_text_file_standardized(p: Path) -> str:
+    """
+    Stage 3: standardize text at export-time for older captures that predate
+    artifact standardization.
+    """
+    raw = _read_text_file(p)
+    return standardize_text(raw) if raw else ""
+
+
 def _cap_dir(artifacts_root: Path, capture_id: str) -> Path:
     return artifacts_root / str(capture_id)
 
@@ -177,6 +187,8 @@ def _paper_md_for_capture(*, artifacts_root: Path, cap: dict[str, Any]) -> str:
     Prefer the prebuilt paper.md artifact. Fallback to a minimal markdown synthesis using:
       - reduced.json (if present) for metadata
       - article.txt / references.txt for content
+
+    Stage 3: when falling back, standardize text read from disk.
     """
     cap_id = str(cap.get("id") or "").strip()
     if not cap_id:
@@ -185,6 +197,7 @@ def _paper_md_for_capture(*, artifacts_root: Path, cap: dict[str, Any]) -> str:
     cap_dir = _cap_dir(artifacts_root, cap_id)
     p_paper = cap_dir / "paper.md"
     if p_paper.exists():
+        # Keep stored bundle as-is (it should already be standardized for new captures)
         return _read_text_file(p_paper).rstrip() + "\n"
 
     # Fallback: build from disk artifacts, not DB (keeps export stable even if DB changes)
@@ -195,11 +208,10 @@ def _paper_md_for_capture(*, artifacts_root: Path, cap: dict[str, Any]) -> str:
     year_i = int(year) if isinstance(year, int) else None
     source_url = str(cap.get("url") or "").strip()
 
-    article_text = _read_text_file(cap_dir / "article.txt").strip()
-    refs_text = _read_text_file(cap_dir / "references.txt").strip()
+    article_text = _read_text_file_standardized(cap_dir / "article.txt").strip()
+    refs_text = _read_text_file_standardized(cap_dir / "references.txt").strip()
 
-    # If no parsed text exists, still export a shell so user can see it in the bundle.
-    sections = []
+    sections: list[dict[str, Any]] = []
     if article_text:
         sections = [
             {"id": "s01", "title": "Body", "kind": "other", "text": article_text}
@@ -320,9 +332,30 @@ def _read_json_file(p: Path) -> Any:
         return None
 
 
+def _standardize_sections_list(sections: Any) -> list[dict[str, Any]]:
+    """
+    Stage 3: standardize section text at export-time for older captures.
+    """
+    if not isinstance(sections, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for s in sections:
+        if not isinstance(s, dict):
+            continue
+        txt = standardize_text(str(s.get("text") or ""))
+        if not txt.strip():
+            continue
+        s2 = dict(s)
+        s2["text"] = txt
+        out.append(s2)
+    return out
+
+
 def _sections_for_capture(*, artifacts_root: Path, cap_id: str) -> list[dict[str, Any]]:
     """
     Prefer artifacts/<id>/sections.json; otherwise empty.
+
+    Stage 3: standardize section text at export-time as a safety net.
     """
     if not cap_id:
         return []
@@ -330,7 +363,7 @@ def _sections_for_capture(*, artifacts_root: Path, cap_id: str) -> list[dict[str
     if not p.exists():
         return []
     v = _read_json_file(p)
-    return v if isinstance(v, list) else []
+    return _standardize_sections_list(v)
 
 
 def render_sections_export_json(
@@ -418,7 +451,7 @@ def sections_json_selected_download_parts(
 
 
 # -------------------------
-# Papers JSONL export (LLM-friendly)
+# Papers JSONL export (GPT-friendly)
 # -------------------------
 
 
@@ -443,7 +476,8 @@ def _filtered_sections_for_papers_export(
         kind = str(s.get("kind") or "").strip()
         if kind in _PAPERS_EXCLUDE_KINDS:
             continue
-        text = str(s.get("text") or "").strip()
+
+        text = standardize_text(str(s.get("text") or "")).strip()
         if not text:
             continue
 
@@ -490,6 +524,7 @@ def render_papers_export_jsonl(
       - Metadata is sourced from artifacts/<id>/reduced.json when available,
         falling back to DB row fields.
       - Certain section kinds are excluded (acknowledgements, funding, etc.).
+      - Stage 3: section text is standardized at export-time as a safety net.
     """
     lines: list[str] = []
     for cap in captures:

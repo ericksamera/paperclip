@@ -24,6 +24,7 @@ from .metaschema import (
     parse_meta_json,
 )
 from .parsers.base import ParseResult
+from .text_standardize import standardize_text
 from .util import as_dict
 
 
@@ -145,8 +146,12 @@ def build_capture_dto_from_payload(
                 date_str = prov["published_date_raw"].strip()
 
     # Text for indexing/search
-    base_text = html_to_text(content_html)
-    parsed_text = (parse_result.article_text or "").strip()
+    # Stage 4: standardize the text that will be stored in DB (capture_text) + FTS
+    base_text_raw = html_to_text(content_html)
+    parsed_text_raw = (parse_result.article_text or "").strip()
+
+    base_text = standardize_text(base_text_raw) if base_text_raw else ""
+    parsed_text = standardize_text(parsed_text_raw) if parsed_text_raw else ""
 
     use_parsed_for_index = (
         bool(parsed_text)
