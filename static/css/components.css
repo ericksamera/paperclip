@@ -133,17 +133,27 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
+/* PREVIEW BLOCKS: wrap long lines (no horizontal scroll) */
 .pre {
   margin: 0;
   padding: 8px;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: #0e1116;
-  overflow: auto;
+
+  /* vertical scroll only */
+  overflow-x: hidden;
+  overflow-y: auto;
   max-height: 320px;
+
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.4;
+
+  /* wrapping behavior */
+  white-space: pre-wrap; /* preserve newlines, wrap long lines */
+  overflow-wrap: anywhere; /* break long tokens/URLs */
+  word-break: break-word; /* fallback for older engines */
 }
 
 .clean {

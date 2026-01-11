@@ -6,13 +6,11 @@
     <div class="panel__title">Capture</div>
     <div class="panel__body">
       <div class="capture-head">
-        <div>
-          <h2 style="margin: 0 0 6px">{{ capture.title }}</h2>
+        <div class="capture-sub">
+          <h2 class="capture-title">{{ capture.title }}</h2>
 
           {% if citation.authors_str %}
-            <div class="muted small" style="margin: 0 0 6px">
-              {{ citation.authors_str }}
-            </div>
+            <div class="muted small">{{ citation.authors_str }}</div>
           {% endif %}
 
           <div class="muted small">
@@ -26,7 +24,7 @@
           </div>
 
           {% if meta.abstract %}
-            <div style="margin-top: 10px">
+            <div style="margin-top: 6px">
               <div class="muted small" style="margin-bottom: 4px">Abstract</div>
               <div>{{ meta.abstract }}</div>
             </div>
@@ -35,27 +33,27 @@
 
         <div class="capture-actions">
           <a
-            class="btn"
+            class="btn btn--sm"
             href="{{ url_for('export_bibtex', capture_id=capture.id) }}"
             >BibTeX</a
           >
           <a
-            class="btn"
+            class="btn btn--sm"
             href="{{ url_for('export_ris', capture_id=capture.id) }}"
             >RIS</a
           >
           <a
-            class="btn"
+            class="btn btn--sm"
             href="{{ url_for('export_sections_json', capture_id=capture.id) }}"
             >Sections JSON</a
           >
           <a
-            class="btn"
+            class="btn btn--sm"
             href="{{ url_for('export_papers_jsonl', capture_id=capture.id) }}"
             >Papers JSONL</a
           >
           <a
-            class="btn"
+            class="btn btn--sm"
             href="{{ url_for('export_master_md', capture_id=capture.id) }}"
             >Master MD</a
           >
@@ -67,13 +65,16 @@
           >
             <input type="hidden" name="capture_ids" value="{{ capture.id }}" />
             <input type="hidden" name="next" value="{{ url_for('library') }}" />
-            <button class="btn btn--danger" type="submit">Delete</button>
+            <button class="btn btn--danger btn--sm" type="submit">
+              Delete
+            </button>
           </form>
         </div>
       </div>
 
-      <div class="grid2">
-        <div>
+      <div class="capture-grid">
+        <!-- Sidebar -->
+        <aside class="capture-sidebar">
           <div class="panel inner">
             <div class="panel__title">Collections</div>
             <div class="panel__body">
@@ -102,7 +103,7 @@
             </div>
           </div>
 
-          <div class="panel inner" style="margin-top: 10px">
+          <div class="panel inner">
             <div class="panel__title">Metadata</div>
             <div class="panel__body">
               <div class="kv">
@@ -134,108 +135,104 @@
             </div>
           </div>
 
-          <div class="panel inner" style="margin-top: 10px">
-            <div class="panel__title">Parsed text</div>
-            <div class="panel__body">
-              <details open>
-                <summary style="cursor:pointer;">
-                  Article body
-                  {% if parsed.article.exists %}
-                    <span class="muted small"
-                      >·
-                      <a
-                        href="{{ parsed.article.url }}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        >article.txt</a
-                      ></span
-                    >
-                    <span class="muted small"
-                      >· {{ parsed.article.chars }}
-                      chars{% if parsed.article.truncated %}(truncated){% endif %}</span
-                    >
-                  {% endif %}
-                </summary>
-
-                {% if parsed.article.exists and parsed.article.text %}
-                  <pre class="pre" style="margin-top: 8px">
-{{ parsed.article.text }}</pre
-                  >
-                {% else %}
-                  <div class="muted small" style="margin-top: 8px">
-                    No parsed article text available.
-                  </div>
-                {% endif %}
-              </details>
-
-              <div style="height:10px"></div>
-
-              <details>
-                <summary style="cursor:pointer;">
-                  References
-                  {% if parsed.references.exists %}
-                    <span class="muted small"
-                      >·
-                      <a
-                        href="{{ parsed.references.url }}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        >references.txt</a
-                      ></span
-                    >
-                    <span class="muted small"
-                      >· {{ parsed.references.chars }}
-                      chars{% if parsed.references.truncated %}(truncated){% endif %}</span
-                    >
-                  {% endif %}
-                </summary>
-
-                {% if parsed.references.exists and parsed.references.text %}
-                  <pre class="pre" style="margin-top: 8px">
-{{ parsed.references.text }}</pre
-                  >
-                {% else %}
-                  <div class="muted small" style="margin-top: 8px">
-                    No references text available.
-                  </div>
-                {% endif %}
-              </details>
-            </div>
-          </div>
-        </div>
-
-        <div>
           <div class="panel inner">
             <div class="panel__title">Artifacts</div>
             <div class="panel__body">
               {% if artifacts and artifacts|length > 0 %}
-                <ul class="clean">
+                <div class="artifacts-grid">
                   {% for a in artifacts %}
-                    <li>
-                      <a
-                        href="{{ a.url }}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        >{{ a.name }}</a
-                      >
-                    </li>
+                    <a
+                      class="artifact-link"
+                      href="{{ a.url }}"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      >{{ a.name }}</a
+                    >
                   {% endfor %}
-                </ul>
+                </div>
               {% else %}
                 <div class="muted">No artifacts available.</div>
               {% endif %}
             </div>
           </div>
+        </aside>
+
+        <!-- Main -->
+        <section class="capture-main">
+          <div class="panel inner">
+            <div class="panel__title">Parsed text</div>
+            <div class="panel__body">
+              <details class="details" open>
+                <summary>
+                  <span>Article body</span>
+                  {% if parsed.article.exists %}
+                    <span class="details-meta">
+                      <a
+                        href="{{ parsed.article.url }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >article.txt</a
+                      >
+                      · {{ parsed.article.chars }}
+                      chars{% if parsed.article.truncated %}(truncated){% endif %}
+                    </span>
+                  {% endif %}
+                </summary>
+                <div class="details-body">
+                  {% if parsed.article.exists and parsed.article.text %}
+                    <pre class="pre">{{ parsed.article.text }}</pre>
+                  {% else %}
+                    <div class="muted small">
+                      No parsed article text available.
+                    </div>
+                  {% endif %}
+                </div>
+              </details>
+
+              <details class="details">
+                <summary>
+                  <span>References</span>
+                  {% if parsed.references.exists %}
+                    <span class="details-meta">
+                      <a
+                        href="{{ parsed.references.url }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >references.txt</a
+                      >
+                      · {{ parsed.references.chars }}
+                      chars{% if parsed.references.truncated %}(truncated){% endif %}
+                    </span>
+                  {% endif %}
+                </summary>
+                <div class="details-body">
+                  {% if parsed.references.exists and parsed.references.text %}
+                    <pre class="pre">{{ parsed.references.text }}</pre>
+                  {% else %}
+                    <div class="muted small">No references text available.</div>
+                  {% endif %}
+                </div>
+              </details>
+            </div>
+          </div>
 
           {% if meta.meta %}
-            <div class="panel inner" style="margin-top: 10px">
-              <div class="panel__title">Raw head meta</div>
+            <div class="panel inner">
+              <div class="panel__title">Head meta</div>
               <div class="panel__body">
-                <pre class="pre">{{ meta.meta | tojson(indent=2) }}</pre>
+                <details class="details">
+                  <summary>
+                    <span>Raw head meta (debug)</span>
+                    <span class="details-meta">JSON</span>
+                  </summary>
+                  <div class="details-body">
+                    <pre class="pre">{{ meta.meta | tojson(indent=2) }}</pre>
+                  </div>
+                </details>
               </div>
             </div>
           {% endif %}
-        </div>
+        </section>
       </div>
     </div>
   </div>
