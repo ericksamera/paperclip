@@ -73,6 +73,19 @@ def test_export_papers_jsonl_excludes_noise_kinds_and_includes_sections(client):
     assert row is not None
     assert row["doi"] == "10.1234/papers.jsonl.test"
 
+    # NEW: stable provenance fields
+    assert isinstance(row.get("captured_at"), str)
+    assert row["captured_at"].strip() != ""
+    assert row.get("published_date_raw") == "2022-01-02"
+
+    # NEW: parse provenance fields exist
+    assert isinstance(row.get("parse_parser"), str)
+    assert isinstance(row.get("parse_ok"), bool)
+    assert isinstance(row.get("capture_quality"), str)
+    assert isinstance(row.get("blocked_reason"), str)
+    assert isinstance(row.get("confidence_fulltext"), (int, float))
+    assert isinstance(row.get("used_for_index"), bool)
+
     secs = row.get("sections")
     assert isinstance(secs, list)
 

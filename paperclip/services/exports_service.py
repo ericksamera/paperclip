@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
+from ..bundle import PaperBundle
 from ..export import captures_to_bibtex, captures_to_ris
-from ..paper_md import render_paper_markdown
+from ..kb_schema import papers_jsonl_record
 from ..parseutil import safe_int
 from ..queryparams import get_collection_arg
 from ..repo import exports_repo
-from ..text_standardize import standardize_text
 
 
 def _slug(s: str) -> str:
@@ -162,72 +162,6 @@ def export_selected_download_parts(
 # -------------------------
 
 
-def _read_text_file(p: Path) -> str:
-    try:
-        return p.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        return ""
-
-
-def _read_text_file_standardized(p: Path) -> str:
-    """
-    Stage 3: standardize text at export-time for older captures that predate
-    artifact standardization.
-    """
-    raw = _read_text_file(p)
-    return standardize_text(raw) if raw else ""
-
-
-def _cap_dir(artifacts_root: Path, capture_id: str) -> Path:
-    return artifacts_root / str(capture_id)
-
-
-def _paper_md_for_capture(*, artifacts_root: Path, cap: dict[str, Any]) -> str:
-    """
-    Prefer the prebuilt paper.md artifact. Fallback to a minimal markdown synthesis using:
-      - reduced.json (if present) for metadata
-      - article.txt / references.txt for content
-
-    Stage 3: when falling back, standardize text read from disk.
-    """
-    cap_id = str(cap.get("id") or "").strip()
-    if not cap_id:
-        return ""
-
-    cap_dir = _cap_dir(artifacts_root, cap_id)
-    p_paper = cap_dir / "paper.md"
-    if p_paper.exists():
-        # Keep stored bundle as-is (it should already be standardized for new captures)
-        return _read_text_file(p_paper).rstrip() + "\n"
-
-    # Fallback: build from disk artifacts, not DB (keeps export stable even if DB changes)
-    title = str(cap.get("title") or "").strip()
-    doi = str(cap.get("doi") or "").strip()
-    container_title = str(cap.get("container_title") or "").strip()
-    year = cap.get("year", None)
-    year_i = int(year) if isinstance(year, int) else None
-    source_url = str(cap.get("url") or "").strip()
-
-    article_text = _read_text_file_standardized(cap_dir / "article.txt").strip()
-    refs_text = _read_text_file_standardized(cap_dir / "references.txt").strip()
-
-    sections: list[dict[str, Any]] = []
-    if article_text:
-        sections = [
-            {"id": "s01", "title": "Body", "kind": "other", "text": article_text}
-        ]
-
-    return render_paper_markdown(
-        title=title,
-        source_url=source_url,
-        doi=doi,
-        container_title=container_title,
-        year=year_i,
-        sections=sections,
-        references_text=refs_text,
-    )
-
-
 def render_master_markdown(
     *,
     captures: list[dict[str, Any]],
@@ -235,7 +169,7 @@ def render_master_markdown(
     title: str,
 ) -> str:
     """
-    Concatenate paper.md blobs with a simple top header + separators.
+    Concatenate bundle markdown blobs with a simple top header + separators.
     """
     out: list[str] = []
     out.append(f"# {title}".strip())
@@ -245,9 +179,17 @@ def render_master_markdown(
 
     first = True
     for cap in captures:
-        blob = _paper_md_for_capture(artifacts_root=artifacts_root, cap=cap).strip()
+        cap_id = str(cap.get("id") or "").strip()
+        if not cap_id:
+            continue
+
+        bundle = PaperBundle.load_best_effort(
+            artifacts_root=artifacts_root, capture_id=cap_id, cap_row=cap
+        )
+        blob = (bundle.best_paper_md() or "").strip()
         if not blob:
             continue
+
         if not first:
             out.append("\n---\n")
         out.append(blob.rstrip() + "\n")
@@ -325,47 +267,6 @@ def master_md_selected_download_parts(
 # -------------------------
 
 
-def _read_json_file(p: Path) -> Any:
-    try:
-        return json.loads(p.read_text(encoding="utf-8", errors="replace"))
-    except Exception:
-        return None
-
-
-def _standardize_sections_list(sections: Any) -> list[dict[str, Any]]:
-    """
-    Stage 3: standardize section text at export-time for older captures.
-    """
-    if not isinstance(sections, list):
-        return []
-    out: list[dict[str, Any]] = []
-    for s in sections:
-        if not isinstance(s, dict):
-            continue
-        txt = standardize_text(str(s.get("text") or ""))
-        if not txt.strip():
-            continue
-        s2 = dict(s)
-        s2["text"] = txt
-        out.append(s2)
-    return out
-
-
-def _sections_for_capture(*, artifacts_root: Path, cap_id: str) -> list[dict[str, Any]]:
-    """
-    Prefer artifacts/<id>/sections.json; otherwise empty.
-
-    Stage 3: standardize section text at export-time as a safety net.
-    """
-    if not cap_id:
-        return []
-    p = (artifacts_root / cap_id) / "sections.json"
-    if not p.exists():
-        return []
-    v = _read_json_file(p)
-    return _standardize_sections_list(v)
-
-
 def render_sections_export_json(
     *,
     captures: list[dict[str, Any]],
@@ -380,6 +281,11 @@ def render_sections_export_json(
         cap_id = str(cap.get("id") or "").strip()
         if not cap_id:
             continue
+
+        bundle = PaperBundle.load_best_effort(
+            artifacts_root=artifacts_root, capture_id=cap_id, cap_row=cap
+        )
+
         out.append(
             {
                 "id": cap_id,
@@ -388,9 +294,7 @@ def render_sections_export_json(
                 "doi": str(cap.get("doi") or ""),
                 "year": cap.get("year", None),
                 "container_title": str(cap.get("container_title") or ""),
-                "sections": _sections_for_capture(
-                    artifacts_root=artifacts_root, cap_id=cap_id
-                ),
+                "sections": bundle.standardized_sections(),
             }
         )
 
@@ -455,55 +359,6 @@ def sections_json_selected_download_parts(
 # -------------------------
 
 
-# Section kinds we exclude from papers.jsonl (noise for “read the paper” use cases)
-_PAPERS_EXCLUDE_KINDS = {
-    "acknowledgements",
-    "author_contributions",
-    "funding",
-    "conflicts",
-    # usually not useful as body text (and can be huge/duplicative on some sites)
-    "keywords",
-}
-
-
-def _filtered_sections_for_papers_export(
-    sections: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for s in sections:
-        if not isinstance(s, dict):
-            continue
-        kind = str(s.get("kind") or "").strip()
-        if kind in _PAPERS_EXCLUDE_KINDS:
-            continue
-
-        text = standardize_text(str(s.get("text") or "")).strip()
-        if not text:
-            continue
-
-        out.append(
-            {
-                "id": str(s.get("id") or ""),
-                "kind": kind,
-                "title": str(s.get("title") or ""),
-                "text": text,
-            }
-        )
-    return out
-
-
-def _reduced_for_capture(*, artifacts_root: Path, cap_id: str) -> dict[str, Any]:
-    """
-    Best-effort: read reduced.json (for stable metadata + parse summary).
-    If missing/unreadable, return {}.
-    """
-    if not cap_id:
-        return {}
-    p = (artifacts_root / cap_id) / "reduced.json"
-    v = _read_json_file(p) if p.exists() else None
-    return v if isinstance(v, dict) else {}
-
-
 def render_papers_export_jsonl(
     *,
     captures: list[dict[str, Any]],
@@ -512,19 +367,7 @@ def render_papers_export_jsonl(
     """
     Returns NDJSON (JSONL) with one line per capture.
 
-    Each line shape (Option A):
-      {
-        id, title, doi, url, year, container_title, authors,
-        capture_quality, confidence_fulltext,
-        sections: [{id, kind, title, text}, ...]
-      }
-
-    Notes:
-      - Sections are sourced from artifacts/<id>/sections.json (preferred).
-      - Metadata is sourced from artifacts/<id>/reduced.json when available,
-        falling back to DB row fields.
-      - Certain section kinds are excluded (acknowledgements, funding, etc.).
-      - Stage 3: section text is standardized at export-time as a safety net.
+    Line shape is owned by paperclip.kb_schema (papers_jsonl_record).
     """
     lines: list[str] = []
     for cap in captures:
@@ -532,50 +375,10 @@ def render_papers_export_jsonl(
         if not cap_id:
             continue
 
-        reduced = _reduced_for_capture(artifacts_root=artifacts_root, cap_id=cap_id)
-
-        # metadata: prefer reduced.json; fallback to DB row
-        title = str(reduced.get("title") or cap.get("title") or "")
-        doi = str(reduced.get("doi") or cap.get("doi") or "")
-        url = str(
-            reduced.get("source_url")
-            or reduced.get("canonical_url")
-            or cap.get("url")
-            or ""
+        bundle = PaperBundle.load_best_effort(
+            artifacts_root=artifacts_root, capture_id=cap_id, cap_row=cap
         )
-        year = reduced.get("year", cap.get("year", None))
-        container_title = str(
-            reduced.get("container_title") or cap.get("container_title") or ""
-        )
-        authors = reduced.get("authors", [])
-        if not isinstance(authors, list):
-            authors = []
-
-        parse_summary = reduced.get("parse", {})
-        if not isinstance(parse_summary, dict):
-            parse_summary = {}
-
-        capture_quality = str(parse_summary.get("capture_quality") or "")
-        confidence_fulltext = float(parse_summary.get("confidence_fulltext") or 0.0)
-
-        sections_raw = _sections_for_capture(
-            artifacts_root=artifacts_root, cap_id=cap_id
-        )
-        sections = _filtered_sections_for_papers_export(sections_raw)
-
-        obj = {
-            "id": cap_id,
-            "title": title,
-            "doi": doi,
-            "url": url,
-            "year": year,
-            "container_title": container_title,
-            "authors": authors,
-            "capture_quality": capture_quality,
-            "confidence_fulltext": confidence_fulltext,
-            "sections": sections,
-        }
-
+        obj = papers_jsonl_record(bundle)
         lines.append(json.dumps(obj, ensure_ascii=False, separators=(",", ":")))
 
     return "\n".join(lines).rstrip() + ("\n" if lines else "")

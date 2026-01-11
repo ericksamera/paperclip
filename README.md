@@ -1,54 +1,57 @@
 # Paperclip
 
-A tiny local reference manager that:
+Local tool to capture web papers/articles, parse them into clean text + sections + references, and export in a few useful formats.
 
-- Captures webpages via a Chrome MV3 extension (URL + full DOM HTML + best-effort main content HTML + head meta)
-- Ingests via `POST /api/captures/`
-- Stores artifacts on disk + normalized/reduced JSON + key fields in SQLite
-- Provides a lightweight UI: Library, Capture detail, Collections, Export (BibTeX/RIS), Simple search
-
-## Quickstart (server)
+## Quickstart
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python run.py
-```
+````
 
 Open:
 
-- Library: [http://127.0.0.1:8000/library/](http://127.0.0.1:8000/library/)
-- Collections: [http://127.0.0.1:8000/collections/](http://127.0.0.1:8000/collections/)
+* Library: [http://127.0.0.1:8000/library/](http://127.0.0.1:8000/library/)
+* Collections: [http://127.0.0.1:8000/collections/](http://127.0.0.1:8000/collections/)
 
-Data files are created locally:
-
-- SQLite DB: `data/db.sqlite3`
-- Artifacts: `data/artifacts/<capture_id>/`
-
-## Load the Chrome extension
+## Chrome extension
 
 1. Open `chrome://extensions`
 2. Enable **Developer mode**
-3. Click **Load unpacked**
-4. Select `extensions/chrome/`
+3. **Load unpacked** → select `extensions/chrome/`
 
-By default the extension posts to:
+If your server isn’t on `http://127.0.0.1:8000`, edit `extensions/chrome/background.js` (`API_ENDPOINT`).
 
-- `http://127.0.0.1:8000/api/captures/`
+## How it works
 
-If you run the server elsewhere, edit:
+* Extension posts captures to `POST /api/captures/` (URL + full HTML + best-effort main content + metadata).
+* Server parses with a site-aware parser (PMC/OUP/Wiley/…) and falls back to generic heuristics.
+* Data is stored locally:
 
-- `extensions/chrome/background.js` (`API_ENDPOINT`)
+  * SQLite: `data/db.sqlite3`
+  * Artifacts: `data/artifacts/<capture_id>/`
 
-## Export
+## Artifacts
 
-- Export all as BibTeX: `http://127.0.0.1:8000/exports/bibtex/`
-- Export all as RIS: `http://127.0.0.1:8000/exports/ris/`
-- Export a collection (preferred): add `?collection=<collection_id>`
-- Back-compat: `?col=<collection_id>` also works
+Each capture has a folder at `data/artifacts/<capture_id>/`, typically containing:
 
-## Dev / tests (optional)
+* `page.html`, `content.html`
+* `article.json`, `reduced.json`
+* `sections.json`, `references.json`
+* `paper.md` (deterministic bundle)
+
+## Exports
+
+* BibTeX: `/exports/bibtex/`
+* RIS: `/exports/ris/`
+* Master Markdown: `/exports/master.md/`
+* Papers JSONL: `/exports/papers.jsonl/`
+
+Add `?collection=<collection_id>` to export a specific collection.
+
+## Dev
 
 ```bash
 pip install -r requirements-dev.txt
