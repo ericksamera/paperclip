@@ -76,9 +76,11 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     from .routes.captures import register as register_captures_routes
     from .routes.collections import register as register_collections_routes
     from .routes.exports import register as register_exports_routes
+    from .routes.help import register as register_help_routes
     from .routes.library import register as register_library_routes
 
     register_library_routes(app)
+    register_help_routes(app)
     register_collections_routes(app)
     register_captures_routes(app)
     register_exports_routes(app)

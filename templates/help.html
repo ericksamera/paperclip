@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Help · Paperclip{% endblock %}
+
+{% block content %}
+  <div class="panel">
+    <div class="panel__title">How to capture papers</div>
+    <div class="panel__body">
+      <p class="muted" style="margin-top: 0">
+        Paperclip captures pages via the Chrome extension and saves everything
+        locally.
+      </p>
+
+      <h3 style="margin-bottom: 6px">Install the Chrome extension</h3>
+      <ol class="muted" style="margin-top: 0">
+        <li>Open <span class="mono">chrome://extensions</span></li>
+        <li>Enable <strong>Developer mode</strong></li>
+        <li>Click <strong>Load unpacked</strong></li>
+        <li>
+          Select the folder <span class="mono">extensions/chrome</span> from
+          this repo
+        </li>
+      </ol>
+
+      <h3 style="margin-bottom: 6px">Capture a paper</h3>
+      <ol class="muted" style="margin-top: 0">
+        <li>Open an article page</li>
+        <li>Click the Paperclip extension button</li>
+        <li>Refresh the Library page to see it</li>
+      </ol>
+
+      <div class="row" style="margin-top: 12px">
+        <a class="btn btn--primary" href="{{ url_for('library') }}"
+          >Back to Library</a
+        >
+        <a class="btn" href="{{ url_for('collections_page') }}"
+          >Manage Collections</a
+        >
+      </div>
+    </div>
+  </div>
+{% endblock %}

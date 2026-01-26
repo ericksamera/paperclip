@@ -212,7 +212,78 @@
                     {% include "_library_rows.html" %}
                   {% else %}
                     <tr data-empty="1">
-                      <td colspan="6" class="muted">No captures found.</td>
+                      <td colspan="6">
+                        <div class="empty-state">
+                          {% if q %}
+                            <div class="empty-state__title">
+                              No results for “{{ q }}”.
+                            </div>
+                            <div class="empty-state__desc">
+                              Try a different search, or clear the query.
+                            </div>
+                            <div class="empty-state__actions">
+                              <a
+                                class="btn btn--primary"
+                                href="{{ url_for('library', collection=selected_col, page_size=page_size) }}"
+                                >Clear search</a
+                              >
+                              {% if selected_col %}
+                                <a
+                                  class="btn"
+                                  href="{{ url_for('library', page_size=page_size) }}"
+                                  >View all</a
+                                >
+                              {% endif %}
+                              <a class="btn" href="{{ url_for('help') }}"
+                                >How to capture</a
+                              >
+                            </div>
+                          {% elif selected_col %}
+                            <div class="empty-state__title">
+                              This collection is empty.
+                            </div>
+                            <div class="empty-state__desc">
+                              Capture a paper, then add it to this collection.
+                            </div>
+                            <div class="empty-state__actions">
+                              <a
+                                class="btn btn--primary"
+                                href="{{ url_for('help') }}"
+                                >Capture a paper</a
+                              >
+                              <a
+                                class="btn"
+                                href="{{ url_for('library', page_size=page_size) }}"
+                                >Browse all</a
+                              >
+                            </div>
+                          {% else %}
+                            <div class="empty-state__title">
+                              Nothing here yet.
+                            </div>
+                            <div class="empty-state__desc">
+                              This is your local paper library. Capture a paper
+                              from your browser to get started.
+                            </div>
+                            <div class="empty-state__actions">
+                              <a
+                                class="btn btn--primary"
+                                href="{{ url_for('help') }}"
+                                >Capture a paper</a
+                              >
+                              <a
+                                class="btn"
+                                href="{{ url_for('collections_page') }}"
+                                >Create a collection</a
+                              >
+                            </div>
+                            <div class="muted small" style="margin-top: 10px">
+                              Tip: install the Chrome extension from
+                              <span class="mono">extensions/chrome</span>.
+                            </div>
+                          {% endif %}
+                        </div>
+                      </td>
                     </tr>
                   {% endif %}
                 </tbody>

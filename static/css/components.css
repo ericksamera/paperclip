@@ -166,3 +166,23 @@
     min-width: 640px;
   }
 }
+
+.empty-state {
+  padding: 18px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--panel2);
+}
+.empty-state__title {
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+.empty-state__desc {
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.empty-state__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
