@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-
 _DROP_QUERY_KEYS = {
     # UTM
     "utm_source",

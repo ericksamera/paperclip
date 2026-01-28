@@ -7,7 +7,6 @@ from bs4 import BeautifulSoup
 
 from .textutil import as_str
 
-
 _DOI_RX = re.compile(r"10\.\d{4,9}/[^\s<>\"']+", re.I)
 _YEAR_RX = re.compile(r"\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b")
 

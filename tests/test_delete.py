@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 DOM_FOR_POST = """<!doctype html>
 <html>
   <head>
