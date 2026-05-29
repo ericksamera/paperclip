@@ -8,7 +8,7 @@ from typing import Any, Literal, Mapping
 
 from ..bundle import PaperBundle
 from ..export import captures_to_bibtex, captures_to_ris
-from ..kb_schema import papers_jsonl_record
+from ..kb_schema import chunks_jsonl_records, papers_jsonl_record
 from ..parseutil import safe_int
 from ..queryparams import get_collection_arg
 from ..repo import exports_repo
@@ -350,6 +350,89 @@ def sections_json_selected_download_parts(
         col_name=None,
         selected=True,
         suffix="sections",
+    )
+    return body, mimetype, filename
+
+
+# -------------------------
+# Chunks JSONL export (retrieval-native GPT/RAG)
+# -------------------------
+
+
+def render_chunks_export_jsonl(
+    *,
+    captures: list[dict[str, Any]],
+    artifacts_root: Path,
+) -> str:
+    """
+    Returns NDJSON (JSONL) with one line per evidence chunk.
+
+    Line shape is owned by paperclip.kb_schema (chunks_jsonl_records).
+    """
+    lines: list[str] = []
+    for cap in captures:
+        cap_id = str(cap.get("id") or "").strip()
+        if not cap_id:
+            continue
+
+        bundle = PaperBundle.load_best_effort(
+            artifacts_root=artifacts_root, capture_id=cap_id, cap_row=cap
+        )
+        for obj in chunks_jsonl_records(bundle):
+            lines.append(json.dumps(obj, ensure_ascii=False, separators=(",", ":")))
+
+    return "\n".join(lines).rstrip() + ("\n" if lines else "")
+
+
+def chunks_jsonl_download_parts_from_args(
+    db,
+    *,
+    args: Mapping[str, Any],
+    artifacts_root: Path,
+) -> tuple[str, str, str]:
+    """
+    GET /exports/chunks.jsonl/?collection=<id>&capture_id=<id>
+    """
+    col = get_collection_arg(args) or None
+    capture_id = (str(args.get("capture_id") or "")).strip() or None
+
+    ctx = select_export_context(db, capture_id=capture_id, col=col)
+
+    body = render_chunks_export_jsonl(
+        captures=ctx.captures, artifacts_root=artifacts_root
+    )
+    mimetype = "application/x-ndjson; charset=utf-8"
+    filename = export_filename(
+        ext="jsonl",
+        capture_id=ctx.capture_id,
+        col_id=ctx.col_id,
+        col_name=ctx.col_name,
+        selected=False,
+        suffix="chunks",
+    )
+    return body, mimetype, filename
+
+
+def chunks_jsonl_selected_download_parts(
+    db,
+    *,
+    capture_ids: list[str],
+    artifacts_root: Path,
+) -> tuple[str, str, str]:
+    """
+    POST /exports/chunks.jsonl/selected/ with capture_ids
+    """
+    captures = select_captures_by_ids(db, capture_ids=capture_ids)
+
+    body = render_chunks_export_jsonl(captures=captures, artifacts_root=artifacts_root)
+    mimetype = "application/x-ndjson; charset=utf-8"
+    filename = export_filename(
+        ext="jsonl",
+        capture_id=None,
+        col_id=None,
+        col_name=None,
+        selected=True,
+        suffix="chunks",
     )
     return body, mimetype, filename
 

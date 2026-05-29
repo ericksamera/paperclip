@@ -7,13 +7,16 @@ def test_library_page_includes_new_export_buttons(client):
     body = r.get_data(as_text=True)
 
     # top-level exports
+    assert "Export Chunks JSONL" in body
     assert "Export Papers JSONL" in body
 
     # library exports row
+    assert "Export Chunks JSONL" in body
     assert "Export Papers JSONL" in body
     assert "Export Master MD" in body
 
     # bulk actions
+    assert "Export selected (Chunks JSONL)" in body
     assert "Export selected (Papers JSONL)" in body
     assert "Export selected (Master MD)" in body
 

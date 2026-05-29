@@ -46,6 +46,7 @@ Each capture has a folder at `data/artifacts/<capture_id>/`, typically containin
 - BibTeX: `/exports/bibtex/`
 - RIS: `/exports/ris/`
 - Master Markdown: `/exports/master.md/`
+- Chunks JSONL: `/exports/chunks.jsonl/` (retrieval-native GPT/RAG chunks)
 - Papers JSONL: `/exports/papers.jsonl/`
 
 Add `?collection=<collection_id>` to export a specific collection.

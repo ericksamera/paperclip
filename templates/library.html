@@ -97,6 +97,11 @@
               >
               <a
                 class="btn"
+                href="{{ url_for('export_chunks_jsonl', collection=selected_col) }}"
+                >Export Chunks JSONL</a
+              >
+              <a
+                class="btn"
                 href="{{ url_for('export_papers_jsonl', collection=selected_col) }}"
                 >Export Papers JSONL</a
               >
@@ -174,6 +179,13 @@
                   formaction="{{ url_for('export_selected_sections_json') }}"
                 >
                   Export selected (Sections JSON)
+                </button>
+                <button
+                  class="btn"
+                  type="submit"
+                  formaction="{{ url_for('export_selected_chunks_jsonl') }}"
+                >
+                  Export selected (Chunks JSONL)
                 </button>
                 <button
                   class="btn"

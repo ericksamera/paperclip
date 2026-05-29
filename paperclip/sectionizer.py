@@ -33,15 +33,19 @@ _RESULTS_AND_DISCUSSION_RX = re.compile(
 )
 
 _CANON_RULES: list[tuple[str, re.Pattern[str]]] = [
-    ("abstract", re.compile(r"^\s*abstract\s*$", re.I)),
+    ("abstract", re.compile(r"^\s*(abstract|summary)\s*$", re.I)),
     ("keywords", re.compile(r"^\s*keywords?\s*$", re.I)),
     ("introduction", re.compile(r"^\s*(introduction|background)\s*$", re.I)),
     (
         "methods",
-        re.compile(r"^\s*(methods?|materials\s+and\s+methods?|methodology)\s*$", re.I),
+        re.compile(
+            r"^\s*(methods?|materials\s+and\s+methods?|experimental\s+procedures|methodology)\s*$",
+            re.I,
+        ),
     ),
-    ("results", re.compile(r"^\s*results?\s*$", re.I)),
+    ("results", re.compile(r"^\s*(results?|findings)\s*$", re.I)),
     ("discussion", re.compile(r"^\s*discussion\s*$", re.I)),
+    ("limitations", re.compile(r"^\s*(limitations?|caveats?)\s*$", re.I)),
     ("conclusion", re.compile(r"^\s*(conclusion|conclusions)\s*$", re.I)),
     (
         "references",

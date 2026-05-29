@@ -26,10 +26,10 @@ def parse_head_meta(dom_html: str) -> tuple[dict[str, Any], str]:
 
     found: dict[str, Any] = {}
     for m in soup.select("meta[name],meta[property]"):
-        k = (m.get("name") or m.get("property") or "").strip().lower()
+        k = as_str(m.get("name") or m.get("property") or "").strip().lower()
         if not k:
             continue
-        v = (m.get("content") or "").strip()
+        v = as_str(m.get("content") or "").strip()
         if not v:
             continue
 

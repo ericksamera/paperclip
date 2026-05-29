@@ -50,6 +50,11 @@
                   >
                   ·
                   <a
+                    href="{{ url_for('export_chunks_jsonl', collection=c.id) }}"
+                    >Chunks JSONL</a
+                  >
+                  ·
+                  <a
                     href="{{ url_for('export_papers_jsonl', collection=c.id) }}"
                     >Papers JSONL</a
                   >

@@ -171,8 +171,12 @@ def best_external_authors_for_doi(doi: str) -> tuple[list[str], dict[str, Any] |
     meta = fetch_crossref_metadata(doi)
     if not meta:
         return [], None
-    authors = meta.get("authors") if isinstance(meta.get("authors"), list) else []
-    authors = [str(a).strip() for a in authors if str(a or "").strip()]
+    raw_authors = meta.get("authors")
+    authors = (
+        [str(a).strip() for a in raw_authors if str(a or "").strip()]
+        if isinstance(raw_authors, list)
+        else []
+    )
     if not authors:
         return [], meta
     return authors, meta

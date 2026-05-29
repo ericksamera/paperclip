@@ -49,6 +49,11 @@
           >
           <a
             class="btn btn--sm"
+            href="{{ url_for('export_chunks_jsonl', capture_id=capture.id) }}"
+            >Chunks JSONL</a
+          >
+          <a
+            class="btn btn--sm"
             href="{{ url_for('export_papers_jsonl', capture_id=capture.id) }}"
             >Papers JSONL</a
           >

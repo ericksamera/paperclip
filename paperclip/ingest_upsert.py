@@ -97,13 +97,15 @@ def upsert_capture(
     doi = str(dto.get("doi") or "")
     year = dto.get("year", None)
     container_title = str(dto.get("container_title") or "")
-    meta_record = (
-        dto.get("meta_record") if isinstance(dto.get("meta_record"), dict) else {}
+    raw_meta_record = dto.get("meta_record")
+    meta_record: dict[str, Any] = (
+        dict(raw_meta_record) if isinstance(raw_meta_record, dict) else {}
     )
 
     # Persist parse diagnostics in meta_json for debugging + UI.
-    parse_summary = (
-        dto.get("parse_summary") if isinstance(dto.get("parse_summary"), dict) else {}
+    raw_parse_summary = dto.get("parse_summary")
+    parse_summary: dict[str, Any] = (
+        dict(raw_parse_summary) if isinstance(raw_parse_summary, dict) else {}
     )
     if parse_summary:
         meta_record = dict(meta_record)
