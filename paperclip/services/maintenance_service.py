@@ -14,8 +14,7 @@ def rebuild_fts(db) -> dict[str, Any]:
     cap_count = int(db.execute("SELECT COUNT(1) AS n FROM captures").fetchone()["n"])
 
     db.execute("DELETE FROM capture_fts")
-    db.execute(
-        """
+    db.execute("""
         INSERT INTO capture_fts(rowid, title, content_text)
         SELECT
           cap.rowid AS rowid,
@@ -24,8 +23,7 @@ def rebuild_fts(db) -> dict[str, Any]:
         FROM captures cap
         LEFT JOIN capture_text ct
           ON ct.capture_id = cap.id
-        """
-    )
+        """)
     fts_rows = int(db.execute("SELECT COUNT(1) AS n FROM capture_fts").fetchone()["n"])
 
     return {
@@ -56,29 +54,21 @@ def verify_fts(db, *, repair: bool = False) -> dict[str, Any]:
             db.execute("SELECT COUNT(1) AS n FROM capture_fts").fetchone()["n"]
         )
 
-        missing_rows = int(
-            db.execute(
-                """
+        missing_rows = int(db.execute("""
                 SELECT COUNT(1) AS n
                 FROM captures cap
                 LEFT JOIN capture_fts fts
                   ON fts.rowid = cap.rowid
                 WHERE fts.rowid IS NULL
-                """
-            ).fetchone()["n"]
-        )
+                """).fetchone()["n"])
 
-        extra_rows = int(
-            db.execute(
-                """
+        extra_rows = int(db.execute("""
                 SELECT COUNT(1) AS n
                 FROM capture_fts fts
                 LEFT JOIN captures cap
                   ON cap.rowid = fts.rowid
                 WHERE cap.rowid IS NULL
-                """
-            ).fetchone()["n"]
-        )
+                """).fetchone()["n"])
 
         ok = (missing_rows == 0) and (extra_rows == 0) and (captures == fts_rows)
 

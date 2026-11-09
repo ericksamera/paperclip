@@ -6,15 +6,13 @@ from ..db import rows_to_dicts
 
 
 def list_collections_with_counts(db) -> list[dict[str, Any]]:
-    rows = db.execute(
-        """
+    rows = db.execute("""
         SELECT c.id, c.name, COUNT(ci.capture_id) AS count
         FROM collections c
         LEFT JOIN collection_items ci ON ci.collection_id = c.id
         GROUP BY c.id
         ORDER BY c.name COLLATE NOCASE ASC
-        """
-    ).fetchall()
+        """).fetchall()
     return rows_to_dicts(rows)
 
 

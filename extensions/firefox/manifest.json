@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Paperclip Capture (Minimal)",
+  "version": "0.1.0",
+  "description": "Capture a webpage (URL + DOM + main content + meta) to your local Paperclip server.",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "action": { "default_title": "Save to Paperclip" },
+  "background": { "scripts": ["background.js"] },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "paperclip-capture@paperclip.local",
+      "strict_min_version": "109.0"
+    }
+  }
+}

@@ -66,14 +66,12 @@ def init_db(db_path: Path) -> bool:
         conn.executescript(SCHEMA_SQL)
 
         # Lightweight migration runner (idempotent and safe to extend).
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS schema_migrations (
               id         TEXT PRIMARY KEY,
               applied_at TEXT NOT NULL
             );
-            """
-        )
+            """)
 
         def _applied(mid: str) -> bool:
             row = conn.execute(

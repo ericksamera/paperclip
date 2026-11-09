@@ -22,7 +22,18 @@ Open:
 2. Enable **Developer mode**
 3. **Load unpacked** → select `extensions/chrome/`
 
-If your server isn’t on `http://127.0.0.1:8000`, edit `extensions/chrome/background.js` (`API_ENDPOINT`).
+If your server isn’t on `http://127.0.0.1:8000`, edit `API_ENDPOINT` in the corresponding extension's `background.js`.
+
+## Firefox extension
+
+1. Open `about:debugging#/runtime/this-firefox` in Firefox.
+2. Click **Load Temporary Add-on…** and select `extensions/firefox/manifest.json`.
+3. Open an article and click the **Paperclip Capture** toolbar button.
+
+Firefox uses Manifest V3 with a background event page. Page collection runs only when
+its toolbar button is clicked; the extension does not need access to all websites
+at installation. A temporary add-on is removed when Firefox restarts. Permanent
+installation requires a signed Firefox add-on package.
 
 ## How it works
 
